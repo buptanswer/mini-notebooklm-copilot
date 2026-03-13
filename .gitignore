@@ -1,0 +1,27 @@
+# ── 运行时数据（不纳入版本控制，但保留目录结构）────────
+data/sqlite/*
+data/qdrant_storage/*
+data/uploads/*
+data/mineru_zips/*
+data/rag_output/*
+!data/**/.gitkeep
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.env
+
+# ── Node.js ───────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── IDE / OS ──────────────────────────────────────────
+.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
