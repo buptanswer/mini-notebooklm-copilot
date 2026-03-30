@@ -17,7 +17,7 @@ test_stage4.py — Stage 4 完整流水线测试
 
 运行方式:
   cd backend
-  python test_stage4.py
+    uv run python test_stage4.py
 """
 
 import asyncio

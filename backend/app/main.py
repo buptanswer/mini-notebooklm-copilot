@@ -1,7 +1,7 @@
 """
 Mini-NotebookLM 后端入口
 
-启动方式: uvicorn app.main:app --reload
+启动方式: uv run uvicorn app.main:app --reload
 """
 
 from contextlib import asynccontextmanager

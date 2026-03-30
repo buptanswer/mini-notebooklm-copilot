@@ -126,7 +126,8 @@ mini-notebooklm/
 │   │   ├── writers/           # IR / Chunk JSONL 落盘
 │   │   ├── config.py          # 全局配置（pydantic-settings）
 │   │   └── main.py            # FastAPI 应用入口
-│   ├── requirements.txt
+│   ├── pyproject.toml
+│   ├── uv.lock
 │   ├── .env.example           # 环境变量模板
 │   ├── test_stage2.py         # MinerU 解析与 IR 单元测试
 │   ├── test_stage3.py         # 切片与索引单元测试
@@ -204,8 +205,8 @@ cd mini-notebooklm
 ```bash
 cd backend
 
-# 安装依赖
-pip install -r requirements.txt
+# 安装依赖（创建/更新 .venv）
+uv sync
 
 # 配置环境变量
 cp .env.example .env
@@ -218,7 +219,7 @@ cp .env.example .env
 
 ```bash
 cd backend
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 后端启动后会自动创建 `data/` 下所有目录、初始化 SQLite 数据库和 Qdrant 向量集合。
@@ -373,13 +374,13 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=
 cd backend
 
 # Stage 2: MinerU 解析与 IR 标准化
-python test_stage2.py
+uv run python test_stage2.py
 
 # Stage 3: 切片与索引
-python test_stage3.py
+uv run python test_stage3.py
 
 # Stage 4: 检索与问答
-python test_stage4.py
+uv run python test_stage4.py
 ```
 
 ### 清理运行时数据（重置为初始状态）

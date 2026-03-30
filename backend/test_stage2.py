@@ -9,7 +9,7 @@ Stage 2 集成测试脚本
 
 运行方式：
   cd backend
-  python test_stage2.py
+    uv run python test_stage2.py
 
 注意：需要 MINERU_API_KEY 系统变量已配置。
 """

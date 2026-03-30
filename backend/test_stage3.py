@@ -12,7 +12,7 @@ Stage 3 集成测试
 
 运行方式：
   cd backend
-  python test_stage3.py
+    uv run python test_stage3.py
 """
 
 from __future__ import annotations
