@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
@@ -29,7 +29,7 @@ class DocInfo(BaseModel):
     source_format: str
     file_size: int
     page_count: int
-    status: str            # uploaded / parsing / parsed / needs_review / indexed / failed
+    status: str            # uploaded / parsing / needs_review / indexed / failed
     warnings: str = ""    # 解析警告（needs_review 时有内容）
     origin_pdf_path: str = ""  # 用于 PDF 预览
     created_at: str
@@ -105,7 +105,7 @@ async def upload_document(
 
     file_size = upload_path.stat().st_size
     source_format = _detect_format(display_name)
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     db = await get_db()
     try:
@@ -249,7 +249,7 @@ async def delete_document(kb_id: str, doc_id: str):
         await db.execute("DELETE FROM documents WHERE doc_id=?", (doc_id,))
         await db.execute(
             "UPDATE knowledge_bases SET file_count = MAX(0, file_count - 1), updated_at=? WHERE kb_id=?",
-            (datetime.utcnow().isoformat(), kb_id),
+            (datetime.now(timezone.utc).isoformat(), kb_id),
         )
         await db.commit()
     finally:

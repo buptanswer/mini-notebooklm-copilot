@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS documents (
     parent_chunks_path TEXT DEFAULT '',              -- parent_chunks.jsonl 路径
     child_chunks_path  TEXT DEFAULT '',              -- child_chunks.jsonl 路径
     page_count      INTEGER DEFAULT 0,
-    status          TEXT DEFAULT 'uploaded',         -- uploaded/parsing/parsed/failed
+    status          TEXT DEFAULT 'uploaded',         -- uploaded/parsing/indexed/needs_review/failed
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

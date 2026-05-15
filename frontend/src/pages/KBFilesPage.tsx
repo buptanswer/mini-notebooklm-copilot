@@ -18,7 +18,6 @@ import { Progress } from "@/components/ui/progress"
 const STATUS_LABEL: Record<DocStatus, string> = {
   uploaded: "已上传",
   parsing: "解析中",
-  parsed: "已解析",
   needs_review: "需检视",
   indexed: "已索引",
   failed: "失败",
@@ -28,7 +27,6 @@ const StatusBadge = ({ status }: { status: DocStatus }) => {
   const variants: Record<DocStatus, "secondary" | "default" | "warning" | "success" | "destructive"> = {
     uploaded: "secondary",
     parsing: "default",
-    parsed: "secondary",
     needs_review: "warning",
     indexed: "success",
     failed: "destructive",

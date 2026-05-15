@@ -13,7 +13,6 @@ export interface KBInfo {
 export type DocStatus =
   | "uploaded"
   | "parsing"
-  | "parsed"
   | "needs_review"
   | "indexed"
   | "failed"

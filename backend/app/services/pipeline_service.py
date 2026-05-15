@@ -48,7 +48,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.adapters.bundle_parser import extract_zip, parse_bundle_manifest
@@ -59,6 +59,7 @@ from app.chunkers.child_chunker import build_child_chunks
 from app.chunkers.parent_chunker import build_parent_chunks
 from app.config import settings
 from app.db.database import get_db
+from app.enrichers import enrich_blocks
 from app.services.embedding_service import embed_texts
 from app.services.index_service import index_chunks
 from app.services.mineru_client import (
@@ -67,6 +68,7 @@ from app.services.mineru_client import (
     request_batch_upload_urls,
     upload_file_to_presigned_url,
 )
+from app.validators import validate_chunks, validate_ir
 from app.writers.chunk_writer import write_chunks
 from app.writers.ir_writer import write_ir
 
@@ -79,7 +81,7 @@ logger = logging.getLogger(__name__)
 
 async def _create_task(doc_id: str, task_type: str) -> str:
     task_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
         await db.execute(
@@ -94,7 +96,7 @@ async def _create_task(doc_id: str, task_type: str) -> str:
 
 
 async def _update_task(task_id: str, status: str, progress: float, error_msg: str = "") -> None:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
         await db.execute(
@@ -111,23 +113,25 @@ async def _update_doc_status(
     status: str,
     page_count: int = 0,
     ir_path: str = "",
+    ir_enriched_path: str = "",
     parent_chunks_path: str = "",
     child_chunks_path: str = "",
     origin_pdf_path: str = "",
+    mineru_zip_path: str = "",
     warnings: str = "",
 ) -> None:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
         await db.execute(
             """UPDATE documents
-               SET status=?, page_count=?, ir_path=?,
+               SET status=?, page_count=?, ir_path=?, ir_enriched_path=?,
                    parent_chunks_path=?, child_chunks_path=?,
-                   origin_pdf_path=?, warnings=?, updated_at=?
+                   origin_pdf_path=?, mineru_zip_path=?, warnings=?, updated_at=?
                WHERE doc_id=?""",
-            (status, page_count, ir_path,
+            (status, page_count, ir_path, ir_enriched_path,
              parent_chunks_path, child_chunks_path,
-             origin_pdf_path, warnings, now, doc_id),
+             origin_pdf_path, mineru_zip_path, warnings, now, doc_id),
         )
         await db.commit()
     finally:
@@ -214,6 +218,7 @@ async def run_parse_pipeline(
             source_filename=filename,
             source_format=source_format,
             images_dir=manifest.images_dir,
+            origin_pdf_path=manifest.origin_pdf_path,
         )
         await _update_task(task_id, "running", 0.75)
 
@@ -224,7 +229,7 @@ async def run_parse_pipeline(
         # ── [H] 脚注关联 ──────────────────────────────────────
         logger.info("[pipeline] [H] 脚注关联")
         blocks = link_footnotes(blocks, pages)
-        await _update_task(task_id, "running", 0.85)
+        await _update_task(task_id, "running", 0.82)
 
         # ── [I] 读取 layout.json 元数据（backend/version）─────
         mineru_backend: str | None = None
@@ -246,7 +251,46 @@ async def run_parse_pipeline(
             mineru_backend=mineru_backend,
             mineru_version=mineru_version,
         )
-        await _update_task(task_id, "running", 0.95)
+
+        # ── [IR-V] IR 结构校验 ────────────────────────────────
+        ir_validation = validate_ir(blocks, pages, sections)
+        if ir_validation.errors:
+            logger.warning("[pipeline] IR 校验发现严重错误，仍继续（但建议复查）")
+            degraded.extend(f"ir_validation_error_{e[:40]}" for e in ir_validation.errors[:3])
+        if ir_validation.warnings:
+            degraded.extend(f"ir_validation_warn_{w[:40]}" for w in ir_validation.warnings[:3])
+
+        # ── [K] 多模态富化 ────────────────────────────────────
+        logger.info("[pipeline] [K] 多模态富化（图片描述 / 表格摘要）")
+        enriched_blocks = await enrich_blocks(
+            blocks, base_dir=str(Path(manifest.content_list_v2_path).parent)
+        )
+        # 将富化后的文本回流到 blocks（用于增强检索质量）
+        for eb, blk in zip(enriched_blocks, blocks):
+            if eb.enrichment is None:
+                continue
+            if eb.enrichment.enrichment_status != "ok":
+                continue
+            if eb.enrichment.image and eb.enrichment.image.embedding_text:
+                blk.text = eb.enrichment.image.embedding_text
+            elif eb.enrichment.table and eb.enrichment.table.embedding_text:
+                blk.text = eb.enrichment.table.embedding_text
+
+        # 写出 document_ir_enriched.json
+        ir_enriched_path = _write_enriched_ir(
+            doc_id=doc_id,
+            source_filename=filename,
+            source_format=source_format,
+            manifest=manifest,
+            enriched_blocks=enriched_blocks,
+            pages=pages,
+            sections=sections,
+            degraded_modes=degraded,
+            mineru_backend=mineru_backend,
+            mineru_version=mineru_version,
+        )
+
+        await _update_task(task_id, "running", 0.90)
 
         # ── [L] Parent Chunk 构建 ─────────────────────────────
         logger.info("[pipeline] [L] 构建 ParentChunk")
@@ -257,6 +301,15 @@ async def run_parse_pipeline(
         logger.info("[pipeline] [M] 构建 ChildChunk")
         child_chunks = build_child_chunks(parent_chunks, blocks, pages, doc_id)
         logger.info("[pipeline] 共 %d 个 ChildChunk", len(child_chunks))
+
+        # ── [Chunk-V] Chunk 结构校验 ───────────────────────────
+        chunk_validation = validate_chunks(parent_chunks, child_chunks)
+        if chunk_validation.errors:
+            logger.warning("[pipeline] Chunk 校验发现严重错误，仍继续（但建议复查）")
+            degraded.extend(f"chunk_validation_error_{e[:40]}" for e in chunk_validation.errors[:3])
+        if chunk_validation.warnings:
+            degraded.extend(f"chunk_validation_warn_{w[:40]}" for w in chunk_validation.warnings[:3])
+
         await _update_task(task_id, "running", 0.97)
 
         # ── [N] 向量化 ────────────────────────────────────────
@@ -291,9 +344,11 @@ async def run_parse_pipeline(
             doc_id, doc_status,
             page_count=len(pages),
             ir_path=str(ir_path),
+            ir_enriched_path=str(ir_enriched_path) if ir_enriched_path else "",
             parent_chunks_path=str(parent_chunks_path),
             child_chunks_path=str(child_chunks_path),
             origin_pdf_path=origin_pdf,
+            mineru_zip_path=str(zip_path),
             warnings=warn_str,
         )
 
@@ -308,7 +363,7 @@ async def run_parse_pipeline(
     except Exception as exc:
         logger.exception("[pipeline] 解析失败 doc_id=%s: %s", doc_id, exc)
         await _update_task(task_id, "failed", 0.0, error_msg=str(exc))
-        await _update_doc_status(doc_id, "failed", ir_path="")
+        await _update_doc_status(doc_id, "failed")
         raise
 
 
@@ -320,3 +375,102 @@ def _read_layout_meta(layout_path: str) -> tuple[str | None, str | None]:
         return data.get("_backend"), data.get("_version_name")
     except Exception:
         return None, None
+
+
+def _write_enriched_ir(
+    doc_id: str,
+    source_filename: str,
+    source_format: str,
+    manifest,
+    enriched_blocks,
+    pages,
+    sections,
+    degraded_modes: list[str],
+    mineru_backend: str | None = None,
+    mineru_version: str | None = None,
+) -> Path:
+    """写出 document_ir_enriched.json"""
+    from app.models.models_ir import (
+        DocumentIREnriched,
+        IRBundle,
+        IRBundleRootFiles,
+        IRDocument,
+        IRQuality,
+        IRSource,
+    )
+    from app.writers.ir_writer import _safe_source_format
+
+    safe_format = _safe_source_format(source_format)
+    page_count = len(pages)
+
+    has_multimodal = any(b.type in {"image", "table"} for b in enriched_blocks)
+    has_code = any(b.type == "code" for b in enriched_blocks)
+    has_table = any(b.type == "table" for b in enriched_blocks)
+    has_equation = any(b.type == "equation" for b in enriched_blocks)
+    has_footnote = any(b.footnote_links for b in enriched_blocks)
+
+    doc_title = ""
+    for b in sorted(enriched_blocks, key=lambda x: x.order_in_doc):
+        if b.type == "title" and b.text:
+            doc_title = b.text
+            break
+
+    source = IRSource(
+        doc_id=doc_id,
+        source_filename=source_filename,
+        source_format=safe_format,
+        mineru_request_model=settings.mineru_model_version,
+        mineru_actual_backend=mineru_backend,
+        mineru_version_name=mineru_version,
+        origin_pdf_path=manifest.origin_pdf_path,
+    )
+    bundle = IRBundle(
+        root_files=IRBundleRootFiles(
+            content_list_v2=manifest.content_list_v2_path,
+            layout=manifest.layout_path,
+            full_md=manifest.full_md_path,
+            content_list_compat=manifest.content_list_compat_path,
+            model_raw=manifest.model_raw_path,
+            origin_pdf=manifest.origin_pdf_path,
+        ),
+        asset_root=manifest.images_dir or "",
+        asset_count=sum(len(b.assets) for b in enriched_blocks),
+    )
+    document = IRDocument(
+        title=doc_title,
+        page_count=page_count,
+        has_multimodal=has_multimodal,
+        has_code=has_code,
+        has_table=has_table,
+        has_equation=has_equation,
+        has_footnote=has_footnote,
+    )
+    unique_degraded = list(set(degraded_modes))
+    quality = IRQuality(
+        degraded_modes=unique_degraded,
+        has_warnings=len(unique_degraded) > 0,
+        warning_count=len(unique_degraded),
+    )
+    ir = DocumentIREnriched(
+        source=source,
+        bundle=bundle,
+        document=document,
+        pages=pages,
+        sections=sections,
+        blocks=sorted(enriched_blocks, key=lambda b: b.order_in_doc),
+        quality=quality,
+    )
+
+    out_dir = settings.rag_output_dir / doc_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "document_ir_enriched.json"
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(
+            ir.model_dump(mode="json", exclude_none=False),
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+    logger.info("写出 document_ir_enriched.json → %s", out_path)
+    return out_path

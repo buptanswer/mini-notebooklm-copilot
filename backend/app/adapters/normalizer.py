@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.models_ir import (
+    Anchor,
     Asset,
     AssetType,
     BboxNorm1000,
@@ -124,6 +125,7 @@ def normalize(
     source_filename: str,
     source_format: str,
     images_dir: str | None,
+    origin_pdf_path: str | None = None,
 ) -> tuple[list[IRBlock], list[IRPage], list[str]]:
     """
     主入口。
@@ -183,6 +185,7 @@ def normalize(
                 source_filename=source_filename,
                 source_format=source_format,
                 images_dir=images_dir,
+                origin_pdf_path=origin_pdf_path,
             )
 
             degraded.extend(block_degraded)
@@ -220,6 +223,7 @@ def _normalize_block(
     source_filename: str,
     source_format: str,
     images_dir: str | None,
+    origin_pdf_path: str | None = None,
 ) -> tuple[IRBlock, list[str]]:
     """归一化单个 content_list_v2 块，返回 (IRBlock, degraded_list)"""
     degraded: list[str] = []
@@ -268,6 +272,10 @@ def _normalize_block(
         role=role,
         bbox_norm1000=bbox_norm,
         bbox_page=bbox_page,
+        anchor=Anchor(
+            page_id=page_id,
+            origin_pdf_path=origin_pdf_path or "",
+        ) if origin_pdf_path else None,
         text=text,
         segments=segments,
         assets=assets,
