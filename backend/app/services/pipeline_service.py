@@ -54,10 +54,11 @@ from pathlib import Path
 from app.adapters.bundle_parser import extract_zip, parse_bundle_manifest
 from app.adapters.dom_builder import build_dom
 from app.adapters.footnote_linker import link_footnotes
+from app.adapters.format_checker import check_bundle, log_report_to_file
 from app.adapters.normalizer import normalize
 from app.chunkers.child_chunker import build_child_chunks
 from app.chunkers.parent_chunker import build_parent_chunks
-from app.config import settings
+from app.config import DATA_ROOT, settings
 from app.db.database import get_db
 from app.enrichers import enrich_blocks
 from app.services.embedding_service import embed_texts
@@ -207,6 +208,23 @@ async def run_parse_pipeline(
         if not manifest.content_list_v2_path:
             raise RuntimeError("content_list_v2.json 未找到，无法继续")
 
+        # ── [E+] 格式兼容性探针（严格审计，结果写入 JSONL 日志）─────
+        logger.info("[pipeline] [E+] MinerU 格式严格校验")
+        _format_report = check_bundle(zip_root, filename, doc_id)
+        if not _format_report.is_clean:
+            _log_path = DATA_ROOT / "format_probe_log.jsonl"
+            log_report_to_file(_format_report, _log_path)
+            logger.warning(
+                "[pipeline] [E+] 格式偏差 %de/%dw/%di — file=%s 已追加至 %s",
+                _format_report.error_count,
+                _format_report.warning_count,
+                _format_report.info_count,
+                filename,
+                _log_path,
+            )
+        else:
+            logger.info("[pipeline] [E+] 格式校验通过，与预期完全一致")
+
         await _update_task(task_id, "running", 0.65)
 
         # ── [F] 归一化 ────────────────────────────────────────
@@ -260,8 +278,8 @@ async def run_parse_pipeline(
         if ir_validation.warnings:
             degraded.extend(f"ir_validation_warn_{w[:40]}" for w in ir_validation.warnings[:3])
 
-        # ── [K] 多模态富化 ────────────────────────────────────
-        logger.info("[pipeline] [K] 多模态富化（图片描述 / 表格摘要）")
+        # ── [K-vlm] 多模态富化 ────────────────────────────────
+        logger.info("[pipeline] [K-vlm] 多模态富化（图片描述 / 表格摘要）")
         enriched_blocks = await enrich_blocks(
             blocks, base_dir=str(Path(manifest.content_list_v2_path).parent)
         )

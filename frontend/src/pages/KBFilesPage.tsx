@@ -5,9 +5,9 @@ import {
   PlayCircle, FileText, AlertTriangle, FolderPlus, CheckSquare, Square
 } from "lucide-react"
 import {
-  listDocuments, uploadDocument, triggerParse, deleteDocument
+  listDocuments, uploadDocument, triggerParse, deleteDocument, getKB
 } from "@/api/client"
-import type { DocInfo, DocStatus } from "@/api/types"
+import type { DocInfo, DocStatus, KBInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
@@ -49,6 +49,7 @@ const formatBytes = (n: number) => {
 export default function KBFilesPage() {
   const { kbId } = useParams<{ kbId: string }>()
   const navigate = useNavigate()
+  const [kbInfo, setKbInfo] = useState<KBInfo | null>(null)
   const [docs, setDocs] = useState<DocInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -67,8 +68,12 @@ export default function KBFilesPage() {
   const load = async () => {
     if (!kbId) return
     try {
-      const data = await listDocuments(kbId)
+      const [data, kb] = await Promise.all([
+        listDocuments(kbId),
+        kbInfo ? Promise.resolve(kbInfo) : getKB(kbId),
+      ])
       setDocs(data)
+      if (!kbInfo) setKbInfo(kb)
       setError("")
     } catch (e) {
       setError((e as Error).message)
@@ -263,8 +268,12 @@ export default function KBFilesPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">文件管理</h1>
-            <p className="text-xs text-gray-400">kb: {kbId}</p>
+            <h1 className="text-xl font-bold text-gray-900">
+              {kbInfo ? kbInfo.name : "文件管理"}
+            </h1>
+            <p className="text-xs text-gray-400">
+              {kbInfo?.description || `知识库 ID: ${kbId}`}
+            </p>
           </div>
         </div>
         <div className="flex gap-2">

@@ -60,6 +60,9 @@ _V2_TYPE_MAP: dict[str, BlockType] = {
     "page_footer": "page_footer",
     "page_number": "page_number",
     "page_footnote": "page_footnote",
+    # MinerU 新增类型（兼容映射）
+    "chart": "image",   # 图表 → image（内含截图 + 提取数据）
+    "index": "list",    # 目录 → list
 }
 
 _AUXILIARY_TYPES: frozenset[BlockType] = frozenset(
@@ -67,19 +70,29 @@ _AUXILIARY_TYPES: frozenset[BlockType] = frozenset(
 )
 
 # ── 各块级/内容级已知字段白名单（用于未知字段 WARNING 检测）─────────────
-_KNOWN_BLOCK_KEYS = frozenset({"type", "bbox", "content"})
+# anchor: DOCX Office 原生解析添加的文档锚点，sub_type: chart/equation 子类型
+_KNOWN_BLOCK_KEYS = frozenset({"type", "bbox", "content", "anchor", "sub_type"})
 
 _KNOWN_CONTENT_KEYS: dict[str, frozenset] = {
     "title":        frozenset({"level", "title_content"}),
     "paragraph":    frozenset({"paragraph_content"}),
-    "list":         frozenset({"list_type", "list_items"}),
+    "list":         frozenset({"list_type", "list_items", "attribute"}),  # attribute: "unordered"/"ordered"
     "code":         frozenset({"code_content", "code_language", "code_caption"}),
     "equation":     frozenset({"math_content", "math_type", "image_source"}),
-    "image":        frozenset({"image_source", "image_caption", "image_footnote"}),
+    "image":        frozenset({
+                        "image_source", "image_caption", "image_footnote",
+                        "content",  # VLM OCR 提取文本（新版 MinerU 可能包含）
+                    }),
     "table":        frozenset({
                         "html", "image_source", "table_caption", "table_footnote",
                         "table_nest_level", "table_type",
                     }),
+    # chart 类型的 content 结构（映射为 image）
+    "chart":        frozenset({
+                        "image_source", "content", "chart_caption", "chart_footnote",
+                    }),
+    # index 类型（TOC，映射为 list）
+    "index":        frozenset({"list_type", "list_items", "attribute"}),
     # 辅助块：真实字段是 {type}_content，不是 text
     "page_header":   frozenset({"page_header_content"}),
     "page_footer":   frozenset({"page_footer_content"}),
@@ -87,8 +100,17 @@ _KNOWN_CONTENT_KEYS: dict[str, frozenset] = {
     "page_footnote": frozenset({"page_footnote_content"}),
 }
 
-_KNOWN_TEXT_SEGMENT_KEYS = frozenset({"type", "content"})
-_KNOWN_LIST_ITEM_KEYS    = frozenset({"item_type", "item_content"})
+_KNOWN_TEXT_SEGMENT_KEYS = frozenset({
+    "type", "content",
+    "url",     # hyperlink 类型附带的 URL 字段
+    "style",   # Office 原生解析添加的字体/样式信息（忽略，不用于嵌入）
+})
+_KNOWN_LIST_ITEM_KEYS    = frozenset({
+    "item_type", "item_content",
+    "ilevel",    # 缩进层级（Office 原生解析）
+    "prefix",    # 项目符号前缀（"-", "1.", 等）
+    "anchor",    # 文档锚点（TOC 中的超链接目标）
+})
 _KNOWN_IMAGE_SOURCE_KEYS = frozenset({"path"})
 
 
@@ -234,7 +256,7 @@ def _normalize_block(
         logger.warning("未知 type=%s，降级为 paragraph", raw_type)
         degraded.append(f"unknown_type_{raw_type}")
 
-    # 检查块顶层字段是否有未预期键（已知: type / bbox / content）
+    # 检查块顶层字段是否有未预期键（已知: type / bbox / content / anchor / sub_type）
     _warn_extra_keys(
         raw_block,
         _KNOWN_BLOCK_KEYS,
@@ -244,10 +266,19 @@ def _normalize_block(
 
     role: BlockRole = "auxiliary" if block_type in _AUXILIARY_TYPES else "main"
 
-    # bbox
-    raw_bbox: list = raw_block.get("bbox", [])
-    bbox_norm = _safe_bbox_norm1000(raw_bbox, degraded, f"p{page_idx}-type{raw_type}")
-    bbox_page = _compute_bbox_page(raw_bbox, page_width, page_height)
+    # bbox 处理：
+    # - bbox 键不存在（Office 原生解析）→ 静默使用 [0,0,0,0]，不产生警告
+    # - bbox 键存在但长度不足 → 产生 bad_bbox 警告（真正的坐标异常）
+    raw_bbox_value = raw_block.get("bbox")   # None 表示键不存在
+    if raw_bbox_value is None:
+        # Office 原生解析：没有坐标信息，静默兜底，不写 degraded
+        bbox_norm = BboxNorm1000(coords=[0.0, 0.0, 0.0, 0.0])
+        bbox_page = None
+        raw_bbox: list = []
+    else:
+        raw_bbox = raw_bbox_value if isinstance(raw_bbox_value, list) else []
+        bbox_norm = _safe_bbox_norm1000(raw_bbox, degraded, f"p{page_idx}-type{raw_type}")
+        bbox_page = _compute_bbox_page(raw_bbox, page_width, page_height)
 
     block_id = f"p{page_idx:04d}-b{order_in_page:04d}-{uuid.uuid4().hex[:6]}"
 
@@ -255,6 +286,7 @@ def _normalize_block(
 
     text, segments, assets, metadata = _extract_content(
         block_type=block_type,
+        raw_type=raw_type,
         content=content,
         images_dir=images_dir,
         block_id=block_id,
@@ -295,6 +327,7 @@ def _normalize_block(
 
 def _extract_content(
     block_type: BlockType,
+    raw_type: str,
     content: Any,
     images_dir: str | None,
     block_id: str,
@@ -303,6 +336,8 @@ def _extract_content(
     """
     根据块类型从 content 对象提取 text/segments/assets/metadata。
     content 为 None 时安全兜底。
+
+    raw_type: 原始 MinerU 类型字符串（未映射），用于选择正确的已知字段集合。
     """
     text = ""
     segments: list[TextSegment] = []
@@ -315,8 +350,9 @@ def _extract_content(
         return text, segments, assets, metadata
 
     # 检查 content dict 中是否有未预期字段
+    # 优先用原始 raw_type 查找（chart/index 有自己的字段集）
     if isinstance(content, dict):
-        _content_known = _KNOWN_CONTENT_KEYS.get(block_type)
+        _content_known = _KNOWN_CONTENT_KEYS.get(raw_type) or _KNOWN_CONTENT_KEYS.get(block_type)
         if _content_known is not None:
             _warn_extra_keys(
                 content,
@@ -372,15 +408,36 @@ def _extract_content(
 
     elif block_type == "image":
         img_src = _get_image_source_path(content, images_dir)
-        caption_segs = content.get("image_caption", []) if isinstance(content, dict) else []
-        caption_text, _ = _flatten_text_segments(caption_segs)
-        text = caption_text
-        segments = [TextSegment(type="text", content=caption_text)] if caption_text else []
+
+        if raw_type == "chart":
+            # chart: 有图片截图 + 提取的 Markdown 数据 + caption
+            caption_segs = content.get("chart_caption", []) if isinstance(content, dict) else []
+            caption_text, _ = _flatten_text_segments(caption_segs)
+            # content["content"] 是 MinerU 从图表中提取的 Markdown/文本数据
+            chart_data = content.get("content", "") if isinstance(content, dict) else ""
+            if isinstance(chart_data, str) and chart_data:
+                text_parts = [caption_text, chart_data] if caption_text else [chart_data]
+            else:
+                text_parts = [caption_text] if caption_text else []
+            text = "\n".join(text_parts)
+        else:
+            # 普通 image：caption + 可选 VLM OCR 提取文本
+            caption_segs = content.get("image_caption", []) if isinstance(content, dict) else []
+            caption_text, _ = _flatten_text_segments(caption_segs)
+            # content["content"] 是新版 MinerU 对图片内容的 VLM 识别结果
+            ocr_text = content.get("content", "") if isinstance(content, dict) else ""
+            if isinstance(ocr_text, str) and ocr_text:
+                text = f"{caption_text}\n{ocr_text}".strip() if caption_text else ocr_text
+            else:
+                text = caption_text
+
+        segments = [TextSegment(type="text", content=text)] if text else []
         if img_src:
             asset_id = f"asset-{block_id}-img"
+            asset_type = "chart_image" if raw_type == "chart" else "image"
             assets = [Asset(
                 asset_id=asset_id,
-                asset_type="image",
+                asset_type=asset_type,
                 path=img_src,
                 usage="primary",
                 mime="image/jpeg",
@@ -429,7 +486,13 @@ def _extract_content(
 
 
 def _flatten_text_segments(segs: list) -> tuple[str, list[TextSegment]]:
-    """将 [{type, content}, ...] 转为 text 字符串 + TextSegment 列表"""
+    """将 [{type, content}, ...] 转为 text 字符串 + TextSegment 列表。
+
+    支持的 segment 类型：
+    - text: 普通文本
+    - inline_equation/equation_inline: 行内公式
+    - hyperlink: 超链接（取 content 文本，忽略 url 用于嵌入）
+    """
     ir_segs: list[TextSegment] = []
     parts: list[str] = []
     for s in segs:
@@ -438,14 +501,21 @@ def _flatten_text_segments(segs: list) -> tuple[str, list[TextSegment]]:
         _warn_extra_keys(s, _KNOWN_TEXT_SEGMENT_KEYS, "text_segment")
         seg_type = s.get("type", "text")
         seg_content = s.get("content", "")
-        seg_t = "inline_equation" if "equation" in seg_type else "text"
+        if "equation" in seg_type:
+            seg_t = "inline_equation"
+        else:
+            seg_t = "text"  # hyperlink 和其他类型都归为 text
         ir_segs.append(TextSegment(type=seg_t, content=seg_content))
         parts.append(seg_content)
     return "".join(parts), ir_segs
 
 
 def _flatten_list(list_items: list) -> str:
-    """将 list_items 展平为纯文本"""
+    """将 list_items 展平为纯文本。
+
+    支持新版字段：ilevel（缩进）、prefix（前缀符号）、anchor（锚点，忽略）。
+    使用 ilevel 控制缩进，prefix 用于显示列表符号。
+    """
     lines: list[str] = []
     for item in list_items:
         if not isinstance(item, dict):
@@ -454,7 +524,14 @@ def _flatten_list(list_items: list) -> str:
         item_content = item.get("item_content", [])
         text, _ = _flatten_text_segments(item_content)
         if text:
-            lines.append(text)
+            # 使用 ilevel 缩进（每级 2 空格），prefix 作为项目符号前缀
+            ilevel = item.get("ilevel", 0) or 0
+            prefix = item.get("prefix", "")
+            indent = "  " * max(0, ilevel)
+            if prefix:
+                lines.append(f"{indent}{prefix} {text}")
+            else:
+                lines.append(f"{indent}{text}")
     return "\n".join(lines)
 
 

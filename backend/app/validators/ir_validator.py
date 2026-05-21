@@ -64,12 +64,15 @@ def validate_ir(
         block_ids.add(blk.block_id)
 
         # bbox 坐标
+        # [0,0,0,0] 是 Office 原生解析（DOCX/PPTX）没有坐标时的静默占位符，跳过坐标校验
         coords = blk.bbox_norm1000.coords
         if len(coords) == 4:
-            if not (coords[0] < coords[2] and coords[1] < coords[3]):
-                result.warnings.append(f"{ctx}: bbox 坐标异常 {coords}")
-            if coords[0] < -10 or coords[1] < -10 or coords[2] > 1010 or coords[3] > 1010:
-                result.warnings.append(f"{ctx}: bbox 坐标越界 {coords}")
+            is_sentinel = all(c == 0.0 for c in coords)
+            if not is_sentinel:
+                if not (coords[0] < coords[2] and coords[1] < coords[3]):
+                    result.warnings.append(f"{ctx}: bbox 坐标异常 {coords}")
+                if coords[0] < -10 or coords[1] < -10 or coords[2] > 1010 or coords[3] > 1010:
+                    result.warnings.append(f"{ctx}: bbox 坐标越界 {coords}")
         else:
             result.warnings.append(f"{ctx}: bbox 坐标长度异常")
 

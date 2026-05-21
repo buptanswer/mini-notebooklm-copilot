@@ -51,9 +51,15 @@ class _RawBase(BaseModel):
 # ═══════════════════════════════════════════════════════════
 
 class RawTextSegment(_RawBase):
-    """段落/标题内的文本片段 — {"type":"text","content":"..."}"""
+    """段落/标题内的文本片段 — {"type":"text","content":"..."}
+    新版 MinerU 中还可能出现：
+    - type=hyperlink 附带 url 字段
+    - style 字段（Office 原生解析的字体/样式信息）
+    """
     type: str = "text"
     content: str = ""
+    url: Optional[str] = None      # hyperlink 类型的目标 URL
+    style: Optional[str] = None    # Office 原生解析的字体样式标记（不用于嵌入）
 
 
 class RawImageSource(_RawBase):
@@ -80,6 +86,7 @@ class RawImageContent(_RawBase):
     image_source: Optional[RawImageSource] = None
     image_caption: list[RawTextSegment] = Field(default_factory=list)
     image_footnote: list[RawTextSegment] = Field(default_factory=list)
+    content: Optional[str] = None      # 新版 MinerU：VLM OCR 识别的图片文本内容
 
 
 # ── table ─────────────────────────────────────────────────
@@ -106,11 +113,16 @@ class RawEquationContent(_RawBase):
 class RawListItem(_RawBase):
     item_type: str = "text"
     item_content: list[RawTextSegment] = Field(default_factory=list)
+    # 新版 MinerU Office 原生解析新增字段
+    ilevel: Optional[int] = None       # 缩进层级
+    prefix: Optional[str] = None       # 项目符号前缀（"-", "1.", 等）
+    anchor: Optional[str] = None       # 文档锚点（TOC 超链接目标）
 
 
 class RawListContent(_RawBase):
     list_type: Optional[str] = None
     list_items: list[RawListItem] = Field(default_factory=list)
+    attribute: Optional[str] = None    # "unordered" / "ordered"（新版 MinerU）
 
 
 # ── code ──────────────────────────────────────────────────
@@ -119,6 +131,16 @@ class RawCodeContent(_RawBase):
     code_content: list[RawTextSegment] = Field(default_factory=list)
     code_caption: list[RawTextSegment] = Field(default_factory=list)
     code_language: Optional[str] = None
+
+
+# ── chart（新版 MinerU）─────────────────────────────────────
+
+class RawChartContent(_RawBase):
+    """chart 类型块（图表）— 新版 MinerU 新增，与 image 类似但含数据提取结果"""
+    image_source: Optional[RawImageSource] = None
+    content: Optional[str] = None          # Markdown/文本形式的提取数据
+    chart_caption: list[RawTextSegment] = Field(default_factory=list)
+    chart_footnote: list[RawTextSegment] = Field(default_factory=list)
 
 
 # ── auxiliary blocks ──────────────────────────────────────
@@ -143,8 +165,10 @@ class RawContentListV2Block(_RawBase):
     """content_list_v2.json 中的单个块"""
 
     type: str
-    bbox: list[float] = Field(default_factory=list)
-    content: Any = None  # 根据 type 解析为具体子结构
+    bbox: Optional[list[float]] = None    # Office 原生解析时可能为 null 或缺失
+    content: Any = None                   # 根据 type 解析为具体子结构
+    anchor: Optional[str] = None          # DOCX 标题/段落的文档锚点
+    sub_type: Optional[str] = None        # chart/equation 的子类型
 
 
 # ═══════════════════════════════════════════════════════════

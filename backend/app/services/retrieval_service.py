@@ -69,7 +69,7 @@ async def _get_kb_doc_ids(kb_id: str) -> list[str]:
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT doc_id FROM documents WHERE kb_id=? AND status IN ('indexed','needs_review','parsed')",
+            "SELECT doc_id FROM documents WHERE kb_id=? AND status IN ('indexed','needs_review')",
             (kb_id,),
         )
         rows = await cur.fetchall()

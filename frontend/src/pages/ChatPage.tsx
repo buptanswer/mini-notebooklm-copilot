@@ -93,15 +93,21 @@ const CitationCard = ({
           <Separator />
           <p className="text-xs text-gray-500 leading-relaxed line-clamp-6">{item.retrieval_text}</p>
           {hasBBox && <p className="text-[11px] text-amber-600">支持 bbox 高亮定位</p>}
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs h-7"
-            onClick={() => onPreview(item)}
-          >
-            <FileText className="h-3 w-3 mr-1" />
-            查看原文 (p.{startPage})
-          </Button>
+          {item.anchor_origin_pdf_path ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-7"
+              onClick={() => onPreview(item)}
+            >
+              <FileText className="h-3 w-3 mr-1" />
+              查看原文 (p.{startPage})
+            </Button>
+          ) : (
+            <p className="text-[11px] text-gray-400">
+              非 PDF 格式，不支持原文预览（第 {startPage} 页）
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -233,7 +239,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Left: Chat */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Sub-header */}
@@ -277,7 +283,7 @@ export default function ChatPage() {
                         </p>
                       </details>
                     )}
-                    <div className="prose prose-sm prose-gray max-w-none">
+                    <div className="md-prose text-sm">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content || (msg.isStreaming ? "" : "（无内容）")}
                       </ReactMarkdown>

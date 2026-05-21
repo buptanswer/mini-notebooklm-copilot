@@ -328,25 +328,28 @@ SaaS 的 zip 包内部并不使用原始文件名作为前缀，而是使用一�
 - `interline_equations`
 - `_layout_tree`
 
-本次 SaaS 四类样本的 `layout.json` 中没有这些字段，页面级主要只保留：
+早期 SaaS 样本的 `layout.json` 中没有这些字段，页面级主要只保留：
 
 - `para_blocks`
 - `discarded_blocks`
 - `page_size`
 - `page_idx`
 
+> **2026-05-21 更新**：新版 MinerU SaaS 输出的 `layout.json` 页面级额外包含 `preproc_blocks` 字段（所有 PDF 类型均稳定出现），对应旧版 `middle.json` 中的同名字段。该字段含 MinerU 内部预处理结果，二次开发通常无需读取，但需列入已知字段表以免误报格式变更告警。
+
 因此不能再按旧 `middle.json` 的字段树直接写解析器。
 
 ### 5.2.4 页面级结构
 
-每页实测结构：
+每页实测结构（2026-05-21 更新）：
 
 ```json
 {
   "para_blocks": [...],
   "discarded_blocks": [...],
   "page_size": [width, height],
-  "page_idx": 0
+  "page_idx": 0,
+  "preproc_blocks": [...]
 }
 ```
 
@@ -1024,5 +1027,157 @@ SaaS 的 zip 包内部并不使用原始文件名作为前缀，而是使用一�
 
 在代码实现层面，也可以这样分工：
 
-- 本文档指导“如何稳健读取 MinerU 原始输出”
-- RAG 架构文档指导“如何把这些输出约束成严格的 IR 与 Chunk 模型”
+- 本文档指导”如何稳健读取 MinerU 原始输出”
+- RAG 架构文档指导”如何把这些输出约束成严格的 IR 与 Chunk 模型”
+
+---
+
+## 9. 格式变更追踪（2026-05-21 实测新增）
+
+> 本节记录 2026-05-21 对 `test_inputs/` 下全部文件重新实测后发现的 MinerU 新格式特性，
+> 以补充原文档编写时（2026-03-12）未覆盖的变化。
+
+### 9.1 文件命名变更（已在 v1.0.0 修复）
+
+| 文件 | 旧命名 | 新命名 |
+|------|--------|--------|
+| 内容列表 | `content_list_v2.json` | `{uuid}_content_list_v2.json` |
+| 原始文件 | `{uuid}_origin.pdf` | `{uuid}_origin.{源文件扩展名}` |
+
+- DOCX 上传后，origin 文件为 `{uuid}_origin.docx`（不再固定为 `.pdf`）
+- PPTX 同理，为 `{uuid}_origin.pptx`
+- Office 原生解析时，**不产生 origin.pdf**，PDF 预览功能不可用
+
+### 9.2 新增块类型
+
+#### `chart`（图表）
+
+MinerU 对图表类型进行了专门识别，独立于 `image`：
+
+```json
+{
+  “type”: “chart”,
+  “sub_type”: “line”,
+  “bbox”: [87, 376, 440, 551],
+  “content”: {
+    “image_source”: { “path”: “images/xxx.jpg” },
+    “content”: “| Col1 | Col2 |\n| --- | --- |\n| 0 | 10 |”,
+    “chart_caption”: [{“type”: “text”, “content”: “Fig. 2. ...”}],
+    “chart_footnote”: []
+  }
+}
+```
+
+**关键特性**：
+- `content.image_source.path`：图表截图路径（用于多模态 QA）
+- `content.content`：MinerU 从图表中提取的结构化数据（Markdown 表格格式）
+- `content.chart_caption`：图表标题（`RawTextSegment[]`）
+- `sub_type`：图表子类型（`line`, `area_stacked`, `bar` 等，顶级字段）
+
+**解析建议**：映射为 `image` 类型处理，同时将 `content.content`（提取数据）纳入 embedding 文本。
+
+#### `index`（目录/TOC）
+
+Office 原生解析新增 `index` 类型，表示文档目录页：
+
+```json
+{
+  “type”: “index”,
+  “content”: {
+    “list_type”: “text_list”,
+    “list_items”: [
+      {
+        “item_type”: “text”,
+        “ilevel”: 0,
+        “prefix”: “-”,
+        “item_content”: [{“type”: “text”, “content”: “第1章 引言”}],
+        “anchor”: “_Toc130663182”
+      }
+    ]
+  }
+}
+```
+
+**解析建议**：映射为 `list` 类型处理（目录条目作为列表项）。
+
+### 9.3 新增块字段
+
+#### 顶级块新字段
+
+| 字段 | 出现场景 | 说明 |
+|------|----------|------|
+| `anchor` | DOCX 标题/段落 | 文档内部锚点（如 `_Toc130663182`），用于 TOC 超链接目标 |
+| `sub_type` | `chart` 块 | 图表子类型（`line`, `area_stacked` 等） |
+
+#### `list` 内容新字段
+
+| 字段 | 说明 |
+|------|------|
+| `content.attribute` | 列表属性：`”unordered”` 或 `”ordered”` |
+| `list_items[].ilevel` | 缩进层级（0 = 顶级，1 = 二级，以此类推） |
+| `list_items[].prefix` | 项目符号前缀（`”-”`, `”1.”`, `”    -”` 等） |
+| `list_items[].anchor` | 条目锚点（TOC 中使用） |
+
+#### `image` 内容新字段
+
+| 字段 | 说明 |
+|------|------|
+| `content.content` | 新版 MinerU 对图片内容的 VLM OCR 识别结果（字符串），可直接用于 embedding |
+
+#### 文本段（`RawTextSegment`）新字段
+
+| 字段 | 说明 |
+|------|------|
+| `url` | `type=hyperlink` 时的目标 URL |
+| `style` | Office 原生解析时的字体/样式标记（不用于语义嵌入） |
+
+### 9.4 Office 原生解析（DOCX/PPTX）特性
+
+**核心变化**：DOCX/PPTX 文件现在使用 Office 原生解析引擎，而非 PDF 转换再解析。
+
+| 特性 | 原 PDF 解析 | Office 原生解析 |
+|------|-------------|-----------------|
+| `bbox` 坐标 | 有效的 norm1000 坐标 | **不提供（键不存在）** |
+| `origin.pdf` | 存在，可用于 PDF 预览 | **不存在** |
+| 文本分段精度 | 基于 PDF 物理布局 | 基于 Word/PPT 文档语义结构 |
+| 图表识别 | 一般作为 image 块 | 有 `chart` 专用类型 |
+| 目录页 | 作为普通文本段落 | 有 `index` 专用类型 |
+
+**解析建议**：
+- 检测 `bbox` 键是否存在（`”bbox” in block`）来区分两种解析模式
+- DOCX 所有块的 `bbox` 键均**不存在**（不是 `null`，是键缺失），使用 `[0,0,0,0]` 占位
+- 不要对 Office 原生解析文档开启 PDF 预览功能
+
+### 9.5 `layout.json` 新增页面字段
+
+**`preproc_blocks`**（2026-05-21 格式探针实测）：
+- 所有 PDF 类型文档的 `layout.json` 页面级对象中稳定出现
+- 对应旧版 MinerU `middle.json` 中的同名字段，含内部预处理块结果
+- 二次开发通常**无需读取**（`para_blocks` 已是处理后结果）
+- 已加入 `format_checker.LAYOUT_PAGE_KNOWN_FIELDS`，探针不会将其报告为格式变更
+
+### 9.6 代码兼容实现要点
+
+```python
+# 判断 bbox 是否实际存在（区分 Office 原生 vs PDF 解析）
+has_real_bbox = “bbox” in raw_block and raw_block[“bbox”] is not None
+
+# chart 类型处理
+if raw_type == “chart”:
+    chart_data = content.get(“content”, “”)  # Markdown 表格数据
+    img_path = content[“image_source”][“path”]
+    caption = flatten_text_segs(content.get(“chart_caption”, []))
+    embedding_text = f”{caption}\n{chart_data}”.strip()
+
+# index 类型：同 list 处理
+if raw_type == “index”:
+    treat_as_list(content)
+
+# list_item 缩进处理
+for item in list_items:
+    ilevel = item.get(“ilevel”, 0)
+    prefix = item.get(“prefix”, “”)
+    indent = “  “ * ilevel
+    text = f”{indent}{prefix} {item_text}”.strip()
+```
+

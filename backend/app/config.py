@@ -1,5 +1,31 @@
 """
 项目全局配置 — 使用 pydantic-settings 管理环境变量与路径
+
+多 Provider 支持说明
+─────────────────────────────────────────────────────────────────
+本项目各 AI 服务可分别配置不同的 Provider：
+
+  嵌入（Embedding）  ← 始终使用 DashScope text-embedding-v4（中文最佳）
+  重排序（Rerank）   ← 始终使用 DashScope qwen3-rerank
+  VLM（图片/表格）   ← 始终使用 DashScope（需多模态能力）
+  问答（QA Chat）    ← 可通过 QA_BASE_URL + QA_API_KEY 切换至任意
+                       OpenAI 兼容 Provider（DeepSeek、Moonshot、OpenAI 等）
+
+切换 QA 模型到 DeepSeek 示例（.env）：
+  QA_BASE_URL=https://api.deepseek.com/v1
+  QA_API_KEY=sk-xxxxxxxx
+  QA_MODEL=deepseek-chat
+  # 关闭 thinking（DeepSeek-chat 不支持；若用 deepseek-reasoner 可保持 false，
+  # reasoner 模型会自动在 reasoning_content 字段返回思维链）
+  QA_ENABLE_THINKING=false
+
+切换 QA 模型到 OpenAI 示例（.env）：
+  QA_BASE_URL=https://api.openai.com/v1
+  QA_API_KEY=sk-xxxxxxxx
+  QA_MODEL=gpt-4o
+
+不设置 QA_BASE_URL / QA_API_KEY 时，自动回落到 DashScope。
+─────────────────────────────────────────────────────────────────
 """
 
 from pathlib import Path
@@ -27,16 +53,27 @@ class Settings(BaseSettings):
     mineru_api_base: str = "https://mineru.net/api/v4"
     mineru_model_version: str = "vlm"
 
-    # ── 阿里云百炼 (DashScope) ─────────────────────────────
-    # 优先读系统环境变量 ALIBABA_CLOUD_ACCESS_KEY_SECRET
+    # ── 阿里云百炼 (DashScope) — 嵌入 / 重排序 / VLM ─────
+    # 申请地址：https://bailian.console.aliyun.com
     dashscope_api_key: str = Field(default="", validation_alias="ALIBABA_CLOUD_ACCESS_KEY_SECRET")
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-    # ── 模型名称 ──────────────────────────────────────────
-    embedding_model: str = "text-embedding-v4"
+    # ── 嵌入与重排序模型（固定使用 DashScope）────────────
+    embedding_model: str = "text-embedding-v4"   # 1024 维，中英文最佳
     rerank_model: str = "qwen3-rerank"
-    vlm_model: str = "qwen3.5-flash"
-    qa_model: str = "qwen3.5-plus"
+
+    # ── VLM 模型（图片描述 / 表格摘要，固定使用 DashScope）
+    # 注：若模型已更新，请在 .env 中设置 VLM_MODEL=新模型名
+    vlm_model: str = Field(default="qwen-vl-plus", validation_alias="VLM_MODEL")
+
+    # ── QA 问答模型（支持多 Provider，见文件头说明）────────
+    # 默认使用 DashScope；可通过 QA_BASE_URL + QA_API_KEY 切换
+    # 注：若 DashScope 模型名已更新，请在 .env 中设置 QA_MODEL=新模型名
+    qa_model: str = Field(default="qwen-plus", validation_alias="QA_MODEL")
+    qa_base_url: str = Field(default="", validation_alias="QA_BASE_URL")
+    qa_api_key: str = Field(default="", validation_alias="QA_API_KEY")
+    # 是否开启思维链（仅对 qwen3/deepseek-reasoner 等支持该功能的模型有效）
+    qa_enable_thinking: bool = Field(default=False, validation_alias="QA_ENABLE_THINKING")
 
     # ── 数据路径 ──────────────────────────────────────────
     upload_dir: Path = DATA_ROOT / "uploads"
@@ -72,6 +109,16 @@ class Settings(BaseSettings):
             if val in {"0", "false", "no", "off", "release", "prod", "production"}:
                 return False
         return bool(value)
+
+    @property
+    def effective_qa_base_url(self) -> str:
+        """QA 服务实际使用的 base_url。未配置时回落到 DashScope。"""
+        return self.qa_base_url.rstrip("/") or self.dashscope_base_url.rstrip("/")
+
+    @property
+    def effective_qa_api_key(self) -> str:
+        """QA 服务实际使用的 API Key。未配置时回落到 DashScope Key。"""
+        return self.qa_api_key or self.dashscope_api_key
 
     def ensure_dirs(self) -> None:
         """确保所有数据目录存在"""

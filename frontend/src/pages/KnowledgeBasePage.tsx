@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Plus, BookOpen, Trash2, MessageSquare, FolderOpen, RefreshCw } from "lucide-react"
+import { Plus, BookOpen, GraduationCap, Trash2, MessageSquare, FolderOpen, RefreshCw } from "lucide-react"
 import { listKBs, createKB, deleteKB } from "@/api/client"
-import type { KBInfo } from "@/api/types"
+import type { KBInfo, KBType } from "@/api/types"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -19,6 +20,7 @@ export default function KnowledgeBasePage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState("")
   const [newDesc, setNewDesc] = useState("")
+  const [newKbType, setNewKbType] = useState<KBType>("general")
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KBInfo | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -41,10 +43,11 @@ export default function KnowledgeBasePage() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      await createKB(newName.trim(), newDesc.trim())
+      await createKB(newName.trim(), newDesc.trim(), newKbType)
       setCreateOpen(false)
       setNewName("")
       setNewDesc("")
+      setNewKbType("general")
       load()
     } catch (e) {
       setError((e as Error).message)
@@ -121,14 +124,27 @@ export default function KnowledgeBasePage() {
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
-                  <BookOpen className="h-8 w-8 text-blue-500 mb-2" />
-                  <button
-                    className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                    onClick={e => { e.stopPropagation(); setDeleteTarget(kb) }}
-                    title="删除知识库"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {kb.kb_type === "course"
+                    ? <GraduationCap className="h-8 w-8 text-purple-500 mb-2" />
+                    : <BookOpen className="h-8 w-8 text-blue-500 mb-2" />
+                  }
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className={cn(
+                      "text-xs",
+                      kb.kb_type === "course"
+                        ? "border-purple-300 text-purple-600"
+                        : "border-blue-300 text-blue-600"
+                    )}>
+                      {kb.kb_type === "course" ? "课程" : "通用"}
+                    </Badge>
+                    <button
+                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      onClick={e => { e.stopPropagation(); setDeleteTarget(kb) }}
+                      title="删除知识库"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
                 <CardTitle>{kb.name}</CardTitle>
                 <CardDescription className="line-clamp-2">
@@ -166,11 +182,11 @@ export default function KnowledgeBasePage() {
       )}
 
       {/* Create Dialog */}
-      <Dialog open={createOpen} onClose={() => { setCreateOpen(false); setNewName(""); setNewDesc("") }}>
-        <DialogClose onClick={() => { setCreateOpen(false); setNewName(""); setNewDesc("") }} />
+      <Dialog open={createOpen} onClose={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general") }}>
+        <DialogClose onClick={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general") }} />
         <DialogHeader>
           <DialogTitle>新建知识库</DialogTitle>
-          <DialogDescription>创建一个新的课程知识库空间</DialogDescription>
+          <DialogDescription>创建一个新的知识库空间</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -194,6 +210,43 @@ export default function KnowledgeBasePage() {
               value={newDesc}
               onChange={e => setNewDesc(e.target.value)}
             />
+          </div>
+          <div>
+            <Label>类型</Label>
+            <div className="mt-1.5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setNewKbType("general")}
+                className={cn(
+                  "flex-1 rounded-lg border-2 p-3 text-left transition-colors",
+                  newKbType === "general"
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-gray-200 hover:border-gray-300"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <BookOpen className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium">通用知识库</span>
+                </div>
+                <p className="text-xs text-gray-500">适合笔记、资料整理与问答</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewKbType("course")}
+                className={cn(
+                  "flex-1 rounded-lg border-2 p-3 text-left transition-colors",
+                  newKbType === "course"
+                    ? "border-purple-500 bg-purple-50"
+                    : "border-gray-200 hover:border-gray-300"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <GraduationCap className="h-4 w-4 text-purple-500" />
+                  <span className="text-sm font-medium">课程知识库</span>
+                </div>
+                <p className="text-xs text-gray-500">含课后复盘、AI 出卷、日程管理</p>
+              </button>
+            </div>
           </div>
         </div>
         <DialogFooter>

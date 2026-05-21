@@ -5,3 +5,57 @@
   100% { transform: translateX(350%); }
 }
 
+/* ── Markdown prose styles for chat messages ───────────────────────────── */
+/* Tailwind preflight resets list styles; restore them inside .md-prose     */
+.md-prose p   { margin: 0.3rem 0; line-height: 1.65; }
+.md-prose p:first-child { margin-top: 0; }
+.md-prose p:last-child  { margin-bottom: 0; }
+
+.md-prose ul  { list-style: disc;    padding-left: 1.4rem; margin: 0.4rem 0; }
+.md-prose ol  { list-style: decimal; padding-left: 1.4rem; margin: 0.4rem 0; }
+.md-prose li  { margin: 0.15rem 0; }
+
+.md-prose h1  { font-size: 1.25rem; font-weight: 700; margin: 0.8rem 0 0.3rem; }
+.md-prose h2  { font-size: 1.1rem;  font-weight: 700; margin: 0.7rem 0 0.25rem; }
+.md-prose h3  { font-size: 1rem;    font-weight: 600; margin: 0.6rem 0 0.2rem; }
+.md-prose h4,
+.md-prose h5,
+.md-prose h6  { font-weight: 600; margin: 0.5rem 0 0.15rem; }
+
+.md-prose code {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.875em;
+}
+.md-prose pre {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.md-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.md-prose blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 0.8rem;
+  color: #6b7280;
+  margin: 0.4rem 0;
+  font-style: italic;
+}
+.md-prose hr { border: none; border-top: 1px solid #e5e7eb; margin: 0.75rem 0; }
+.md-prose a  { color: #2563eb; text-decoration: underline; }
+.md-prose a:hover { color: #1d4ed8; }
+.md-prose strong { font-weight: 600; }
+.md-prose em     { font-style: italic; }
+.md-prose table  { border-collapse: collapse; width: 100%; font-size: 0.875em; margin: 0.5rem 0; }
+.md-prose th,
+.md-prose td { border: 1px solid #e5e7eb; padding: 0.35rem 0.65rem; text-align: left; }
+.md-prose th { background: #f9fafb; font-weight: 600; }
+

@@ -4,6 +4,7 @@ import type {
   ChatEvent,
   DocInfo,
   KBInfo,
+  KBType,
   SearchResultItem,
   TaskInfo,
 } from "./types"
@@ -32,11 +33,28 @@ export async function listKBs(): Promise<KBInfo[]> {
   return data.items
 }
 
-export async function createKB(name: string, description = ""): Promise<KBInfo> {
+export async function getKB(kbId: string): Promise<KBInfo> {
+  const res = await fetch(`${BASE}/kb/${kbId}`)
+  return handleResponse<KBInfo>(res)
+}
+
+export async function createKB(name: string, description = "", kb_type: KBType = "general"): Promise<KBInfo> {
   const res = await fetch(`${BASE}/kb`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, kb_type }),
+  })
+  return handleResponse<KBInfo>(res)
+}
+
+export async function updateKB(
+  kbId: string,
+  fields: { name?: string; description?: string; kb_type?: KBType },
+): Promise<KBInfo> {
+  const res = await fetch(`${BASE}/kb/${kbId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
   })
   return handleResponse<KBInfo>(res)
 }

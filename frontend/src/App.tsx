@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import Layout from "@/components/Layout"
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage"
 import KBFilesPage from "@/pages/KBFilesPage"
@@ -16,6 +16,7 @@ function App() {
           <Route path="kb/:kbId/chat" element={<ChatPage />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
     top_k: int = Field(default=5, ge=1, le=20, description="最终保留的 chunk 数量")
-    enable_thinking: bool = Field(default=False, description="是否启用深度思考模式")
+    enable_thinking: bool | None = Field(default=None, description="是否启用深度思考模式（None 时读取服务器配置）")
 
 
 class SearchRequest(BaseModel):

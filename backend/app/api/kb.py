@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from app.config import settings
 from app.db.database import get_db
@@ -22,15 +23,26 @@ router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
 # ── Request / Response ────────────────────────────────────
 
+KBType = Literal["general", "course"]   # 通用 / 课程
+
+
 class KBCreateRequest(BaseModel):
     name: str
     description: str = ""
+    kb_type: KBType = "general"          # 课程知识库自动展示三个场景模块入口
+
+
+class KBUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    kb_type: KBType | None = None
 
 
 class KBInfo(BaseModel):
     kb_id: str
     name: str
     description: str
+    kb_type: str = "general"
     created_at: str
     updated_at: str
     file_count: int
@@ -39,6 +51,14 @@ class KBInfo(BaseModel):
 
 class KBListResponse(BaseModel):
     items: list[KBInfo]
+
+
+_KB_SELECT = """
+    SELECT kb_id, name, description,
+           COALESCE(kb_type,'general') AS kb_type,
+           created_at, updated_at, file_count, status
+    FROM knowledge_bases
+"""
 
 
 # ── Routes ────────────────────────────────────────────────
@@ -50,14 +70,17 @@ async def create_knowledge_base(req: KBCreateRequest):
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO knowledge_bases (kb_id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
-            (kb_id, req.name, req.description, now, now),
+            """INSERT INTO knowledge_bases
+               (kb_id, name, description, kb_type, created_at, updated_at)
+               VALUES (?,?,?,?,?,?)""",
+            (kb_id, req.name, req.description, req.kb_type, now, now),
         )
         await db.commit()
         return KBInfo(
             kb_id=kb_id,
             name=req.name,
             description=req.description,
+            kb_type=req.kb_type,
             created_at=now,
             updated_at=now,
             file_count=0,
@@ -71,9 +94,7 @@ async def create_knowledge_base(req: KBCreateRequest):
 async def list_knowledge_bases():
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT kb_id, name, description, created_at, updated_at, file_count, status FROM knowledge_bases ORDER BY updated_at DESC"
-        )
+        cursor = await db.execute(_KB_SELECT + "ORDER BY updated_at DESC")
         rows = await cursor.fetchall()
         items = [KBInfo(**dict(r)) for r in rows]
         return KBListResponse(items=items)
@@ -85,14 +106,38 @@ async def list_knowledge_bases():
 async def get_knowledge_base(kb_id: str):
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT kb_id, name, description, created_at, updated_at, file_count, status FROM knowledge_bases WHERE kb_id=?",
-            (kb_id,),
-        )
+        cursor = await db.execute(_KB_SELECT + "WHERE kb_id=?", (kb_id,))
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="知识库不存在")
         return KBInfo(**dict(row))
+    finally:
+        await db.close()
+
+
+@router.patch("/{kb_id}", response_model=KBInfo)
+async def update_knowledge_base(kb_id: str, req: KBUpdateRequest):
+    """更新知识库名称、描述或类型（PATCH，只更新传入的字段）。"""
+    db = await get_db()
+    try:
+        cursor = await db.execute(_KB_SELECT + "WHERE kb_id=?", (kb_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="知识库不存在")
+        current = dict(row)
+
+        new_name = req.name if req.name is not None else current["name"]
+        new_desc = req.description if req.description is not None else current["description"]
+        new_type = req.kb_type if req.kb_type is not None else current["kb_type"]
+        now = datetime.now(timezone.utc).isoformat()
+
+        await db.execute(
+            "UPDATE knowledge_bases SET name=?, description=?, kb_type=?, updated_at=? WHERE kb_id=?",
+            (new_name, new_desc, new_type, now, kb_id),
+        )
+        await db.commit()
+        current.update(name=new_name, description=new_desc, kb_type=new_type, updated_at=now)
+        return KBInfo(**current)
     finally:
         await db.close()
 
@@ -142,24 +187,29 @@ async def _delete_doc_data(doc_id: str) -> None:
 async def delete_knowledge_base(kb_id: str):
     db = await get_db()
     try:
-        # 检查是否存在
         cursor = await db.execute("SELECT kb_id FROM knowledge_bases WHERE kb_id=?", (kb_id,))
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="知识库不存在")
 
-        # 级联删除：获取该 KB 下所有文档，逐个清理
         cur = await db.execute("SELECT doc_id FROM documents WHERE kb_id=?", (kb_id,))
         doc_ids = [row[0] for row in await cur.fetchall()]
 
         for doc_id in doc_ids:
             await _delete_doc_data(doc_id)
 
-        # 清理未关联文档的孤立上传目录（upload_dir/kb_id/）
+        # 删除该 KB 关联的场景数据
+        await db.execute("DELETE FROM review_notes WHERE kb_id=?", (kb_id,))
+        await db.execute("DELETE FROM course_info_cards WHERE kb_id=?", (kb_id,))
+        await db.execute("DELETE FROM exam_questions WHERE kb_id=?", (kb_id,))
+        await db.execute(
+            "DELETE FROM exam_submissions WHERE kb_id=?", (kb_id,)
+        )
+        await db.execute("DELETE FROM exam_papers WHERE kb_id=?", (kb_id,))
+
         kb_upload_dir = settings.upload_dir / kb_id
         if kb_upload_dir.exists():
             shutil.rmtree(kb_upload_dir, ignore_errors=True)
 
-        # 删除 KB 记录本身
         await db.execute("DELETE FROM knowledge_bases WHERE kb_id=?", (kb_id,))
         await db.commit()
         return {"detail": "已删除", "cascaded_docs": len(doc_ids)}

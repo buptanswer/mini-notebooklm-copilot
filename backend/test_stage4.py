@@ -56,7 +56,7 @@ FAIL = "FAIL ✗"
 async def _ensure_indexed(doc_id: str = "test-sample-pdf") -> None:
     """
     Stage 3 测试将 doc 状态设为 'parsing' 但不会再更新。
-    Stage 4 检索服务只查 status IN ('indexed','needs_review','parsed')，
+    Stage 4 检索服务只查 status IN ('indexed','needs_review')，
     因此在此将其提升为 'indexed'。
     仅当 child_chunks 表中确实有该文档的数据时才执行。
     """
@@ -169,7 +169,7 @@ async def test_rerank(hybrid_results: list) -> list:
 # ═════════════════════════════════════════════════════════════
 
 async def test_qa_streaming(reranked: list):
-    print("\n─── Test 5: 流式问答（qwen3.5-plus） ───────────────")
+    print(f"\n─── Test 5: 流式问答（{settings.qa_model}） ───────────────")
 
     # 获取 parent 元数据（header_path / 页码）
     parent_ids = list({c.parent_chunk_id for c in reranked})

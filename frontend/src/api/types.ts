@@ -1,9 +1,12 @@
 // API TypeScript 类型定义
 
+export type KBType = "general" | "course"
+
 export interface KBInfo {
   kb_id: string
   name: string
   description: string
+  kb_type: KBType
   created_at: string
   updated_at: string
   file_count: number
@@ -32,7 +35,7 @@ export interface DocInfo {
   updated_at: string
 }
 
-export type TaskStatus = "created" | "pending" | "running" | "done" | "failed"
+export type TaskStatus = "created" | "running" | "done" | "failed"
 
 export interface TaskInfo {
   task_id: string

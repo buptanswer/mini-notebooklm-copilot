@@ -10,13 +10,11 @@
 
 Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台**。用户可以把课程 PDF、PPT、Word 等文档上传到独立的知识库空间，由 MinerU 在线 API 解析后，经过自研的 IR 中间格式标准化、结构感知切片与向量索引，最终通过混合检索 + 重排序 + 多模态大模型实现高质量的文档问答。
 
-本项目的核心工程主线：
+核心工程主线：
 
 ```
 原始文档 → MinerU 解析 → IR 标准化 → Parent/Child 切片 → 向量 + 关键词索引 → 混合检索 → 重排序 → 多模态问答
 ```
-
-> **当前版本**：已完成 Stage 1–5 基础链路，并完成 Stage 7 收口（文档一致性、文件夹上传、批量操作、bbox 高亮定位）。
 
 ---
 
@@ -26,32 +24,31 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 
 | 功能 | 说明 |
 |------|------|
-| 多知识库空间管理 | 创建、删除知识库；每个知识库独立管理文件和向量索引 |
-| 多格式文档上传 | 支持 PDF、PPT/PPTX、Word/DOCX、图片（MinerU 支持的格式） |
-| MinerU 异步解析 | 调用 MinerU 在线 API (vlm 模型)，下载 zip，解析 content_list_v2.json + layout.json |
+| 多知识库空间管理 | 创建、查看、更新、删除知识库；支持「通用」和「课程」两种类型 |
+| 多格式文档上传 | 支持 PDF、PPT/PPTX、Word/DOCX、图片（PNG/JPG） |
+| MinerU 异步解析 | 调用 MinerU 在线 API（vlm 精准模式），下载 zip，解析 content_list_v2.json + layout.json |
 | 自研 IR 标准化 | DOM 重建、header_path 注入、多模态块建模、坐标锚点保留 |
 | 结构感知切片 | Parent/Child 双层切片，不跨标题边界，list/code 保留原子性 |
-| 多模态富化 | 图片/表格调用 qwen3.5-flash 生成描述/摘要，用于检索阶段 |
-| 混合向量索引 | text-embedding-v4 (1024维) 向量存入 Qdrant；SQLite FTS5 关键词索引 |
-| 混合检索 + RRF | 向量召回 + BM25 关键词召回并行，RRF 融合排序 |
+| 多模态富化 | 图片/表格调用 VLM（默认 qwen-vl-plus）生成描述/摘要，用于检索增强 |
+| 混合向量索引 | text-embedding-v4（1024维）向量存入 Qdrant；SQLite FTS5 关键词索引 |
+| 混合检索 + RRF | 向量召回 + BM25 关键词召回并行，Reciprocal Rank Fusion 融合排序 |
 | 重排序 | qwen3-rerank 对候选结果二次打分 |
-| 流式多模态问答 | qwen3.5-plus；SSE 流式输出；支持 thinking 模式 |
-| 引用溯源 | 每条回答携带引用列表（文档、章节、页码） |
-| PDF 原文预览 + bbox 高亮 | 引用面板"查看原文"，使用 react-pdf 定位页码并叠加 bbox 高亮框 |
+| 流式多模态问答 | 支持多 Provider（默认 qwen-plus/DashScope，可切换 DeepSeek、OpenAI 等）；SSE 流式输出 |
+| 引用溯源 | 每条回答携带引用列表（文档、章节、页码、相关性分数） |
+| PDF 原文预览 + bbox 高亮 | 引用面板「查看原文」，使用 react-pdf 定位页码并叠加 bbox 高亮框 |
 | 文件夹上传 | 支持上传整目录，保留 relative_path 逻辑路径 |
 | 批量操作 | 支持全选后批量删除、批量重解析 |
 | 任务状态监控 | 实时查看解析/索引任务状态、进度与错误信息 |
 | MinerU 警告提示 | 若 MinerU 返回异常字段或降级，前端黄色警告提醒用户复查 |
+| 设置页 | 展示 API 配置说明、当前模型信息、服务健康状态及链接 |
 
 ### 暂未实现（提升项）
 
 - 音视频转写（飞书妙记 / 通义听悟）
-- 视频关键帧方案
 - 目录树浏览与文件夹展开/收起
-- 文件夹删除 / 文件夹重命名 / 文件移动
-- 文件重命名 / 移动
+- 文件夹删除 / 重命名 / 文件移动
 - 按文件类型筛选
-- 设置页（API Key 在线编辑）
+- 场景模块（AI 课后复盘、AI 出卷、日程管理）——数据库基础已就绪，待实现上层功能
 
 ---
 
@@ -63,14 +60,15 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 |------|------|------|
 | Web 框架 | FastAPI + Uvicorn | 异步 API 服务 |
 | 数据校验 | Pydantic v2 | Schema First，贯穿 IR / Chunk 全流程 |
-| 向量数据库 | Qdrant (本地文件模式) | 存储 Child Chunk 向量 |
+| 向量数据库 | Qdrant（本地文件模式） | 存储 Child Chunk 向量，无需 Docker |
 | 关系数据库 | SQLite + FTS5 | 文档元数据、任务状态、Parent/Child 映射、关键词索引 |
-| 文档解析 | MinerU 在线 API (vlm) | PDF/PPT/Word/图片 → content_list_v2.json + layout.json |
-| 向量模型 | text-embedding-v4 (阿里云百炼) | 1024维，纯文本嵌入 |
-| 重排序 | qwen3-rerank (阿里云百炼) | 候选 chunk 二次打分 |
-| 视觉小模型 | qwen3.5-flash (阿里云百炼) | 图片描述 / 表格摘要 |
-| 问答模型 | qwen3.5-plus (阿里云百炼) | 最终多模态问答，SSE 流式输出 |
+| 文档解析 | MinerU 在线 API（vlm） | PDF/PPT/Word/图片 → content_list_v2.json + layout.json |
+| 向量模型 | text-embedding-v4（阿里云百炼） | 1024维，纯文本嵌入 |
+| 重排序 | qwen3-rerank（阿里云百炼） | 候选 chunk 二次打分 |
+| 视觉模型 | qwen-vl-plus（阿里云百炼，可配置） | 图片描述 / 表格摘要 |
+| 问答模型 | 多 Provider 可切换（默认 qwen-plus/DashScope） | 最终问答，SSE 流式输出 |
 | HTTP 客户端 | httpx | 与 MinerU / DashScope API 通信 |
+| 包管理 | uv | 替代 pip，速度更快 |
 
 ### 前端
 
@@ -82,7 +80,7 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | Markdown 渲染 | react-markdown + remark-gfm |
 | 图标 | lucide-react |
 | PDF 预览 | react-pdf |
-| SSE 流式 | fetch + ReadableStream (非 EventSource) |
+| SSE 流式 | fetch + ReadableStream（非 EventSource） |
 
 ---
 
@@ -98,16 +96,16 @@ mini-notebooklm/
 │   │   │   ├── normalizer.py      # Raw MinerU → 标准 IR Block
 │   │   │   └── footnote_linker.py # 脚注关联
 │   │   ├── api/               # FastAPI 路由
-│   │   │   ├── kb.py              # 知识库 CRUD
+│   │   │   ├── kb.py              # 知识库 CRUD（含 PATCH 更新、级联删除场景数据）
 │   │   │   ├── documents.py       # 文件上传、解析触发、删除、origin-pdf
-│   │   │   ├── chat.py            # 流式问答、搜索
+│   │   │   ├── chat.py            # 流式问答（SSE）、检索
 │   │   │   ├── tasks.py           # 任务状态查询
 │   │   │   └── health.py          # 健康检查
 │   │   ├── chunkers/          # Parent / Child 切片
 │   │   │   ├── parent_chunker.py
 │   │   │   └── child_chunker.py
 │   │   ├── db/                # 数据库初始化与客户端
-│   │   │   ├── database.py        # SQLite 建表、FTS5、懒迁移
+│   │   │   ├── database.py        # SQLite 建表、FTS5、懒迁移；含场景模块表
 │   │   │   └── qdrant_client.py   # Qdrant 集合初始化
 │   │   ├── enrichers/         # 多模态富化（图片描述 / 表格摘要）
 │   │   ├── models/            # Pydantic 模型
@@ -116,22 +114,23 @@ mini-notebooklm/
 │   │   │   └── models_chunk.py        # Parent / Child Chunk Schema
 │   │   ├── services/          # 业务服务
 │   │   │   ├── pipeline_service.py    # 全流程编排（上传→解析→IR→切片→索引）
-│   │   │   ├── mineru_client.py       # MinerU API 客户端
+│   │   │   ├── mineru_client.py       # MinerU API 客户端（v4 批量精准解析）
 │   │   │   ├── embedding_service.py   # text-embedding-v4 向量化
 │   │   │   ├── index_service.py       # Qdrant + SQLite FTS5 入库
 │   │   │   ├── retrieval_service.py   # 混合检索 + RRF 融合
 │   │   │   ├── rerank_service.py      # qwen3-rerank 重排序
-│   │   │   └── qa_service.py          # qwen3.5-plus 流式问答
+│   │   │   └── qa_service.py          # 多 Provider 流式问答（SSE）
 │   │   ├── validators/        # IR / Chunk 结构校验
 │   │   ├── writers/           # IR / Chunk JSONL 落盘
-│   │   ├── config.py          # 全局配置（pydantic-settings）
+│   │   ├── config.py          # 全局配置（pydantic-settings，多 Provider 支持）
 │   │   └── main.py            # FastAPI 应用入口
 │   ├── pyproject.toml
 │   ├── uv.lock
-│   ├── .env.example           # 环境变量模板
-│   ├── test_stage2.py         # MinerU 解析与 IR 单元测试
-│   ├── test_stage3.py         # 切片与索引单元测试
-│   └── test_stage4.py         # 检索与问答端到端测试
+│   ├── .env.example           # 环境变量配置模板
+│   ├── test_api.py            # HTTP API 端到端测试（无需外部 API）
+│   ├── test_stage2.py         # MinerU 解析与 IR 集成测试
+│   ├── test_stage3.py         # 切片与索引集成测试
+│   └── test_stage4.py         # 混合检索与问答端到端测试
 │
 ├── frontend/
 │   ├── src/
@@ -139,24 +138,14 @@ mini-notebooklm/
 │   │   │   ├── client.ts          # 所有后端 API 调用封装
 │   │   │   └── types.ts           # TypeScript 接口定义
 │   │   ├── components/
-│   │   │   ├── Layout.tsx         # 左侧主导航布局
-│   │   │   └── ui/                # 基础 UI 组件
-│   │   │       ├── alert.tsx      # 含 warning (黄色) 变体
-│   │   │       ├── badge.tsx
-│   │   │       ├── button.tsx
-│   │   │       ├── card.tsx
-│   │   │       ├── dialog.tsx
-│   │   │       ├── input.tsx
-│   │   │       ├── progress.tsx   # 支持不定进度动画
-│   │   │       ├── separator.tsx
-│   │   │       ├── spinner.tsx
-│   │   │       └── textarea.tsx
+│   │   │   ├── Layout.tsx         # 左侧主导航布局（可折叠）
+│   │   │   └── ui/                # 基础 UI 组件（Button、Badge、Dialog 等）
 │   │   ├── pages/
-│   │   │   ├── KnowledgeBasePage.tsx   # 知识库首页（卡片网格）
-│   │   │   ├── KBFilesPage.tsx         # 文件管理页（文件/文件夹上传 + 批量操作 + 状态/警告）
-│   │   │   ├── ChatPage.tsx            # 对话问答页（SSE + 引用面板 + PDF bbox 高亮）
-│   │   │   ├── TasksPage.tsx           # 任务监控页
-│   │   │   └── SettingsPage.tsx        # 设置页（占位，待实现）
+│   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（卡片网格，含类型选择）
+│   │   │   ├── KBFilesPage.tsx        # 文件管理页（上传 / 批量操作 / 状态 / 警告）
+│   │   │   ├── ChatPage.tsx           # 对话问答页（SSE + 引用面板 + PDF bbox 高亮）
+│   │   │   ├── TasksPage.tsx          # 任务监控页
+│   │   │   └── SettingsPage.tsx       # 设置页（配置说明 / 服务状态）
 │   │   ├── lib/utils.ts
 │   │   ├── index.css
 │   │   ├── App.tsx                # 路由配置
@@ -172,14 +161,7 @@ mini-notebooklm/
 │   └── rag_output/            # IR JSON / Chunk JSONL / 图片
 │
 ├── doc/                       # 项目文档
-│   ├── 09班李宇2022210347-本地ai知识库需求分析报告V7.md
-│   ├── MinerU to RAG Pipeline 架构设计与数据流方案.md
-│   └── 在线API输出文件格式（SaaS推断版）.md
-│
 └── test_inputs/               # 测试用样本文件
-    ├── sample.pdf
-    ├── sample.docx
-    └── sample.pptx
 ```
 
 ---
@@ -188,8 +170,9 @@ mini-notebooklm/
 
 ### 前置依赖
 
-- Python 3.11+
-- Node.js 18+
+- Python 3.11+（建议 3.12）
+- Node.js 20+（v20.x 或 v22.x）
+- [uv](https://docs.astral.sh/uv/) 包管理器
 - MinerU 在线 API Key（[申请地址](https://mineru.net)）
 - 阿里云百炼 API Key（[申请地址](https://bailian.console.aliyun.com)）
 
@@ -210,7 +193,7 @@ uv sync
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入以下两个 Key：
+# 编辑 .env，填写以下必填项：
 #   MINERU_API_KEY=your_mineru_key
 #   ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_dashscope_key
 ```
@@ -222,7 +205,7 @@ cd backend
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-后端启动后会自动创建 `data/` 下所有目录、初始化 SQLite 数据库和 Qdrant 向量集合。
+后端启动后会自动创建 `data/` 下所有目录、初始化 SQLite 数据库（含所有表）和 Qdrant 向量集合。
 
 ### 4. 启动前端
 
@@ -242,7 +225,7 @@ npm run dev
 
 ## 使用流程
 
-1. **新建知识库**：在首页点击「新建知识库」，输入名称和描述
+1. **新建知识库**：在首页点击「新建知识库」，选择类型（通用 / 课程）并填写名称
 2. **上传文件/文件夹**：进入知识库文件管理页，支持拖拽上传、文件上传、整文件夹上传
 3. **等待解析**：系统自动触发 MinerU 解析，实时展示解析状态（约 15–60 秒/文件）
 4. **开始对话**：解析完成后点击「开始对话」，向知识库提问
@@ -268,39 +251,65 @@ npm run dev
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| `GET` | `/api/health` | 健康检查 |
 | `GET` | `/api/kb` | 列出所有知识库 |
-| `POST` | `/api/kb` | 创建知识库 |
-| `DELETE` | `/api/kb/{kb_id}` | 删除知识库（含所有文档和向量） |
+| `POST` | `/api/kb` | 创建知识库（支持 `kb_type: "general"\|"course"`） |
+| `GET` | `/api/kb/{kb_id}` | 获取单个知识库详情 |
+| `PATCH` | `/api/kb/{kb_id}` | 更新知识库名称 / 描述 / 类型 |
+| `DELETE` | `/api/kb/{kb_id}` | 删除知识库（级联删除所有文档、向量和场景数据） |
 | `GET` | `/api/documents/{kb_id}` | 列出知识库内文档 |
-| `POST` | `/api/documents/{kb_id}/upload` | 上传文件（支持 `relative_path`，用于文件夹上传） |
+| `POST` | `/api/documents/{kb_id}/upload` | 上传文件（支持 `relative_path` 逻辑路径） |
+| `GET` | `/api/documents/{kb_id}/{doc_id}` | 获取文档详情（含 status，可用于轮询） |
 | `POST` | `/api/documents/{kb_id}/{doc_id}/parse` | 触发解析（支持重新解析） |
 | `DELETE` | `/api/documents/{kb_id}/{doc_id}` | 删除文档（含向量和文件） |
 | `GET` | `/api/documents/{kb_id}/{doc_id}/origin-pdf` | 获取 origin.pdf 原文 |
-| `POST` | `/api/chat/{kb_id}` | 流式问答（SSE） |
-| `POST` | `/api/chat/{kb_id}/search` | 纯检索（不生成回答） |
-| `GET` | `/api/tasks` | 列出最近任务 |
+| `POST` | `/api/chat/{kb_id}` | 流式问答（SSE，`text/event-stream`） |
+| `POST` | `/api/chat/{kb_id}/search` | 纯检索（不生成回答，供调试） |
+| `GET` | `/api/tasks` | 列出最近任务（默认 50 条） |
 | `GET` | `/api/tasks/doc/{doc_id}` | 列出指定文档的任务 |
-| `GET` | `/api/health` | 健康检查 |
+| `GET` | `/api/tasks/{task_id}` | 获取单个任务详情 |
 
 ---
 
 ## 环境变量说明
 
-参见 `backend/.env.example`：
+完整说明见 `backend/.env.example`。核心配置：
 
 ```env
-# MinerU 在线 API
-MINERU_API_KEY=
+# MinerU 在线 API（必填）
+MINERU_API_KEY=your_mineru_key
 
-# 阿里云百炼（DashScope）
-ALIBABA_CLOUD_ACCESS_KEY_SECRET=
+# 阿里云百炼 DashScope（必填，用于嵌入/重排序/VLM）
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_dashscope_key
+
+# QA 问答模型（可选，不填则自动使用 DashScope qwen-plus）
+# 切换到 DeepSeek 示例：
+# QA_BASE_URL=https://api.deepseek.com/v1
+# QA_API_KEY=sk-xxxxxxxx
+# QA_MODEL=deepseek-chat
 ```
 
-所有其他配置（模型名称、路径、Chunking 参数等）在 `backend/app/config.py` 中有默认值，无需修改即可运行。
+### 多 Provider QA 支持
+
+问答模型支持通过环境变量切换到任意 OpenAI 兼容 Provider：
+
+| Provider | QA_BASE_URL | QA_MODEL |
+|----------|------------|---------|
+| 阿里云百炼（默认） | 不填 | 不填（默认 qwen-plus） |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| DeepSeek 思维链 | `https://api.deepseek.com/v1` | `deepseek-reasoner` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
+| 月之暗面 | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
 
 ---
 
 ## 核心设计说明
+
+### 知识库类型（kb_type）
+
+创建知识库时可选择两种类型：
+- **通用（general）**：适合笔记、资料整理与问答
+- **课程（course）**：面向课程学习，预留了场景模块扩展点（AI 课后复盘、AI 出卷、日程管理）
 
 ### IR 中间格式
 
@@ -309,7 +318,7 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=
 1. `bundle_parser.py` 解压 MinerU zip，提取 `content_list_v2.json`、`layout.json`、`*_origin.pdf`、`images/`
 2. `normalizer.py` 将 MinerU Raw Block 转为标准 `IRBlock`（统一字段名，类型归一化）
 3. `dom_builder.py` 重建文档 DOM 树，为每个块注入 `header_path`（标题路径链）
-4. 输出 `document_ir.json` 落盘，供切片层使用
+4. 输出 `document_ir.json` + `document_ir_enriched.json` 落盘，供切片层使用
 
 ### Parent / Child 切片策略
 
@@ -324,7 +333,7 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=
 用户查询
 ├── 向量检索（Qdrant cosine similarity）
 ├── BM25 关键词检索（SQLite FTS5）
-└──  RRF 融合 → qwen3-rerank 重排序 → Top-K 结果
+└──  RRF 融合 → qwen3-rerank 重排序 → Top-K 结果 → 流式问答
 ```
 
 ### 多模态警告机制
@@ -336,57 +345,30 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=
 
 ---
 
-## 与需求文档的对照说明
-
-| 需求 | 实现状态 | 备注 |
-|------|----------|------|
-| PDF / PPT / Word / 图片解析 | ✅ 已实现 | 通过 MinerU vlm 在线 API |
-| 音视频转写 | ⏳ 暂未实现 | 作为提升项，基础链路完成后接入 |
-| 自研 IR 中间格式 | ✅ 已实现 | `models_ir.py` + `adapters/` |
-| DOM 重建与 header_path | ✅ 已实现 | `dom_builder.py` |
-| Parent/Child 切片 | ✅ 已实现 | `chunkers/` |
-| 多模态富化（图片/表格摘要） | ✅ 已实现 | `enrichers/`，qwen3.5-flash |
-| Qdrant 向量索引 | ✅ 已实现 | text-embedding-v4 1024维 |
-| SQLite FTS5 关键词索引 | ✅ 已实现 | `database.py` |
-| 混合检索 + RRF | ✅ 已实现 | `retrieval_service.py` |
-| qwen3-rerank 重排序 | ✅ 已实现 | `rerank_service.py` |
-| qwen3.5-plus 流式问答 | ✅ 已实现 | `qa_service.py`，SSE |
-| 多知识库空间管理 | ✅ 已实现 | `api/kb.py` |
-| 文件上传 + 状态展示 | ✅ 已实现 | 前端文件管理页 |
-| 对话问答 + 引用面板 | ✅ 已实现 | SSE 流式 + CitationPanel |
-| PDF 原文预览 | ✅ 已实现 | origin-pdf API + react-pdf |
-| 任务状态监控 | ✅ 已实现 | `TasksPage` + 自动刷新 |
-| MinerU 解析警告提示 | ✅ 已实现 | 黄色 Alert + needs_review 状态 |
-| 文件夹上传 / 批量操作 | ✅ 已实现 | `relative_path` + 前端全选批量删除/重解析 |
-| bbox 高亮定位 | ✅ 已实现 | 检索链路透传 bbox，Chat 页预览时叠加高亮 |
-| 目录树浏览与文件夹展开/收起 | ⏳ 暂未实现 | 当前按 `relative_path` 列表展示 |
-| 文件夹删除 / 文件夹重命名 / 文件移动 | ⏳ 暂未实现 | 当前为文件级管理 |
-| 按文件类型筛选 | ⏳ 暂未实现 | 需在文件管理页补筛选器 |
-| 设置页在线配置 | ⏳ 暂未实现 | `SettingsPage` 仍为占位页面 |
-
----
-
-## 开发说明
-
-### 运行测试
+## 测试
 
 ```bash
 cd backend
 
-# Stage 2: MinerU 解析与 IR 标准化
+# API 端到端测试（不依赖外部 API，快速）
+uv run python test_api.py
+
+# Stage 2: MinerU 解析与 IR 标准化（需要 MINERU_API_KEY）
 uv run python test_stage2.py
 
-# Stage 3: 切片与索引
+# Stage 3: 切片与索引（需要 ALIBABA_CLOUD_ACCESS_KEY_SECRET）
 uv run python test_stage3.py
 
-# Stage 4: 检索与问答
+# Stage 4: 混合检索与问答（需要全部 API Key）
 uv run python test_stage4.py
 ```
 
-### 清理运行时数据（重置为初始状态）
+---
 
-```bash
-# Windows PowerShell
+## 清理运行时数据
+
+```powershell
+# Windows PowerShell — 重置为初始状态
 Remove-Item data\sqlite\* -Recurse -Force
 Remove-Item data\qdrant_storage\* -Recurse -Force
 Remove-Item data\uploads\* -Recurse -Force

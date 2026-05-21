@@ -44,6 +44,7 @@ SourceFormat = Literal["pdf", "docx", "pptx", "jpg", "jpeg", "png"]
 
 AssetType = Literal[
     "image",
+    "chart_image",      # MinerU chart 块（图表截图 + 提取数据）
     "table_image",
     "equation_image",
 ]

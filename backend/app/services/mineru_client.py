@@ -37,7 +37,7 @@ _KNOWN_EXTRACT_RESULT_KEYS   = frozenset({
 })
 _KNOWN_SINGLE_TASK_DATA_KEYS = frozenset({"task_id"})
 _KNOWN_SINGLE_POLL_DATA_KEYS = frozenset({
-    "state", "full_zip_url", "err_msg", "data_id", "extract_progress",
+    "task_id", "state", "full_zip_url", "err_msg", "data_id", "extract_progress",
 })
 
 
@@ -112,7 +112,7 @@ async def upload_file_to_presigned_url(presigned_url: str, local_path: Path) -> 
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.put(presigned_url, content=data)
 
-    if resp.status_code != 200:
+    if resp.status_code not in (200, 201, 204):
         raise RuntimeError(
             f"预签名上传失败 {local_path.name}: HTTP {resp.status_code}, body={resp.text[:200]}"
         )
