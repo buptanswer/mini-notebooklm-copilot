@@ -1,12 +1,86 @@
-# Release Notes — v1.0.0
+# Release Notes
 
 > Mini-NotebookLM · 面向大学生的多模态课程知识库与 AI 辅导系统
->
-> 发布日期：2026-05-21
 
 ---
 
-## 版本说明
+## v1.1.0（2026-05-21）
+
+### 新增：MinerU 格式监控系统
+
+新增独立的"严格审计"层，与归一化器的"宽容转换"策略互补，用于持续追踪 MinerU SaaS API 的输出格式变化：
+
+- **`backend/app/adapters/format_checker.py`** — 格式偏差审计模块
+  - 维护 `KNOWN_BLOCK_TYPES`、`BLOCK_KNOWN_FIELDS`、`CONTENT_KNOWN_FIELDS` 等完整格式规范常量
+  - `check_bundle(zip_root, source_filename, doc_id) → FormatCheckReport` 主入口
+  - `log_report_to_file(report, log_path)` — 追加到 `data/format_probe_log.jsonl`（仅有偏差时写入）
+  - 偏差三级分类：`error` / `warning` / `info`
+
+- **`backend/tools/mineru_format_probe.py`** — 独立探针 CLI 脚本
+  - 离线模式（默认）：扫描 `data/mineru_zips/` 已解压目录
+  - 在线模式（`--online`）：上传文件 → 调 MinerU API → 校验 ZIP
+  - 彩色输出 + 聚合汇总，退出码：0=clean / 1=errors / 2=warnings / 3=info
+  - 用法：`cd backend && uv run python tools/mineru_format_probe.py`
+
+- **Pipeline 集成（步骤 [E+]）** — `pipeline_service.py`
+  - 每次文档解析自动在 [E] 解压后、[F] 归一化前运行格式审计
+  - 有偏差时追加 JSONL 日志，格式完全符合时记录 INFO 日志
+  - 探针异常不影响后续解析流程
+
+### 新增：MinerU 新块类型支持
+
+| 新块类型 | 映射 | 说明 |
+|----------|------|------|
+| `chart` | `image`（AssetType=`chart_image`）| 图表块，含 image_source + Markdown 数据表格 |
+| `index` | `list` | 目录/TOC 块，结构与 list 一致 |
+
+涉及文件：`adapters/normalizer.py`、`models/models_raw_mineru.py`（新增 `RawChartContent`）、`models/models_ir.py`（`AssetType` 新增 `"chart_image"`）
+
+### 新增：Office 原生解析支持（DOCX / PPTX）
+
+MinerU 对 DOCX/PPTX 使用 Office 原生引擎，bbox 坐标键**缺失**（非 null）：
+
+- `normalizer.py`：bbox 键不存在时静默使用 `[0,0,0,0]` 占位，不触发 degraded 警告
+- `ir_validator.py`：`[0,0,0,0]` 为 Office 原生占位符，跳过坐标有效性校验
+- `ChatPage.tsx`：`anchor_origin_pdf_path` 为空时（DOCX/PPTX 无 origin.pdf）隐藏"查看原文"按钮，改为提示"非 PDF 格式，不支持原文预览"
+
+### 新增字段适配
+
+`normalizer.py` 新增多项字段支持，修复 DOCX/PPTX 解析时大量 unknown_keys 警告：
+
+- 块顶级：`anchor`（DOCX 标题锚点）、`sub_type`（图表子类型）
+- `list.content`：`attribute`（`"unordered"` / `"ordered"`）
+- `list_item`：`ilevel`（缩进层级）、`prefix`（项目符号）、`anchor`（TOC 锚点）
+- `image.content.content`：VLM OCR 文本（纳入 embedding）
+- `TextSegment`：`url`（超链接 URL）、`style`（Office 样式标记）
+
+### 优化：QA 问答服务
+
+- `qa_service.py` 新增 `_SYSTEM_PROMPT` 系统提示词（知识库问答专用）
+- 消息结构从单条 user 改为 `[system, user]` 两条，引导模型更精准参考知识库内容
+- 上下文格式优化：加入页码 + 章节路径元信息，提升引用定位准确性
+
+### 文档更新
+
+- `doc/09班李宇2022210347-本地ai知识库需求分析报告V7.md`：完整重写为项目现状交接文档（~600 行）
+- `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md`：更新 §3.1 ZIP 结构、§5.7 新块类型，新增 §15 实现更新记录
+- `doc/在线API输出文件格式（SaaS推断版）.md`：新增 §9.5 `preproc_blocks` 字段说明，更新 §5.2.3、§5.2.4
+- `README.md`：新增格式监控系统使用说明、目录结构更新
+
+### 测试
+
+```
+后端 API 端到端测试：49/49 全部通过
+TypeScript 编译检查：0 错误
+前端生产构建：✓ 通过
+格式探针（7 文档）：7/7 ✅ 退出码 0
+```
+
+---
+
+## v1.0.0（2026-05-21）
+
+### 版本说明
 
 **v1.0.0** 是本项目的基础成品版本（Base Release）。
 
@@ -14,7 +88,7 @@
 
 ---
 
-## 核心功能
+### 核心功能
 
 ### 知识库管理
 - 创建、查看、编辑、删除知识库
@@ -67,7 +141,7 @@
 
 ---
 
-## 技术栈
+### 技术栈
 
 | 层 | 技术 |
 |----|------|
@@ -84,7 +158,7 @@
 
 ---
 
-## 本次发布修复（对比初始草稿版本）
+### 本次发布修复（对比初始草稿版本）
 
 | 类别 | 问题 | 修复 |
 |------|------|------|
@@ -100,7 +174,7 @@
 
 ---
 
-## 测试
+### 测试
 
 ```
 后端 API 端到端测试：49/49 全部通过（无需外部 API Key）
@@ -116,7 +190,7 @@ uv run python test_api.py
 
 ---
 
-## 快速启动
+### 快速启动
 
 **前置要求：**
 - Python ≥ 3.11（推荐通过 uv 管理）
@@ -143,7 +217,7 @@ npm run dev
 
 ---
 
-## 已知限制
+### 已知限制
 
 - MinerU 在线 API 有文件大小限制（单文件建议 ≤ 100MB）
 - 解析速度取决于 MinerU 服务响应时间（一般 30 秒 ~ 数分钟）
@@ -151,8 +225,20 @@ npm run dev
 
 ---
 
-## 后续开发计划（v1.1+）
+### 后续开发计划（v1.1+）
 
+- **MinerU 格式监控系统** — 严格格式审计 + 探针脚本（已在 v1.1.0 完成）
+- **MinerU 新块类型适配** — chart/index 块 + Office 原生解析（已在 v1.1.0 完成）
 - **模块七：AI 伴学·课后复盘** — 对话式复习笔记生成
 - **模块八：AI 考官·期末冲刺** — 智能出题与答卷批改
 - **模块九：AI 管家·日程防呆** — 课程信息提取与提醒
+
+---
+
+## 后续开发计划（v1.2+）
+
+- **模块七：AI 伴学·课后复盘** — 数据库已就绪（`review_notes` 表），待实现后端 API + 前端页面
+- **模块八：AI 考官·期末冲刺** — 数据库已就绪（`exam_questions`/`exam_papers`/`exam_submissions` 表），待实现完整出题-作答-批改流程
+- **模块九：AI 管家·日程防呆** — 数据库已就绪（`course_info_cards` 表），待实现课程信息提取与日程提醒
+- **FTS5 中文优化** — 引入 jieba 分词器提升中文关键词检索精度
+- **音视频转写** — 集成录音/视频转文字后入库

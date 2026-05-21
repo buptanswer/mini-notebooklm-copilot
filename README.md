@@ -93,8 +93,9 @@ mini-notebooklm/
 │   │   ├── adapters/          # MinerU zip 解析与 IR 标准化层
 │   │   │   ├── bundle_parser.py   # 解压 zip，提取 content_list_v2.json / layout.json / images
 │   │   │   ├── dom_builder.py     # DOM 树重建，注入 header_path
-│   │   │   ├── normalizer.py      # Raw MinerU → 标准 IR Block
-│   │   │   └── footnote_linker.py # 脚注关联
+│   │   │   ├── normalizer.py      # Raw MinerU → 标准 IR Block（宽松容错）
+│   │   │   ├── footnote_linker.py # 脚注关联
+│   │   │   └── format_checker.py  # MinerU 输出格式严格审计（与 normalizer 互补）
 │   │   ├── api/               # FastAPI 路由
 │   │   │   ├── kb.py              # 知识库 CRUD（含 PATCH 更新、级联删除场景数据）
 │   │   │   ├── documents.py       # 文件上传、解析触发、删除、origin-pdf
@@ -124,6 +125,8 @@ mini-notebooklm/
 │   │   ├── writers/           # IR / Chunk JSONL 落盘
 │   │   ├── config.py          # 全局配置（pydantic-settings，多 Provider 支持）
 │   │   └── main.py            # FastAPI 应用入口
+│   ├── tools/                 # 运维工具脚本
+│   │   └── mineru_format_probe.py # MinerU 格式探针（离线/在线两种模式）
 │   ├── pyproject.toml
 │   ├── uv.lock
 │   ├── .env.example           # 环境变量配置模板
@@ -158,7 +161,8 @@ mini-notebooklm/
 │   ├── qdrant_storage/        # Qdrant 向量存储
 │   ├── uploads/               # 原始上传文件
 │   ├── mineru_zips/           # MinerU 返回压缩包
-│   └── rag_output/            # IR JSON / Chunk JSONL / 图片
+│   ├── rag_output/            # IR JSON / Chunk JSONL / 图片
+│   └── format_probe_log.jsonl # MinerU 格式变更审计日志（有偏差时自动写入）
 │
 ├── doc/                       # 项目文档
 └── test_inputs/               # 测试用样本文件
@@ -342,6 +346,24 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_dashscope_key
 1. 将警告信息记录到 SQLite `documents.warnings` 字段
 2. 将文档状态置为 `needs_review`（而非 `failed`）
 3. 前端文件管理页展示黄色 ⚠️ 警告卡片，告知用户具体警告内容
+
+### MinerU 格式监控系统
+
+每次文档解析后自动运行严格格式审计（步骤 [E+]），检测 MinerU API 输出格式是否发生变化：
+
+```bash
+cd backend
+
+# 离线检查已有解析结果（不消耗 API 配额）
+uv run python tools/mineru_format_probe.py
+
+# 实时上传测试文件检查（消耗 MinerU API 配额）
+uv run python tools/mineru_format_probe.py --online
+```
+
+退出码：`0`=格式完全符合，`1`=有错误，`2`=有警告，`3`=仅提示（可接入 CI）
+
+格式变更日志自动追加到 `data/format_probe_log.jsonl`。
 
 ---
 

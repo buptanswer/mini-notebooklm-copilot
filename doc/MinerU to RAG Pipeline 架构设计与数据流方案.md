@@ -147,18 +147,37 @@ Embedding 与最终召回上下文不是同一个粒度：
 
 ## 3.1 原始输入
 
-一个 MinerU SaaS zip 包，核心文件集合约为：
+一个 MinerU SaaS zip 包。**注意：2026 年实测发现 MinerU 已更新 ZIP 内文件命名规则**，需兼容两种格式：
 
 ```text
 <zip-root>/
   <uuid>_model.json
-  <uuid>_content_list.json
-  <uuid>_origin.pdf
-  content_list_v2.json
+  <uuid>_content_list.json      # 旧版固定名 OR 新版 UUID 前缀
+  <uuid>_content_list_v2.json   # ★ 新版主文件（UUID 前缀命名）
+  <uuid>_origin.pdf             # PDF 源文件（仅 PDF 输入时存在）
+  <uuid>_origin.docx            # DOCX 源文件（DOCX 输入时）
+  <uuid>_origin.pptx            # PPTX 源文件（PPTX 输入时）
   layout.json
   full.md
   images/*.jpg
 ```
+
+**旧版格式**（仍可能出现）：
+
+```text
+<zip-root>/
+  content_list_v2.json          # 旧版固定名
+  layout.json
+  full.md
+  images/*.jpg
+```
+
+兼容策略：`bundle_parser.py` 优先匹配 `endswith("_content_list_v2.json")` 的 UUID 前缀文件，再 fallback 到固定名 `content_list_v2.json`。
+
+**Office 原生解析特性**（DOCX/PPTX）：
+- 所有块的 `bbox` 键**缺失**（不是 `null` 值，而是键完全不存在）
+- 无 `*_origin.pdf`，PDF 预览不可用
+- 使用 `[0, 0, 0, 0]` 作为 bbox 占位符（sentinel）
 
 ## 3.2 本方案的输出物
 
@@ -460,7 +479,7 @@ rag_pipeline_output/
 
 这是 IR 的核心。
 
-统一块类型枚举：
+统一块类型枚举（IR `BlockType`）：
 
 - `title`
 - `paragraph`
@@ -473,6 +492,26 @@ rag_pipeline_output/
 - `page_footer`
 - `page_number`
 - `page_footnote`
+
+**注意**：MinerU 原始输出可能包含以下 Raw 类型，在归一化阶段做如下映射：
+
+| MinerU Raw 类型 | IR BlockType | 说明 |
+|----------------|--------------|------|
+| `chart` | `image` | 图表（截图 + 提取数据），`AssetType=chart_image` |
+| `index` | `list` | 目录/TOC，与 `list` 相同结构 |
+
+`chart` 块的 `content` 字段结构：
+```json
+{
+  "image_source": {"path": "images/xxx.jpg"},
+  "content": "| 列1 | 列2 |\n|---|---|\n...",  // Markdown 表格数据
+  "chart_caption": [...],
+  "chart_footnote": [...],
+  "sub_type": "line"  // 图表子类型
+}
+```
+
+归一化处理：`chart` 映射为 `image` 类型，`content.content`（Markdown 数据）纳入 `embedding_text`。
 
 建议块结构：
 
@@ -1353,6 +1392,131 @@ Child 为：
 - 向量化
 - 混合检索
 - 前端 PDF 高亮联动
+
+---
+
+## 15. 实现更新记录（2026-05-21 代码库现状）
+
+> 本章记录原始方案文档（§1–§14）与实际代码实现之间的差异和新增特性，供接手开发者参考。
+
+### 15.1 Pipeline 实际执行顺序（16步）
+
+实际 `pipeline_service.py` 执行的步骤：
+
+```
+[A] 申请预签名上传 URL
+[B] PUT 上传文件到 OSS
+[C] 轮询批量任务状态，获取 full_zip_url
+[D] 下载 ZIP
+[E] 解压 + bundle 文件角色识别 (bundle_parser.py)
+[E+] ★ MinerU 格式严格审计 (format_checker.py) — 与 normalizer 互补，只审计不拦截
+[F] 归一化：content_list_v2.json → IRBlock[] (normalizer.py)
+[G] DOM 重建：section 树 + header_path 注入 (dom_builder.py)
+[H] 脚注关联 (footnote_linker.py)
+[I] 读取 layout.json 元数据（_backend/_version_name）
+[J] 写出 document_ir.json (ir_writer.py)
+[IR-V] IR 结构校验 (ir_validator.py)
+[K-vlm] 多模态富化：图片描述 / 表格摘要 (enricher.py, qwen-vl-plus)
+[L] Parent Chunk 构建 (parent_chunker.py)
+[M] Child Chunk 构建 (child_chunker.py)
+[Chunk-V] Chunk 结构校验 → [N] 向量化 → [O] Qdrant+SQLite 入库 → [P] JSONL 落盘
+[K] 更新 documents 表状态 (indexed / needs_review)
+```
+
+### 15.2 MinerU 格式严格审计系统（新增）
+
+与 `normalizer.py` 的"宽松容错"互补，`format_checker.py` 采用**严格审计**策略：
+
+- 任何未知块类型 → `error`（需立即更新解析逻辑）
+- 任何未知字段 → `warning`（API 可能新增字段）
+- 任何缺少预期字段 → `warning`（API 可能删除字段）
+- ZIP 中出现未知文件 → `info`
+
+**格式规范常量**（唯一事实来源，与本文档保持同步）：
+```python
+KNOWN_BLOCK_TYPES = {"title", "paragraph", "list", "image", "table",
+                     "equation_interline", "code", "page_header", "page_footer",
+                     "page_number", "page_footnote", "chart", "index"}
+
+LAYOUT_PAGE_KNOWN_FIELDS = {"para_blocks", "discarded_blocks", "page_size",
+                             "page_idx", "preproc_blocks"}
+```
+
+**流水线集成**：
+```python
+# pipeline_service.py 步骤 [E+]
+format_report = check_bundle(zip_root, filename, doc_id)
+if not format_report.is_clean:
+    log_report_to_file(format_report, DATA_ROOT / "format_probe_log.jsonl")
+```
+
+**独立探针脚本**（运维定期运行）：
+```bash
+cd backend
+uv run python tools/mineru_format_probe.py           # 离线检查已有数据
+uv run python tools/mineru_format_probe.py --online  # 在线上传测试文件
+# 退出码：0=clean, 1=errors, 2=warnings, 3=info
+```
+
+### 15.3 新增 MinerU 块类型处理
+
+**`chart`（图表块）**：
+
+- Raw `type="chart"` → IR `type="image"`, `AssetType="chart_image"`
+- `content.content`（Markdown 数据表格）纳入 `embedding_text`
+- `content.chart_caption` 等同于 `image_caption` 处理
+
+**`index`（目录块）**：
+
+- Raw `type="index"` → IR `type="list"`（结构与 `list` 完全相同）
+
+### 15.4 Office 原生解析兼容
+
+DOCX/PPTX 使用 Office 原生引擎解析，有以下特性：
+
+1. **bbox 键缺失**：`raw_block.get("bbox")` 返回 `None`（键不存在，非 null 值），使用 `[0,0,0,0]` sentinel 占位
+2. **IR 校验跳过 sentinel**：`ir_validator.py` 检测到 `all(c == 0.0 for c in coords)` 时跳过坐标有效性校验
+3. **无 origin.pdf**：`manifest.origin_pdf_path` 为 None，前端隐藏"查看原文"按钮
+4. **新字段**：`anchor`（文档锚点）、`ilevel/prefix`（列表缩进）、`style`（Office 字体标记）
+
+### 15.5 QA 服务实现细节
+
+**系统提示词**（`qa_service.py: _SYSTEM_PROMPT`）：
+- 专业知识库问答助手定位
+- 要求忠实于来源、引用标注（`[来源1]`）、诚实说明不足
+- 格式要求：复杂问题用结构化格式，简单问题直接回答
+
+**上下文格式**：
+```
+[来源1] 第3-5页 · Chapter 1 > 1.2 实验方法
+{retrieval_text}
+---
+[来源2] ...
+```
+
+**`enable_thinking` 实现**：
+- `None` → 读取 `settings.qa_enable_thinking`（环境变量 `QA_ENABLE_THINKING`）
+- `True` → 附加 `"enable_thinking": True` 到 payload（仅 qwen3 系列支持）
+- DashScope DeepSeek-reasoner：自动返回 `reasoning_content`，无需此参数
+
+### 15.6 模型名称对照（原方案 vs 实际实现）
+
+| 用途 | 原方案文档 | 实际代码（2026-05-21） | 备注 |
+|------|-----------|----------------------|------|
+| 多模态富化 VLM | `qwen3.5-flash` | `qwen-vl-plus` | `VLM_MODEL` 环境变量可覆盖 |
+| 最终问答 | `qwen3.5-plus` | `qwen-plus`（DashScope 默认） | `QA_MODEL` 可切换任意 Provider |
+| 文本向量化 | `text-embedding-v4` | `text-embedding-v4` | 不变，1024维 |
+| 重排序 | `qwen3-rerank` | `qwen3-rerank` | 不变，仅 DashScope |
+| 文档解析 | MinerU `vlm` | MinerU `vlm`（`/api/v4/`） | 不变 |
+
+### 15.7 已知限制
+
+| 限制 | 说明 |
+|------|------|
+| FTS5 中文 | `unicode61` 分词器对中文短词效果有限 |
+| 重排序 Provider | `qwen3-rerank` 仅 DashScope，无法切换 |
+| 音视频 | 未实现 |
+| 场景模块 | 模块七/八/九 数据库就绪，前端待实现 |
 
 ## 15. 结论
 
