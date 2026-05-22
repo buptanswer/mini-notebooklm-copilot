@@ -25,7 +25,8 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | 功能 | 说明 |
 |------|------|
 | 多知识库空间管理 | 创建、查看、更新、删除知识库；支持「通用」和「课程」两种类型 |
-| 多格式文档上传 | 支持 PDF、PPT/PPTX、Word/DOCX、图片（PNG/JPG） |
+| 文件夹绑定与自动同步 | 课程 KB 可绑定本地目录，点同步自动注册文件；支持 `text_only`（txt/md）和 `missing` 状态 |
+| 多格式文档上传 | 支持 PDF、PPT/PPTX、Word/DOCX、图片（PNG/JPG）、TXT、MD |
 | MinerU 异步解析 | 调用 MinerU 在线 API（vlm 精准模式），下载 zip，解析 content_list_v2.json + layout.json |
 | 自研 IR 标准化 | DOM 重建、header_path 注入、多模态块建模、坐标锚点保留 |
 | 结构感知切片 | Parent/Child 双层切片，不跨标题边界，list/code 保留原子性 |
@@ -33,6 +34,7 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | 混合向量索引 | text-embedding-v4（1024维）向量存入 Qdrant；SQLite FTS5 关键词索引 |
 | 混合检索 + RRF | 向量召回 + BM25 关键词召回并行，Reciprocal Rank Fusion 融合排序 |
 | 重排序 | qwen3-rerank 对候选结果二次打分 |
+| 多轮会话系统 | conversations + messages 持久化；支持 Fork 分支；SSE 流式问答；思维链开关 |
 | 流式多模态问答 | 支持多 Provider（默认 qwen-plus/DashScope，可切换 DeepSeek、OpenAI 等）；SSE 流式输出 |
 | 引用溯源 | 每条回答携带引用列表（文档、章节、页码、相关性分数） |
 | PDF 原文预览 + bbox 高亮 | 引用面板「查看原文」，使用 react-pdf 定位页码并叠加 bbox 高亮框 |
@@ -40,6 +42,9 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | 批量操作 | 支持全选后批量删除、批量重解析 |
 | 任务状态监控 | 实时查看解析/索引任务状态、进度与错误信息 |
 | MinerU 警告提示 | 若 MinerU 返回异常字段或降级，前端黄色警告提醒用户复查 |
+| 模块七：AI 伴学·课后复习 | 按日期+节次流式生成讲义，保存到磁盘，支持多轮追问和 Fork 分支 |
+| 模块九：AI 管家·课程信息 | 自动提取课程名称、老师联系方式、考核方式、截止日期；多轮问答；deadline banner |
+| 提示词管理 | 提示词文件化（`app/prompts/*.md`），支持热更新无需重启 |
 | 设置页 | 展示 API 配置说明、当前模型信息、服务健康状态及链接 |
 
 ### 暂未实现（提升项）
@@ -48,7 +53,8 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 - 目录树浏览与文件夹展开/收起
 - 文件夹删除 / 重命名 / 文件移动
 - 按文件类型筛选
-- 场景模块（AI 课后复盘、AI 出卷、日程管理）——数据库基础已就绪，待实现上层功能
+- 模块八：AI 考官·期末冲刺（智能出题与答卷批改）
+- FTS5 中文分词优化（jieba）
 
 ---
 
@@ -98,8 +104,12 @@ mini-notebooklm/
 │   │   │   └── format_checker.py  # MinerU 输出格式严格审计（与 normalizer 互补）
 │   │   ├── api/               # FastAPI 路由
 │   │   │   ├── kb.py              # 知识库 CRUD（含 PATCH 更新、级联删除场景数据）
-│   │   │   ├── documents.py       # 文件上传、解析触发、删除、origin-pdf
+│   │   │   ├── documents.py       # 文件上传、解析触发、删除、origin-pdf、raw-text
 │   │   │   ├── chat.py            # 流式问答（SSE）、检索
+│   │   │   ├── conversations.py   # 多轮会话 CRUD + 流式发送 + Fork
+│   │   │   ├── course_info.py     # 模块九：课程信息卡片生成与问答
+│   │   │   ├── review.py          # 模块七：课后复习讲义生成与追问
+│   │   │   ├── settings.py        # 提示词管理端点
 │   │   │   ├── tasks.py           # 任务状态查询
 │   │   │   └── health.py          # 健康检查
 │   │   ├── chunkers/          # Parent / Child 切片
@@ -113,6 +123,12 @@ mini-notebooklm/
 │   │   │   ├── models_raw_mineru.py   # MinerU 原始输出 Schema
 │   │   │   ├── models_ir.py           # 自研 IR 中间格式 Schema
 │   │   │   └── models_chunk.py        # Parent / Child Chunk Schema
+│   │   ├── prompts/           # 提示词文件（Markdown，支持热更新）
+│   │   │   ├── qa_system.md           # 知识库问答系统提示词
+│   │   │   ├── course_info_extract.md # 课程信息结构化抽取提示词
+│   │   │   ├── review_first.md        # 讲义生成-首节提示词
+│   │   │   ├── review_subsequent.md   # 讲义生成-后续节提示词
+│   │   │   └── course_info_chat.md    # 课程信息问答系统提示词
 │   │   ├── services/          # 业务服务
 │   │   │   ├── pipeline_service.py    # 全流程编排（上传→解析→IR→切片→索引）
 │   │   │   ├── mineru_client.py       # MinerU API 客户端（v4 批量精准解析）
@@ -120,7 +136,11 @@ mini-notebooklm/
 │   │   │   ├── index_service.py       # Qdrant + SQLite FTS5 入库
 │   │   │   ├── retrieval_service.py   # 混合检索 + RRF 融合
 │   │   │   ├── rerank_service.py      # qwen3-rerank 重排序
-│   │   │   └── qa_service.py          # 多 Provider 流式问答（SSE）
+│   │   │   ├── qa_service.py          # 多 Provider 流式问答 + stream_llm_completion
+│   │   │   ├── folder_sync_service.py # 文件夹绑定扫描同步
+│   │   │   ├── conversation_service.py# 多轮会话 CRUD + Fork + 流式补全
+│   │   │   ├── course_info_service.py # 模块九：课程信息提取与截止日期解析
+│   │   │   └── lecture_review_service.py # 模块七：课后讲义生成与保存
 │   │   ├── validators/        # IR / Chunk 结构校验
 │   │   ├── writers/           # IR / Chunk JSONL 落盘
 │   │   ├── config.py          # 全局配置（pydantic-settings，多 Provider 支持）
@@ -143,15 +163,21 @@ mini-notebooklm/
 │   │   ├── components/
 │   │   │   ├── Layout.tsx         # 左侧主导航布局（可折叠）
 │   │   │   └── ui/                # 基础 UI 组件（Button、Badge、Dialog 等）
+│   │   ├── components/
+│   │   │   ├── KBLayout.tsx           # 知识库二级布局（二级侧边栏 + deadline banner）
+│   │   │   ├── Layout.tsx             # 左侧主导航布局（可折叠）
+│   │   │   └── ui/                    # 基础 UI 组件
 │   │   ├── pages/
-│   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（卡片网格，含类型选择）
-│   │   │   ├── KBFilesPage.tsx        # 文件管理页（上传 / 批量操作 / 状态 / 警告）
+│   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（卡片网格，含类型选择 + 文件夹绑定）
+│   │   │   ├── KBFilesPage.tsx        # 文件管理页（上传 / 批量操作 / 同步按钮）
 │   │   │   ├── ChatPage.tsx           # 对话问答页（SSE + 引用面板 + PDF bbox 高亮）
+│   │   │   ├── ReviewPage.tsx         # 模块七：课后复习（日期选择 + 流式生成 + 追问）
+│   │   │   ├── CourseInfoPage.tsx     # 模块九：课程管家（信息卡片 + deadline + 问答）
 │   │   │   ├── TasksPage.tsx          # 任务监控页
 │   │   │   └── SettingsPage.tsx       # 设置页（配置说明 / 服务状态）
 │   │   ├── lib/utils.ts
 │   │   ├── index.css
-│   │   ├── App.tsx                # 路由配置
+│   │   ├── App.tsx                # 路由配置（含 KBLayout 嵌套路由）
 │   │   └── main.tsx
 │   ├── package.json
 │   └── vite.config.ts
@@ -243,6 +269,8 @@ npm run dev
 | `解析中` | MinerU 解析 + IR 标准化 + 切片 + 索引进行中 |
 | `已索引` | 全流程完成，可供问答 |
 | `需检视` ⚠️ | MinerU 返回了未知字段或结构降级警告，文档已入库但建议复查 |
+| `纯文本` | txt/md 文件，无需解析，可直接供模块七使用 |
+| `文件缺失` | 文件夹同步时检测到原文件已从磁盘删除 |
 | `失败` | 解析或入库失败，可点击重新解析 |
 
 ---
@@ -269,6 +297,18 @@ npm run dev
 | `GET` | `/api/documents/{kb_id}/{doc_id}/origin-pdf` | 获取 origin.pdf 原文 |
 | `POST` | `/api/chat/{kb_id}` | 流式问答（SSE，`text/event-stream`） |
 | `POST` | `/api/chat/{kb_id}/search` | 纯检索（不生成回答，供调试） |
+| `POST` | `/api/kb/{kb_id}/sync-folder` | 扫描绑定文件夹并同步文件状态 |
+| `GET` | `/api/documents/{kb_id}/{doc_id}/raw-text` | 获取 txt/md 文件纯文本内容 |
+| `POST` | `/api/conversations` | 创建多轮会话 |
+| `GET` | `/api/conversations` | 列出会话（按 kb_id/scenario 筛选） |
+| `POST` | `/api/conversations/{id}/send` | 发送消息并获取流式回复（SSE） |
+| `POST` | `/api/conversations/{id}/fork` | Fork 会话（从指定消息截断历史） |
+| `POST` | `/api/course-info/{kb_id}/generate` | 生成课程信息卡片 |
+| `GET` | `/api/course-info/{kb_id}` | 获取课程信息卡片 |
+| `POST` | `/api/course-info/{kb_id}/chat` | 课程信息多轮问答（SSE） |
+| `GET` | `/api/review/{kb_id}/dates` | 列出可复习日期 |
+| `POST` | `/api/review/{kb_id}/generate` | 流式生成课后讲义（SSE，按节次分段） |
+| `POST` | `/api/review/{kb_id}/save-notes` | 保存讲义到磁盘并触发同步 |
 | `GET` | `/api/tasks` | 列出最近任务（默认 50 条） |
 | `GET` | `/api/tasks/doc/{doc_id}` | 列出指定文档的任务 |
 | `GET` | `/api/tasks/{task_id}` | 获取单个任务详情 |
@@ -313,7 +353,7 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_dashscope_key
 
 创建知识库时可选择两种类型：
 - **通用（general）**：适合笔记、资料整理与问答
-- **课程（course）**：面向课程学习，预留了场景模块扩展点（AI 课后复盘、AI 出卷、日程管理）
+- **课程（course）**：面向课程学习，支持绑定本地文件夹、文件夹自动同步；开启模块七（课后复习）与模块九（课程管家）功能
 
 ### IR 中间格式
 

@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
     file_count      INTEGER DEFAULT 0,
-    status          TEXT DEFAULT 'active'
+    status          TEXT DEFAULT 'active',
+    bound_folder_path TEXT DEFAULT ''               -- 绑定的本地文件夹路径，空字符串表示未绑定
 );
 
 -- ═══════════════ 文档记录 ═══════════════
@@ -49,8 +50,10 @@ CREATE TABLE IF NOT EXISTS documents (
     parent_chunks_path TEXT DEFAULT '',              -- parent_chunks.jsonl 路径
     child_chunks_path  TEXT DEFAULT '',              -- child_chunks.jsonl 路径
     page_count      INTEGER DEFAULT 0,
-    status          TEXT DEFAULT 'uploaded',         -- uploaded/parsing/indexed/needs_review/failed
+    status          TEXT DEFAULT 'uploaded',         -- uploaded/parsing/indexed/needs_review/failed/text_only/missing
     warnings        TEXT DEFAULT '',                 -- 解析警告信息（MinerU 异常字段等）
+    bound_file_path TEXT DEFAULT '',                 -- 文件夹绑定模式下的真实文件绝对路径
+    folder_category TEXT DEFAULT '',                 -- 目录分类：recording/slides/homework/notice/review_note/''
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -103,7 +106,7 @@ CREATE TABLE IF NOT EXISTS child_chunks (
 CREATE TABLE IF NOT EXISTS assets (
     asset_id        TEXT PRIMARY KEY,
     doc_id          TEXT NOT NULL REFERENCES documents(doc_id),
-    asset_type      TEXT NOT NULL,                   -- image/table_image/equation_image
+    asset_type      TEXT NOT NULL,                   -- image/chart_image/table_image/equation_image
     path            TEXT NOT NULL,
     usage           TEXT DEFAULT 'primary',
     mime            TEXT DEFAULT '',
@@ -199,8 +202,36 @@ CREATE TABLE IF NOT EXISTS course_info_cards (
     deadlines       TEXT DEFAULT '[]',               -- JSON array：[{name, date, description}, ...]
     important_notes TEXT DEFAULT '',                 -- 重要通知（Markdown）
     source_doc_ids  TEXT DEFAULT '[]',               -- JSON array，提取来源文档
+    deadlines_normalized TEXT DEFAULT '[]',          -- 规范化截止日列表（含days_left），便于前7天过滤
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ═══════════════ 多轮对话：会话（v1.2.0）═══════════════
+CREATE TABLE IF NOT EXISTS conversations (
+    conversation_id        TEXT PRIMARY KEY,
+    kb_id                  TEXT NOT NULL REFERENCES knowledge_bases(kb_id),
+    scenario               TEXT NOT NULL,           -- 'lecture_review' | 'course_info' | 'general'
+    title                  TEXT DEFAULT '',
+    parent_conversation_id TEXT DEFAULT '',         -- fork 时记录父对话 id
+    fork_from_message_id   TEXT DEFAULT '',         -- fork 自哪条消息
+    metadata               TEXT DEFAULT '{}',       -- JSON：场景相关元数据
+    enable_thinking        INTEGER DEFAULT 0,       -- 0/1：本对话是否开启思维链
+    created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ═══════════════ 多轮对话：消息（v1.2.0）═══════════════
+CREATE TABLE IF NOT EXISTS messages (
+    message_id        TEXT PRIMARY KEY,
+    conversation_id   TEXT NOT NULL REFERENCES conversations(conversation_id),
+    role              TEXT NOT NULL,                -- 'system' | 'user' | 'assistant'
+    content           TEXT DEFAULT '',
+    thinking          TEXT DEFAULT '',              -- 思维链文本（仅 assistant 且开 thinking 时）
+    sequence_num      INTEGER NOT NULL,             -- 在 conversation 内的顺序号（从 0 开始）
+    citations         TEXT DEFAULT '[]',            -- JSON：本轮引用的 chunk，仅 course_info/general
+    metadata          TEXT DEFAULT '{}',            -- JSON：role 特定元数据，如 section_num
+    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ═══════════════ 索引 ═══════════════
@@ -216,6 +247,10 @@ CREATE INDEX IF NOT EXISTS idx_exam_questions_kb ON exam_questions(kb_id);
 CREATE INDEX IF NOT EXISTS idx_exam_papers_kb ON exam_papers(kb_id);
 CREATE INDEX IF NOT EXISTS idx_exam_submissions_paper ON exam_submissions(paper_id);
 CREATE INDEX IF NOT EXISTS idx_course_info_cards_kb ON course_info_cards(kb_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_kb ON conversations(kb_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_scenario ON conversations(kb_id, scenario);
+CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, sequence_num);
 """
 
 
@@ -243,6 +278,11 @@ async def init_db() -> None:
             "ALTER TABLE child_chunks ADD COLUMN bbox_page TEXT DEFAULT '[]'",
             "ALTER TABLE child_chunks ADD COLUMN anchor_origin_pdf_path TEXT DEFAULT ''",
             "ALTER TABLE knowledge_bases ADD COLUMN kb_type TEXT DEFAULT 'general'",
+            # v1.2.0 新增列
+            "ALTER TABLE knowledge_bases ADD COLUMN bound_folder_path TEXT DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN bound_file_path TEXT DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN folder_category TEXT DEFAULT ''",
+            "ALTER TABLE course_info_cards ADD COLUMN deadlines_normalized TEXT DEFAULT '[]'",
         ]:
             try:
                 await db.execute(sql)

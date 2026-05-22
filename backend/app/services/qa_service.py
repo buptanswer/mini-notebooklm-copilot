@@ -177,6 +177,51 @@ async def stream_answer(
     }
     url = f"{settings.effective_qa_base_url}/chat/completions"
 
+    async for evt in stream_llm_completion(messages, enable_thinking=enable_thinking):
+        if evt["type"] == "thinking":
+            yield f"data: {json.dumps({'type': 'thinking', 'content': evt['content']}, ensure_ascii=False)}\n\n"
+        elif evt["type"] == "delta":
+            yield f"data: {json.dumps({'type': 'delta', 'content': evt['content']}, ensure_ascii=False)}\n\n"
+        elif evt["type"] == "error":
+            yield f"data: {json.dumps({'type': 'error', 'message': evt['message']}, ensure_ascii=False)}\n\n"
+
+    # ── 4. 结束标志 ────────────────────────────────────────────
+    yield f"data: {json.dumps({'type': 'end'}, ensure_ascii=False)}\n\n"
+
+
+# ─────────────────────────────────────────────────────────────
+# 底层 LLM 流式调用（共用基础，不含 SSE 包装）
+# ─────────────────────────────────────────────────────────────
+
+async def stream_llm_completion(
+    messages: list[dict],
+    *,
+    enable_thinking: bool = False,
+    model: str | None = None,
+) -> AsyncIterator[dict]:
+    """
+    底层流式 LLM 调用。yield 标准化 dict 事件（无 SSE 包装）：
+      {"type": "thinking", "content": "..."}
+      {"type": "delta",    "content": "..."}
+      {"type": "error",    "message": "..."}
+      {"type": "end"}
+    conversation_service 与 stream_answer 共用此函数。
+    """
+    payload: dict = {
+        "model": model or settings.qa_model,
+        "messages": messages,
+        "stream": True,
+    }
+    if enable_thinking:
+        payload["enable_thinking"] = True
+
+    headers = {
+        "Authorization": f"Bearer {settings.effective_qa_api_key}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+    url = f"{settings.effective_qa_base_url}/chat/completions"
+
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
@@ -184,8 +229,8 @@ async def stream_answer(
                     body = await resp.aread()
                     err_msg = f"QA API 错误: HTTP {resp.status_code} — {body.decode()[:300]}"
                     logger.error(err_msg)
-                    yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
-                    yield f"data: {json.dumps({'type': 'end'}, ensure_ascii=False)}\n\n"
+                    yield {"type": "error", "message": err_msg}
+                    yield {"type": "end"}
                     return
 
                 async for line in resp.aiter_lines():
@@ -200,28 +245,45 @@ async def stream_answer(
                         continue
 
                     delta = chunk_obj.get("choices", [{}])[0].get("delta", {})
-
-                    # 思考内容（enable_thinking=True 时才会出现）
                     thinking = delta.get("reasoning_content")
                     if thinking:
-                        yield (
-                            f"data: {json.dumps({'type': 'thinking', 'content': thinking}, ensure_ascii=False)}\n\n"
-                        )
-
-                    # 回答正文
+                        yield {"type": "thinking", "content": thinking}
                     content = delta.get("content")
                     if content:
-                        yield (
-                            f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
-                        )
+                        yield {"type": "delta", "content": content}
 
     except httpx.TimeoutException:
-        err = "请求超时（>120s），请稍后重试或缩短上下文"
-        logger.warning("QA 请求超时: %s", query[:80])
-        yield f"data: {json.dumps({'type': 'error', 'message': err}, ensure_ascii=False)}\n\n"
+        logger.warning("LLM 请求超时")
+        yield {"type": "error", "message": "请求超时（>120s），请稍后重试或缩短上下文"}
     except Exception:
-        logger.exception("QA 流式生成异常")
-        yield f"data: {json.dumps({'type': 'error', 'message': '内部错误，请稍后重试'}, ensure_ascii=False)}\n\n"
+        logger.exception("LLM 流式生成异常")
+        yield {"type": "error", "message": "内部错误，请稍后重试"}
 
-    # ── 4. 结束标志 ────────────────────────────────────────────
-    yield f"data: {json.dumps({'type': 'end'}, ensure_ascii=False)}\n\n"
+    yield {"type": "end"}
+
+
+async def call_llm_json(
+    messages: list[dict],
+    *,
+    model: str | None = None,
+) -> str:
+    """
+    非流式 LLM 调用，返回完整响应文本。
+    用于结构化 JSON 抽取场景（课程管家信息抽取等）。
+    """
+    payload: dict = {
+        "model": model or settings.qa_model,
+        "messages": messages,
+        "stream": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.effective_qa_api_key}",
+        "Content-Type": "application/json",
+    }
+    url = f"{settings.effective_qa_base_url}/chat/completions"
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]

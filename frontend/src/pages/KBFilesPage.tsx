@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import {
   Upload, Trash2, RefreshCw, MessageSquare, ArrowLeft,
-  PlayCircle, FileText, AlertTriangle, FolderPlus, CheckSquare, Square
+  PlayCircle, FileText, AlertTriangle, FolderPlus, CheckSquare, Square,
+  FolderSync,
 } from "lucide-react"
 import {
-  listDocuments, uploadDocument, triggerParse, deleteDocument, getKB
+  listDocuments, uploadDocument, triggerParse, deleteDocument, getKB, syncFolder,
 } from "@/api/client"
 import type { DocInfo, DocStatus, KBInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,8 @@ const STATUS_LABEL: Record<DocStatus, string> = {
   needs_review: "需检视",
   indexed: "已索引",
   failed: "失败",
+  text_only: "可用",
+  missing: "已消失",
 }
 
 const StatusBadge = ({ status }: { status: DocStatus }) => {
@@ -30,6 +33,8 @@ const StatusBadge = ({ status }: { status: DocStatus }) => {
     needs_review: "warning",
     indexed: "success",
     failed: "destructive",
+    text_only: "success",
+    missing: "secondary",
   }
   return (
     <span className="flex items-center gap-1">
@@ -54,6 +59,8 @@ export default function KBFilesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [uploading, setUploading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string>("")
   const [dragOver, setDragOver] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DocInfo | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -125,7 +132,10 @@ export default function KBFilesPage() {
           ? file.webkitRelativePath
           : file.name
         const doc = await uploadDocument(kbId, file, relPath)
-        await triggerParse(kbId, doc.doc_id)
+        // txt/md 已直接可用，无需解析
+        if (doc.source_format !== "txt" && doc.source_format !== "md") {
+          await triggerParse(kbId, doc.doc_id)
+        }
       } catch (e) {
         failCount += 1
         lastErr = (e as Error).message
@@ -186,8 +196,24 @@ export default function KBFilesPage() {
   })
 
   const canParse = (doc: DocInfo) => (
-    doc.status === "uploaded" || doc.status === "failed" || doc.status === "needs_review"
+    (doc.status === "uploaded" || doc.status === "failed" || doc.status === "needs_review")
+    && doc.source_format !== "txt" && doc.source_format !== "md"
   )
+
+  const handleSyncFolder = async () => {
+    if (!kbId) return
+    setSyncing(true)
+    setSyncResult("")
+    try {
+      const diff = await syncFolder(kbId)
+      setSyncResult(`同步完成：新增 ${diff.added.length} 个，消失 ${diff.removed.length} 个，未变化 ${diff.unchanged} 个`)
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const allSelected = sortedDocs.length > 0 && selectedDocIds.size === sortedDocs.length
 
@@ -277,6 +303,12 @@ export default function KBFilesPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {kbInfo?.bound_folder_path && (
+            <Button variant="outline" onClick={handleSyncFolder} disabled={syncing}>
+              <FolderSync className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
+              同步文件夹
+            </Button>
+          )}
           <Button variant="outline" onClick={() => { setLoading(true); load() }} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
             刷新
@@ -291,6 +323,12 @@ export default function KBFilesPage() {
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">
           ⚠ {error}
+        </div>
+      )}
+
+      {syncResult && (
+        <div className="mb-4 rounded-lg bg-green-50 border border-green-200 text-green-700 p-3 text-sm">
+          ✓ {syncResult}
         </div>
       )}
 

@@ -21,6 +21,7 @@ export default function KnowledgeBasePage() {
   const [newName, setNewName] = useState("")
   const [newDesc, setNewDesc] = useState("")
   const [newKbType, setNewKbType] = useState<KBType>("general")
+  const [newFolderPath, setNewFolderPath] = useState("")
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KBInfo | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -43,11 +44,12 @@ export default function KnowledgeBasePage() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      await createKB(newName.trim(), newDesc.trim(), newKbType)
+      await createKB(newName.trim(), newDesc.trim(), newKbType, newFolderPath.trim())
       setCreateOpen(false)
       setNewName("")
       setNewDesc("")
       setNewKbType("general")
+      setNewFolderPath("")
       load()
     } catch (e) {
       setError((e as Error).message)
@@ -182,8 +184,8 @@ export default function KnowledgeBasePage() {
       )}
 
       {/* Create Dialog */}
-      <Dialog open={createOpen} onClose={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general") }}>
-        <DialogClose onClick={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general") }} />
+      <Dialog open={createOpen} onClose={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general"); setNewFolderPath("") }}>
+        <DialogClose onClick={() => { setCreateOpen(false); setNewName(""); setNewDesc(""); setNewKbType("general"); setNewFolderPath("") }} />
         <DialogHeader>
           <DialogTitle>新建知识库</DialogTitle>
           <DialogDescription>创建一个新的知识库空间</DialogDescription>
@@ -248,6 +250,21 @@ export default function KnowledgeBasePage() {
               </button>
             </div>
           </div>
+          {newKbType === "course" && (
+            <div>
+              <Label htmlFor="kb-folder">绑定文件夹路径（可选）</Label>
+              <Input
+                id="kb-folder"
+                className="mt-1.5"
+                placeholder="例如：C:\Users\Alan\Desktop\数学物理方法"
+                value={newFolderPath}
+                onChange={e => setNewFolderPath(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                绑定后可使用"同步文件夹"自动登记录音、课件等文件
+              </p>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setCreateOpen(false)}>取消</Button>

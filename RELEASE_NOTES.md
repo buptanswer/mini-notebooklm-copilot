@@ -4,6 +4,68 @@
 
 ---
 
+## v1.2.0（2026-05-22）
+
+### 新增：文件夹绑定与自动同步
+
+课程知识库支持绑定本地文件夹，按约定目录结构自动注册文件：
+
+- `POST /api/kb/{kb_id}/sync-folder` — 扫描绑定目录，新文件自动入库（txt/md 直接标记 `text_only`，其他格式标记 `uploaded` 等待解析）
+- 文件消失时状态自动更新为 `missing`，重新出现后恢复
+- `folder_category` 自动按目录名映射（课堂录音、课件、作业、通知）
+- `GET /api/documents/{kb_id}/{doc_id}/raw-text` — 读取 txt/md 文件纯文本（模块七使用）
+
+### 新增：多轮会话系统
+
+- `conversations` + `messages` 表持久化，支持无限轮次
+- Fork 语义：从任意消息截断历史创建新分支，原会话不变
+- SSE 流式发送端点 `POST /api/conversations/{id}/send`
+- 支持 `enable_thinking` 开关（思维链输出）和 `metadata` 扩展字段
+
+### 新增：模块九 — AI 管家（课程信息卡片）
+
+- 5 路混合检索 → LLM JSON 结构化抽取 → 课程信息卡片
+- 自动解析截止日期（ISO / 中文月日 / 斜杠格式），计算 `days_left`
+- KB 顶部 deadline banner（7 天内到期任务）
+- 课程信息多轮问答（`POST /api/course-info/{kb_id}/chat`，SSE）
+
+### 新增：模块七 — AI 伴学（课后复习讲义生成）
+
+- 按日期 + 节次扫描录音转写文件，一次性流式生成全部节次讲义
+- 每节独立 SSE 段落（`section_start`/`thinking`/`delta`/`section_done`），前端按节分组展示
+- 讲义保存到磁盘，经文件夹同步自动登记为 `text_only` 文档
+- 支持追问（在同一 conversation 中继续多轮对话）
+- 支持 Fork 分支复习
+
+### 新增：提示词管理
+
+- 提示词独立为 `backend/app/prompts/*.md` 文件，热更新无需重启
+- `GET /api/settings/prompts` 查看已加载提示词列表
+- `POST /api/settings/prompts/reload` 立即重载
+
+### 新增：前端嵌套路由与二级侧边栏
+
+- `KBLayout` 作为知识库二级布局，包含返回按钮、KB 名称、类型标识
+- 课程 KB 显示额外导航项：课后复习、课程管家
+- deadline banner：临近截止日期时在顶部显示橙色提示条
+
+### 文档状态扩展
+
+| 新状态 | 含义 |
+|--------|------|
+| `text_only` | txt/md 文件，无需 MinerU 解析，可直接供模块七使用 |
+| `missing` | 文件夹同步时原文件已从磁盘删除 |
+
+### 测试
+
+```
+后端 API 端到端测试：49/49 全部通过
+TypeScript 编译检查：0 错误
+前端生产构建：✓ 通过
+```
+
+---
+
 ## v1.1.0（2026-05-21）
 
 ### 新增：MinerU 格式监控系统

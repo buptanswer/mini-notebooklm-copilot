@@ -10,7 +10,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api import chat, documents, health, kb, tasks
+from app.api import chat, conversations, course_info, documents, health, kb, review, tasks
+from app.api import settings as api_settings
 from app.config import settings
 from app.db.database import init_db
 from app.db.qdrant_client import init_qdrant
@@ -30,7 +31,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Mini-NotebookLM",
     description="面向大学生的多模态课程知识库与 AI 辅导系统",
-    version="0.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -49,3 +50,7 @@ app.include_router(kb.router)
 app.include_router(documents.router)
 app.include_router(tasks.router)
 app.include_router(chat.router)
+app.include_router(conversations.router)
+app.include_router(course_info.router)
+app.include_router(review.router)
+app.include_router(api_settings.router)

@@ -30,12 +30,14 @@ class KBCreateRequest(BaseModel):
     name: str
     description: str = ""
     kb_type: KBType = "general"          # 课程知识库自动展示三个场景模块入口
+    bound_folder_path: str = ""          # 绑定的本地文件夹路径，空字符串表示传统上传模式
 
 
 class KBUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     kb_type: KBType | None = None
+    bound_folder_path: str | None = None
 
 
 class KBInfo(BaseModel):
@@ -43,6 +45,7 @@ class KBInfo(BaseModel):
     name: str
     description: str
     kb_type: str = "general"
+    bound_folder_path: str = ""
     created_at: str
     updated_at: str
     file_count: int
@@ -56,6 +59,7 @@ class KBListResponse(BaseModel):
 _KB_SELECT = """
     SELECT kb_id, name, description,
            COALESCE(kb_type,'general') AS kb_type,
+           COALESCE(bound_folder_path,'') AS bound_folder_path,
            created_at, updated_at, file_count, status
     FROM knowledge_bases
 """
@@ -71,9 +75,9 @@ async def create_knowledge_base(req: KBCreateRequest):
     try:
         await db.execute(
             """INSERT INTO knowledge_bases
-               (kb_id, name, description, kb_type, created_at, updated_at)
-               VALUES (?,?,?,?,?,?)""",
-            (kb_id, req.name, req.description, req.kb_type, now, now),
+               (kb_id, name, description, kb_type, bound_folder_path, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (kb_id, req.name, req.description, req.kb_type, req.bound_folder_path, now, now),
         )
         await db.commit()
         return KBInfo(
@@ -81,6 +85,7 @@ async def create_knowledge_base(req: KBCreateRequest):
             name=req.name,
             description=req.description,
             kb_type=req.kb_type,
+            bound_folder_path=req.bound_folder_path,
             created_at=now,
             updated_at=now,
             file_count=0,
@@ -129,14 +134,16 @@ async def update_knowledge_base(kb_id: str, req: KBUpdateRequest):
         new_name = req.name if req.name is not None else current["name"]
         new_desc = req.description if req.description is not None else current["description"]
         new_type = req.kb_type if req.kb_type is not None else current["kb_type"]
+        new_folder = req.bound_folder_path if req.bound_folder_path is not None else current["bound_folder_path"]
         now = datetime.now(timezone.utc).isoformat()
 
         await db.execute(
-            "UPDATE knowledge_bases SET name=?, description=?, kb_type=?, updated_at=? WHERE kb_id=?",
-            (new_name, new_desc, new_type, now, kb_id),
+            "UPDATE knowledge_bases SET name=?, description=?, kb_type=?, bound_folder_path=?, updated_at=? WHERE kb_id=?",
+            (new_name, new_desc, new_type, new_folder, now, kb_id),
         )
         await db.commit()
-        current.update(name=new_name, description=new_desc, kb_type=new_type, updated_at=now)
+        current.update(name=new_name, description=new_desc, kb_type=new_type,
+                       bound_folder_path=new_folder, updated_at=now)
         return KBInfo(**current)
     finally:
         await db.close()
@@ -215,3 +222,11 @@ async def delete_knowledge_base(kb_id: str):
         return {"detail": "已删除", "cascaded_docs": len(doc_ids)}
     finally:
         await db.close()
+
+
+@router.post("/{kb_id}/sync-folder")
+async def sync_folder(kb_id: str):
+    """触发一次文件夹同步，返回 diff 结果（新增/消失/未变化数量）。"""
+    from app.services import folder_sync_service
+    diff = await folder_sync_service.scan_and_sync(kb_id)
+    return diff

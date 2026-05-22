@@ -42,7 +42,8 @@ class DocListResponse(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────
 
-_SUPPORTED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg"}
+_SUPPORTED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg",
+                          ".txt", ".md"}
 _DOC_SELECT = """
     SELECT doc_id, kb_id, filename,
            COALESCE(relative_path, filename) AS relative_path,
@@ -60,6 +61,7 @@ def _detect_format(filename: str) -> str:
         ".pdf": "pdf", ".ppt": "pptx", ".pptx": "pptx",
         ".doc": "docx", ".docx": "docx",
         ".png": "png", ".jpg": "jpg", ".jpeg": "jpeg",
+        ".txt": "txt", ".md": "md",
     }
     return mapping.get(ext, "unknown")
 
@@ -105,6 +107,8 @@ async def upload_document(
 
     file_size = upload_path.stat().st_size
     source_format = _detect_format(display_name)
+    # .txt/.md 无需 MinerU，直接标记为可用
+    initial_status = "text_only" if source_format in ("txt", "md") else "uploaded"
     now = datetime.now(timezone.utc).isoformat()
 
     db = await get_db()
@@ -115,9 +119,11 @@ async def upload_document(
 
         await db.execute(
             """INSERT INTO documents
-               (doc_id, kb_id, filename, relative_path, source_format, file_size, upload_path, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (doc_id, kb_id, display_name, logical_path, source_format, file_size, str(upload_path), now, now),
+               (doc_id, kb_id, filename, relative_path, source_format, file_size, upload_path,
+                status, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (doc_id, kb_id, display_name, logical_path, source_format, file_size, str(upload_path),
+             initial_status, now, now),
         )
         await db.execute(
             "UPDATE knowledge_bases SET file_count = file_count + 1, updated_at = ? WHERE kb_id = ?",
@@ -129,7 +135,7 @@ async def upload_document(
             doc_id=doc_id, kb_id=kb_id, filename=display_name,
             relative_path=logical_path,
             source_format=source_format, file_size=file_size, page_count=0,
-            status="uploaded", created_at=now, updated_at=now,
+            status=initial_status, created_at=now, updated_at=now,
         )
     finally:
         await db.close()
@@ -186,6 +192,8 @@ async def trigger_parse(kb_id: str, doc_id: str, bg: BackgroundTasks):
         if not row:
             raise HTTPException(status_code=404, detail="文档不存在")
         r = dict(row)
+        if r["source_format"] in ("txt", "md"):
+            raise HTTPException(status_code=400, detail="txt/md 文件无需解析（已直接可用）")
         if r["status"] not in ("uploaded", "failed", "needs_review"):
             raise HTTPException(
                 status_code=409,
@@ -293,3 +301,33 @@ async def get_origin_pdf(kb_id: str, doc_id: str):
         filename=f"{doc_id}_origin.pdf",
         headers={"Content-Disposition": "inline"},
     )
+
+
+# ── 读取 txt/md 原文 ──────────────────────────────────────
+
+@router.get("/{kb_id}/{doc_id}/raw-text", summary="读取 txt/md 文件原文")
+async def get_raw_text(kb_id: str, doc_id: str):
+    """返回 txt/md 文件的纯文本内容（UTF-8）。仅限 source_format in (txt, md)。"""
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT source_format, upload_path, bound_file_path FROM documents WHERE doc_id=? AND kb_id=?",
+            (doc_id, kb_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+    finally:
+        await db.close()
+
+    if r["source_format"] not in ("txt", "md"):
+        raise HTTPException(status_code=400, detail="仅支持 txt/md 格式文件")
+
+    # 优先用 bound_file_path（文件夹绑定），否则用 upload_path
+    path_str = (r.get("bound_file_path") or "").strip() or (r.get("upload_path") or "").strip()
+    if not path_str or not Path(path_str).exists():
+        raise HTTPException(status_code=404, detail="文件不存在于磁盘，请重新同步")
+
+    text = Path(path_str).read_text(encoding="utf-8", errors="replace")
+    return {"doc_id": doc_id, "text": text, "path": path_str}
