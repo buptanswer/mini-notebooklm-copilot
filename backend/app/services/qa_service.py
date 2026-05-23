@@ -161,22 +161,6 @@ async def stream_answer(
     ]
 
     # ── 3. 调用 QA 模型（SSE 流式，支持多 Provider）──────────
-    payload: dict = {
-        "model": settings.qa_model,
-        "messages": messages,
-        "stream": True,
-    }
-    # enable_thinking 仅在显式开启时附加（部分 Provider 不识别该参数会报错）
-    if enable_thinking:
-        payload["enable_thinking"] = True
-
-    headers = {
-        "Authorization": f"Bearer {settings.effective_qa_api_key}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-    }
-    url = f"{settings.effective_qa_base_url}/chat/completions"
-
     async for evt in stream_llm_completion(messages, enable_thinking=enable_thinking):
         if evt["type"] == "thinking":
             yield f"data: {json.dumps({'type': 'thinking', 'content': evt['content']}, ensure_ascii=False)}\n\n"

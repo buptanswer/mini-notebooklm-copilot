@@ -56,10 +56,24 @@
 | `text_only` | txt/md 文件，无需 MinerU 解析，可直接供模块七使用 |
 | `missing` | 文件夹同步时原文件已从磁盘删除 |
 
+### Bug 修复（本版本自检）
+
+| 位置 | 问题 | 修复 |
+|------|------|------|
+| `kb.py` DELETE | 删除有多轮会话记录的 KB 时报 `FOREIGN KEY constraint failed` | 级联删除 `messages` → `conversations` 再删 KB |
+| `qa_service.py` | `stream_answer` 重构后遗留 `payload/headers/url` 死代码（从未被使用） | 删除死代码 |
+| `course_info_service.py` | LLM 返回无效 JSON 时静默失败，无日志 | 添加 `logger.warning` 记录原始响应片段 |
+| `types.ts` | `ReviewNote` 接口未定义，前端无法使用加载讲义功能 | 补充 `ReviewNote` 接口定义 |
+| `client.ts` | `loadReviewNotes` 函数缺失（后端端点存在但前端未封装） | 添加 `loadReviewNotes(kbId, date)` |
+| `ReviewPage.tsx` | 历史会话侧边栏点击仅更新状态，未触发 URL 路由，导致讲义不加载 | 改为 `navigate(...)` 触发 `useEffect` URL 监听 |
+| `ReviewPage.tsx` | 缺少「加载已存盘讲义」按钮（`has_notes=true` 时无法查看已保存内容） | 添加按钮，调用 `loadReviewNotes` 填充视图 |
+| `ReviewPage.tsx` | 缺少「导出 PDF」按钮 | 添加 `window.print()` 按钮 |
+
 ### 测试
 
 ```
-后端 API 端到端测试：49/49 全部通过
+后端 API 端到端测试（test_api.py）：49/49 全部通过
+v1.2.0 新功能测试（test_v120.py）：85/85 全部通过
 TypeScript 编译检查：0 错误
 前端生产构建：✓ 通过
 ```

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useNavigate } from "react-router-dom"
 import {
   CalendarDays, BookOpen, ChevronRight, Play, Save, Send,
-  RefreshCw, GitBranch, Brain, Loader2, CheckCircle,
+  RefreshCw, GitBranch, Brain, Loader2, CheckCircle, Printer, FileText,
 } from "lucide-react"
 import {
   listReviewDates, listReviewSections, streamReviewGenerate, saveReviewNotes,
   streamReviewFollowup, listReviewConversations, forkConversation, getConversation,
+  loadReviewNotes,
 } from "@/api/client"
 import type { ConversationInfo, ReviewDateInfo, ReviewSectionInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,7 @@ interface SectionNote {
 
 export default function ReviewPage() {
   const { kbId, conversationId: urlConvId } = useParams<{ kbId: string; conversationId?: string }>()
+  const navigate = useNavigate()
 
   const [dates, setDates] = useState<ReviewDateInfo[]>([])
   const [selectedDate, setSelectedDate] = useState<string>("")
@@ -293,11 +295,7 @@ export default function ReviewPage() {
             {showHistory && historyConvs.map(c => (
               <button
                 key={c.conversation_id}
-                onClick={() => {
-                  setConversationId(c.conversation_id)
-                  const meta = c.metadata as Record<string, unknown>
-                  setSelectedDate(meta.date as string || "")
-                }}
+                onClick={() => navigate(`/kb/${kbId}/review/${c.conversation_id}`)}
                 className={cn(
                   "w-full text-left rounded px-2 py-1.5 mb-1 text-xs transition-colors",
                   conversationId === c.conversation_id ? "bg-blue-50 text-blue-600" : "hover:bg-gray-100 text-gray-600"
@@ -326,10 +324,35 @@ export default function ReviewPage() {
                 {selectedDate} 课后复习
               </h1>
               <div className="flex items-center gap-2">
+                {/* 加载已存盘讲义 */}
+                {sectionNotes.size === 0 && !generating && dates.find(d => d.date === selectedDate)?.has_notes && (
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    if (!kbId) return
+                    const notes = await loadReviewNotes(kbId, selectedDate).catch(() => [])
+                    if (notes.length > 0) {
+                      const m = new Map<number, SectionNote>()
+                      notes.forEach(n => m.set(n.section_num, {
+                        section_num: n.section_num, content: n.content_md,
+                        done: true, thinking: "", showThinking: false,
+                      }))
+                      setSectionNotes(m)
+                      setSavedMsg("已加载磁盘讲义")
+                    }
+                  }}>
+                    <FileText className="h-4 w-4 mr-1" />
+                    加载已存盘讲义
+                  </Button>
+                )}
                 {allDone && conversationId && (
                   <Button size="sm" variant="outline" onClick={handleSave} disabled={saving}>
                     {saving ? <Spinner size="sm" className="mr-1" /> : <Save className="h-4 w-4 mr-1" />}
                     保存讲义
+                  </Button>
+                )}
+                {allDone && sortedNotes.length > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => window.print()} title="导出为 PDF（浏览器打印）">
+                    <Printer className="h-4 w-4 mr-1" />
+                    导出 PDF
                   </Button>
                 )}
               </div>

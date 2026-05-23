@@ -309,6 +309,7 @@ npm run dev
 | `GET` | `/api/review/{kb_id}/dates` | 列出可复习日期 |
 | `POST` | `/api/review/{kb_id}/generate` | 流式生成课后讲义（SSE，按节次分段） |
 | `POST` | `/api/review/{kb_id}/save-notes` | 保存讲义到磁盘并触发同步 |
+| `GET` | `/api/review/{kb_id}/notes` | 读取指定日期的已保存讲义（`?date=YYMMDD`） |
 | `GET` | `/api/tasks` | 列出最近任务（默认 50 条） |
 | `GET` | `/api/tasks/doc/{doc_id}` | 列出指定文档的任务 |
 | `GET` | `/api/tasks/{task_id}` | 获取单个任务详情 |
@@ -412,8 +413,12 @@ uv run python tools/mineru_format_probe.py --online
 ```bash
 cd backend
 
-# API 端到端测试（不依赖外部 API，快速）
-uv run python test_api.py
+# API 端到端回归测试（不依赖外部 API，快速）
+uv run python test_api.py        # 49 个测试
+
+# v1.2.0 新功能集成测试（不依赖外部 API，快速）
+uv run python test_v120.py       # 85 个测试
+# 注意：运行前需确保 uvicorn 服务未启动（Qdrant 文件锁限制单进程访问）
 
 # Stage 2: MinerU 解析与 IR 标准化（需要 MINERU_API_KEY）
 uv run python test_stage2.py

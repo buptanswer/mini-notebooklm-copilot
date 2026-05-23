@@ -152,6 +152,14 @@ export interface ReviewSectionInfo {
   note_path: string | null
 }
 
+// ── 课后复习讲义（磁盘文件）────────────────────────────────
+
+export interface ReviewNote {
+  section_num: number
+  path: string
+  content_md: string
+}
+
 // ── 文件夹同步 ──────────────────────────────────────────────
 
 export interface SyncDiff {

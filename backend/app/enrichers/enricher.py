@@ -1,13 +1,14 @@
 """
 Enricher Service — 多模态富化（图片描述 / 表格摘要）
 
-使用 qwen3.5-flash Vision API 为图片生成描述、为表格生成摘要，
-富化后的数据写入 IRBlockEnriched，提升检索阶段的召回质量。
+使用 Qwen-VL 视觉多模态模型（型号由 settings.vlm_model 控制，默认 qwen-vl-plus）
+为图片生成描述、为表格生成摘要，富化后的数据写入 IRBlockEnriched，
+提升检索阶段的召回质量。
 
 流程：
   1. 收集所有 image / table 类型的 IRBlock
-  2. 对每个图片：读取文件 → base64 → qwen3.5-flash 生成描述
-  3. 对每个表格：提取 HTML → qwen3.5-flash 生成摘要
+  2. 对每个图片：读取文件 → base64 → VLM 模型生成描述
+  3. 对每个表格：提取 HTML → VLM 模型生成摘要
   4. 组装 IRBlockEnriched，附加 enrichment 字段
 """
 
@@ -227,7 +228,7 @@ async def _enrich_table_block(blk: IRBlock) -> Optional[BlockEnrichment]:
 # ─────────────────────────────────────────────────────────────
 
 async def _call_vision_api(image_path: str, prompt: str) -> str:
-    """调用 qwen3.5-flash Vision API 分析图片，返回文字描述。"""
+    """调用 VLM 视觉模型分析图片，返回文字描述。"""
     if not Path(image_path).exists():
         logger.warning("图片文件不存在: %s", image_path)
         raise FileNotFoundError(f"图片文件不存在: {image_path}")
@@ -268,7 +269,7 @@ async def _call_vision_api(image_path: str, prompt: str) -> str:
 
 
 async def _call_text_summary(text: str, prompt: str) -> str:
-    """调用 qwen3.5-flash 生成纯文本摘要。"""
+    """调用 VLM 模型生成纯文本摘要。"""
     # 截断过长 HTML
     if len(text) > 3000:
         text = text[:3000]

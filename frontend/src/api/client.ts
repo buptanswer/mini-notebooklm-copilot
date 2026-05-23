@@ -9,6 +9,7 @@ import type {
   KBInfo,
   KBType,
   ReviewDateInfo,
+  ReviewNote,
   ReviewSectionInfo,
   SearchResultItem,
   SyncDiff,
@@ -443,6 +444,12 @@ export async function saveReviewNotes(kbId: string, conversationId: string): Pro
     body: JSON.stringify({ conversation_id: conversationId }),
   })
   return handleResponse<unknown>(res)
+}
+
+export async function loadReviewNotes(kbId: string, date: string): Promise<ReviewNote[]> {
+  const res = await fetch(`${BASE}/review/${kbId}/notes?date=${encodeURIComponent(date)}`)
+  const data = await handleResponse<{ notes: ReviewNote[] }>(res)
+  return data.notes
 }
 
 export async function listReviewConversations(kbId: string): Promise<ConversationInfo[]> {

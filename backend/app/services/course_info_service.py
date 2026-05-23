@@ -11,11 +11,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from datetime import date, datetime, timezone
 
 from app.db.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.prompts import load_prompt
 from app.services.qa_service import call_llm_json
 from app.services.retrieval_service import hybrid_search
@@ -72,6 +75,7 @@ async def generate_card(kb_id: str) -> dict:
     try:
         extracted = json.loads(json_text)
     except json.JSONDecodeError:
+        logger.warning("课程信息 JSON 解析失败，原始响应前 300 字符: %s", json_text[:300])
         extracted = {}
 
     # 6. 规范化 deadlines

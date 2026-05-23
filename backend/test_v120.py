@@ -331,28 +331,117 @@ async def _test_course_info_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
 async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
     print("\n[6] 模块七：课后复习端点")
 
-    # list_dates (empty)
+    # list_dates (empty KB → empty list)
     r = await c.get(f"/api/review/{kb_id}/dates")
     _record("GET /api/review/{id}/dates → 200", r.status_code == 200)
     data = r.json()
     _record("dates returns list", isinstance(data.get("dates"), list))
 
-    # list_sections (empty)
+    # list_sections (no documents → empty)
     r2 = await c.get(f"/api/review/{kb_id}/sections?date=260101")
     _record("GET /api/review/{id}/sections → 200", r2.status_code == 200)
+    _record("sections returns list", isinstance(r2.json().get("sections"), list))
 
-    # notes (empty)
+    # notes endpoint (empty)
     r3 = await c.get(f"/api/review/{kb_id}/notes?date=260101")
     _record("GET /api/review/{id}/notes → 200", r3.status_code == 200)
+    _record("notes returns list", isinstance(r3.json().get("notes"), list))
 
     # conversations (empty)
     r4 = await c.get(f"/api/review/{kb_id}/conversations")
     _record("GET /api/review/{id}/conversations → 200", r4.status_code == 200)
+    _record("conversations returns list", isinstance(r4.json().get("conversations"), list))
 
     # generate → 404 (no sections)
     r5 = await c.post(f"/api/review/{kb_id}/generate",
                       json={"date": "260101", "time_descriptor": "下午2节", "user_identity": "test"})
     _record("POST generate without sections → 404", r5.status_code == 404)
+
+    # Full flow: sync folder → generate → save-notes → load-notes
+    print("\n[6b] 模块七：完整流程（sync→generate→save→load）")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # 创建录音文件
+        rec_dir = Path(tmpdir) / "课堂录音" / "260505"
+        rec_dir.mkdir(parents=True)
+        txt1 = rec_dir / "测试课程260505第01节.txt"
+        txt2 = rec_dir / "测试课程260505第02节.txt"
+        txt1.write_text("这是第一节课的录音转写内容，包含一些知识点。", encoding="utf-8")
+        txt2.write_text("这是第二节课的录音转写内容，包含另一些知识点。", encoding="utf-8")
+
+        # 创建绑定文件夹的 KB
+        r_kb = await c.post("/api/kb", json={
+            "name": "模七完整测试",
+            "kb_type": "course",
+            "bound_folder_path": tmpdir,
+        })
+        _record("创建绑定 KB → 200", r_kb.status_code == 200)
+        review_kb_id = r_kb.json()["kb_id"]
+
+        # 同步文件夹
+        r_sync = await c.post(f"/api/kb/{review_kb_id}/sync-folder")
+        _record("同步文件夹 → 200", r_sync.status_code == 200)
+        diff = r_sync.json()
+        _record("2个录音文件被同步", len(diff.get("added", [])) == 2)
+
+        # 检查日期
+        r_dates = await c.get(f"/api/review/{review_kb_id}/dates")
+        dates_list = r_dates.json().get("dates", [])
+        _record("dates 包含 260505", any(d["date"] == "260505" for d in dates_list))
+
+        # 检查节次
+        r_secs = await c.get(f"/api/review/{review_kb_id}/sections?date=260505")
+        secs = r_secs.json().get("sections", [])
+        _record("sections 有 2 节", len(secs) == 2)
+
+        # 流式生成（mock LLM）
+        r_gen = await c.post(f"/api/review/{review_kb_id}/generate",
+                             json={"date": "260505", "time_descriptor": "下午2节",
+                                   "user_identity": "北邮大二", "enable_thinking": False})
+        _record("generate → 200 (SSE)", r_gen.status_code == 200)
+        events = _collect_sse(r_gen.text)
+        event_types = {e.get("type") for e in events}
+        _record("generate 有 conversation_created 事件", "conversation_created" in event_types)
+        _record("generate 有 section_start 事件", "section_start" in event_types)
+        _record("generate 有 section_done 事件", "section_done" in event_types)
+        _record("generate 有 all_done 事件", "all_done" in event_types)
+
+        # 拿到 conversation_id
+        conv_created = next((e for e in events if e.get("type") == "conversation_created"), None)
+        _record("all_done 包含 conversation_id", conv_created is not None and "conversation_id" in conv_created)
+        gen_conv_id = conv_created["conversation_id"] if conv_created else None
+
+        if gen_conv_id:
+            # 保存讲义到磁盘
+            r_save = await c.post(f"/api/review/{review_kb_id}/save-notes",
+                                   json={"conversation_id": gen_conv_id})
+            _record("save-notes → 200", r_save.status_code == 200)
+            saved = r_save.json().get("saved", [])
+            _record("save 返回已保存列表", isinstance(saved, list) and len(saved) > 0)
+
+            # 加载已保存讲义
+            r_notes = await c.get(f"/api/review/{review_kb_id}/notes?date=260505")
+            _record("load notes after save → 200", r_notes.status_code == 200)
+            notes = r_notes.json().get("notes", [])
+            _record("notes 非空", len(notes) > 0)
+            _record("notes 有 content_md", all("content_md" in n for n in notes))
+
+            # 追问 followup
+            r_followup = await c.post(f"/api/review/{review_kb_id}/followup",
+                                       json={"conversation_id": gen_conv_id, "content": "帮我总结一下"})
+            _record("followup → 200", r_followup.status_code == 200)
+            fup_events = _collect_sse(r_followup.text)
+            fup_types = {e.get("type") for e in fup_events}
+            _record("followup SSE has delta", "delta" in fup_types)
+            _record("followup SSE has end", "end" in fup_types)
+
+        # 日期有 has_notes 标记
+        r_dates2 = await c.get(f"/api/review/{review_kb_id}/dates")
+        dates2 = r_dates2.json().get("dates", [])
+        date_260505 = next((d for d in dates2 if d["date"] == "260505"), None)
+        _record("260505 日期 has_notes=True", date_260505 is not None and date_260505.get("has_notes") is True)
+
+        # 清理
+        await c.delete(f"/api/kb/{review_kb_id}")
 
 
 async def _test_prompts(c: httpx.AsyncClient) -> None:

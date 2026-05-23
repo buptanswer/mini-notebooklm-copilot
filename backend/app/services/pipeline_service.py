@@ -4,37 +4,46 @@ Pipeline Service — 完整文档解析流水线（异步后台任务）
 流程：
   文件上传（已完成）
     ↓
-  [A] 申请预签名上传 URL（MinerU）
+  [A]      申请预签名上传 URL（MinerU）
     ↓
-  [B] PUT 上传文件
+  [B]      PUT 上传文件
     ↓
-  [C] 轮询 batch 结果，获取 full_zip_url
+  [C]      轮询 batch 结果，获取 full_zip_url
     ↓
-  [D] 下载 ZIP
+  [D]      下载 ZIP
     ↓
-  [E] 解压 + bundle 识别（bundle_parser）
+  [E]      解压 + bundle 识别（bundle_parser）
     ↓
-  [F] 归一化：content_list_v2 → IRBlock[] + IRPage[]（normalizer）
+  [E+]     MinerU 格式严格审计（format_checker，结果写入 format_probe_log.jsonl）
     ↓
-  [G] DOM 重建：section 树 + header_path（dom_builder）
+  [F]      归一化：content_list_v2 → IRBlock[] + IRPage[]（normalizer）
     ↓
-  [H] 脚注关联（footnote_linker）
+  [G]      DOM 重建：section 树 + header_path（dom_builder）
     ↓
-  [I] 读取 layout.json 元数据
+  [H]      脚注关联（footnote_linker）
     ↓
-  [J] 写出 document_ir.json（ir_writer）
+  [I]      读取 layout.json 元数据（mineru_backend / version）
     ↓
-  [L] 构建 ParentChunk（parent_chunker）
+  [J]      写出 document_ir.json（ir_writer）
     ↓
-  [M] 构建 ChildChunk（child_chunker）
+  [IR-V]   IR 结构校验（ir_validator，错误降级为 warning，不阻断）
     ↓
-  [N] 向量化：text-embedding-v4（embedding_service）
+  [K-vlm]  多模态富化（enricher，图片描述 / 表格摘要，并发 3，
+           写出 document_ir_enriched.json）
     ↓
-  [O] 写入 Qdrant + SQLite（index_service）
+  [L]      构建 ParentChunk（parent_chunker）
     ↓
-  [P] 写出 parent_chunks.jsonl + child_chunks.jsonl（chunk_writer）
+  [M]      构建 ChildChunk（child_chunker）
     ↓
-  [K] 更新 documents 表状态 → indexed / needs_review
+  [Chunk-V] Chunk 结构校验（chunk_validator）
+    ↓
+  [N]      向量化：text-embedding-v4（embedding_service）
+    ↓
+  [O]      写入 Qdrant + SQLite（index_service）
+    ↓
+  [P]      写出 parent_chunks.jsonl + child_chunks.jsonl（chunk_writer）
+    ↓
+  [K]      更新 documents 表状态 → indexed / needs_review
 
 任务状态写入 SQLite：
   created → running → done / failed

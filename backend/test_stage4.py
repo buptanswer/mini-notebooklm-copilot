@@ -6,7 +6,7 @@ test_stage4.py — Stage 4 完整流水线测试
   Test 2: 关键词检索（SQLite FTS5 BM25）
   Test 3: 混合检索（RRF 融合）
   Test 4: 重排序（qwen3-rerank DashScope API）
-  Test 5: 流式问答（qwen3.5-plus，收集完整回答）
+  Test 5: 流式问答（QA 模型由 QA_MODEL 环境变量控制，收集完整回答）
 
 前置条件（Stage 3 测试后满足）:
   - doc_id="test-sample-pdf" 已入库
