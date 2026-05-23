@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { ArrowLeft, Send, BookOpen, ChevronDown, ChevronUp, FileText } from "lucide-react"
+import { ArrowLeft, Send, BookOpen, ChevronDown, ChevronUp, FileText, Brain } from "lucide-react"
 import { Document, Page, pdfjs } from "react-pdf"
 import { streamChat, getOriginPdfUrl } from "@/api/client"
 import type { CitationItem } from "@/api/types"
@@ -120,6 +120,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
+  const [enableThinking, setEnableThinking] = useState(false)
   const [preview, setPreview] = useState<PreviewState | null>(null)
   const [pdfRenderWidth, setPdfRenderWidth] = useState(860)
   const abortRef = useRef<(() => void) | null>(null)
@@ -164,6 +165,7 @@ export default function ChatPage() {
     setStreaming(true)
 
     abortRef.current = streamChat(kbId, q, {
+      enableThinking,
       onEvent: (ev) => {
         if (ev.type === "citations") {
           setMessages(prev =>
@@ -329,6 +331,15 @@ export default function ChatPage() {
             />
             <Button
               size="sm"
+              variant={enableThinking ? "default" : "outline"}
+              className="h-10 px-3 shrink-0"
+              onClick={() => setEnableThinking(v => !v)}
+              title={enableThinking ? "已开启思维链（点击关闭）" : "开启思维链（深度思考模式）"}
+            >
+              <Brain className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
               className="h-10 px-3 shrink-0"
               onClick={send}
               disabled={streaming || !input.trim()}
@@ -336,6 +347,9 @@ export default function ChatPage() {
               {streaming ? <Spinner size="sm" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
+          {enableThinking && (
+            <p className="mt-1 text-xs text-blue-500">💭 思维链已开启，回答前将显示推理过程</p>
+          )}
         </div>
       </div>
 

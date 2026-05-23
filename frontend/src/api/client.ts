@@ -372,20 +372,21 @@ export function streamCourseInfoChat(
   content: string,
   conversationId: string | null,
   options: {
+    enableThinking?: boolean
     onEvent: (event: ChatEvent) => void
     onError?: (err: Error) => void
     onDone?: (convId: string) => void
   },
 ): () => void {
   const controller = new AbortController()
-  const { onEvent, onError, onDone } = options
+  const { enableThinking = false, onEvent, onError, onDone } = options
 
   const run = async () => {
     try {
       const res = await fetch(`${BASE}/course-info/${kbId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, conversation_id: conversationId }),
+        body: JSON.stringify({ content, conversation_id: conversationId, enable_thinking: enableThinking }),
         signal: controller.signal,
       })
       if (!res.ok) {

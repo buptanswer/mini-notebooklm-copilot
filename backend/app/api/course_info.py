@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/course-info", tags=["course-info"])
 class ChatRequest(BaseModel):
     content: str
     conversation_id: str | None = None   # None 时自动创建新会话
+    enable_thinking: bool = False
 
 
 @router.post("/{kb_id}/generate")
@@ -72,11 +73,17 @@ async def chat(kb_id: str, req: ChatRequest):
             kb_id=kb_id,
             scenario="course_info",
             title="课程管家对话",
+            enable_thinking=req.enable_thinking,
         )
     else:
         conv = await conversation_service.get_conversation(conv_id)
         if not conv:
             raise HTTPException(status_code=404, detail="会话不存在")
+        # 若前端切换了思维链状态，同步更新会话设置
+        if conv.get("enable_thinking") != req.enable_thinking:
+            await conversation_service.update_conversation(
+                conv_id, enable_thinking=req.enable_thinking
+            )
 
     # 首次注入系统提示（只有会话无 system message 时注入）
     from app.prompts import load_prompt

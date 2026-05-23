@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
 import {
   User, Mail, BarChart3, Calendar, AlertCircle, RefreshCw,
-  Loader2, Send, MessageSquare, Trash2,
+  Loader2, Send, MessageSquare, Trash2, Brain,
 } from "lucide-react"
 import {
   getCourseInfoCard, generateCourseInfoCard, deleteCourseInfoCard, streamCourseInfoChat,
@@ -26,6 +26,7 @@ export default function CourseInfoPage() {
   const [chatMessages, setChatMessages] = useState<Array<{role: string; content: string}>>([])
   const [chatStreaming, setChatStreaming] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [enableThinking, setEnableThinking] = useState(false)
   const abortRef = useRef<(() => void) | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -83,6 +84,7 @@ export default function CourseInfoPage() {
     let accContent = ""
 
     abortRef.current = streamCourseInfoChat(kbId, q, conversationId, {
+      enableThinking,
       onEvent(evt: ChatEvent) {
         if (evt.type === "delta") {
           accContent += evt.content
@@ -326,6 +328,15 @@ export default function CourseInfoPage() {
                 onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleChat()}
                 disabled={chatStreaming}
               />
+              <Button
+                size="sm"
+                variant={enableThinking ? "default" : "outline"}
+                className="shrink-0"
+                onClick={() => setEnableThinking(v => !v)}
+                title={enableThinking ? "已开启思维链（点击关闭）" : "开启思维链（深度思考模式）"}
+              >
+                <Brain className="h-4 w-4" />
+              </Button>
               <Button size="sm" onClick={handleChat} disabled={chatStreaming || !chatInput.trim()}>
                 {chatStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>

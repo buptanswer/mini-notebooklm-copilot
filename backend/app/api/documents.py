@@ -189,7 +189,7 @@ async def trigger_parse(kb_id: str, doc_id: str, bg: BackgroundTasks):
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT doc_id, kb_id, filename, source_format, upload_path, status FROM documents WHERE doc_id=? AND kb_id=?",
+            "SELECT doc_id, kb_id, filename, source_format, upload_path, bound_file_path, status FROM documents WHERE doc_id=? AND kb_id=?",
             (doc_id, kb_id),
         )
         row = await cur.fetchone()
@@ -203,8 +203,10 @@ async def trigger_parse(kb_id: str, doc_id: str, bg: BackgroundTasks):
                 status_code=409,
                 detail=f"当前状态 '{r['status']}' 无法重新解析",
             )
-        if not Path(r["upload_path"]).exists():
-            raise HTTPException(status_code=400, detail="原始上传文件不存在，请重新上传")
+        # 兼容文件夹同步模式：upload_path 为空时使用 bound_file_path
+        effective_path_str = r["upload_path"] or r["bound_file_path"] or ""
+        if not effective_path_str or not Path(effective_path_str).exists():
+            raise HTTPException(status_code=400, detail="原始文件不存在，请检查文件是否在磁盘上")
     finally:
         await db.close()
 
@@ -212,7 +214,7 @@ async def trigger_parse(kb_id: str, doc_id: str, bg: BackgroundTasks):
         run_parse_pipeline,
         doc_id=r["doc_id"],
         kb_id=r["kb_id"],
-        upload_path=Path(r["upload_path"]),
+        upload_path=Path(effective_path_str),
         filename=r["filename"],
         source_format=r["source_format"],
     )

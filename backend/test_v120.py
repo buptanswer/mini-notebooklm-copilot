@@ -360,11 +360,14 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
     # Full flow: sync folder → generate → save-notes → load-notes
     print("\n[6b] 模块七：完整流程（sync→generate→save→load）")
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 创建录音文件
+        # 创建录音转写 txt 文件，同时模拟用户把音频源文件也放在同一目录
         rec_dir = Path(tmpdir) / "课堂录音" / "260505"
         rec_dir.mkdir(parents=True)
         txt1 = rec_dir / "测试课程260505第01节.txt"
         txt2 = rec_dir / "测试课程260505第02节.txt"
+        # 模拟音频源文件（m4a/mp3），测试不被计入节次
+        (rec_dir / "测试课程260505第01节.m4a").write_bytes(b"\x00\x01fake_audio")
+        (rec_dir / "测试课程260505第02节.mp3").write_bytes(b"\x00\x01fake_audio")
         txt1.write_text("这是第一节课的录音转写内容，包含一些知识点。", encoding="utf-8")
         txt2.write_text("这是第二节课的录音转写内容，包含另一些知识点。", encoding="utf-8")
 
@@ -381,17 +384,24 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
         r_sync = await c.post(f"/api/kb/{review_kb_id}/sync-folder")
         _record("同步文件夹 → 200", r_sync.status_code == 200)
         diff = r_sync.json()
-        _record("2个录音文件被同步", len(diff.get("added", [])) == 2)
+        _record("4个文件被同步（2 txt + 2 音频）", len(diff.get("added", [])) == 4)
 
         # 检查日期
         r_dates = await c.get(f"/api/review/{review_kb_id}/dates")
         dates_list = r_dates.json().get("dates", [])
         _record("dates 包含 260505", any(d["date"] == "260505" for d in dates_list))
 
-        # 检查节次
+        # 检查节次（音频文件不应被计入，只有 .txt 文件才算一节）
         r_secs = await c.get(f"/api/review/{review_kb_id}/sections?date=260505")
         secs = r_secs.json().get("sections", [])
-        _record("sections 有 2 节", len(secs) == 2)
+        _record("sections 有 2 节（音频文件被过滤）", len(secs) == 2)
+
+        # 检查 dates 里的 section_count 也是 2（不是 4）
+        r_dates_check = await c.get(f"/api/review/{review_kb_id}/dates")
+        dates_check = r_dates_check.json().get("dates", [])
+        date_260505_check = next((d for d in dates_check if d["date"] == "260505"), None)
+        _record("date section_count=2（音频文件不被计数）",
+                date_260505_check is not None and date_260505_check.get("section_count") == 2)
 
         # 流式生成（mock LLM）
         r_gen = await c.post(f"/api/review/{review_kb_id}/generate",

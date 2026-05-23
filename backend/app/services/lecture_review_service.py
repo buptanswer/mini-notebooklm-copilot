@@ -38,7 +38,7 @@ async def list_dates(kb_id: str) -> list[dict]:
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT relative_path, folder_category FROM documents WHERE kb_id=? AND status != 'missing'",
+            "SELECT relative_path, folder_category, source_format FROM documents WHERE kb_id=? AND status != 'missing'",
             (kb_id,),
         )
         rows = [dict(r) for r in await cur.fetchall()]
@@ -56,7 +56,8 @@ async def list_dates(kb_id: str) -> list[dict]:
         if date_str not in date_info:
             date_info[date_str] = {"section_count": 0, "has_notes": False}
         cat = r["folder_category"]
-        if cat == "recording":
+        if cat == "recording" and r["source_format"] == "txt":
+            # 只有 .txt 文件才计为一节（过滤音频源文件 m4a/mp3/flac 等）
             date_info[date_str]["section_count"] += 1
         elif cat == "review_note":
             date_info[date_str]["has_notes"] = True
@@ -76,7 +77,8 @@ async def list_sections(kb_id: str, date: str) -> list[dict]:
     try:
         prefix = f"课堂录音/{date}/"
         cur = await db.execute(
-            """SELECT doc_id, filename, relative_path, bound_file_path, upload_path, folder_category
+            """SELECT doc_id, filename, relative_path, bound_file_path, upload_path,
+                      folder_category, source_format
                FROM documents
                WHERE kb_id=? AND relative_path LIKE ? AND status != 'missing'""",
             (kb_id, prefix + "%"),
@@ -96,7 +98,8 @@ async def list_sections(kb_id: str, date: str) -> list[dict]:
         path = r["bound_file_path"] or r["upload_path"] or ""
         if r["folder_category"] == "review_note":
             notes[section_num] = {"note_doc_id": r["doc_id"], "note_path": path}
-        else:
+        elif r["folder_category"] == "recording" and r["source_format"] == "txt":
+            # 只识别 .txt 录音转写文件（过滤 .m4a/.mp3/.flac 等音频源文件）
             recordings.append((section_num, {"txt_doc_id": r["doc_id"], "txt_path": path}))
 
     recordings.sort(key=lambda x: x[0])

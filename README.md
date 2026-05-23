@@ -435,13 +435,24 @@ uv run python test_stage4.py
 ## 清理运行时数据
 
 ```powershell
-# Windows PowerShell — 重置为初始状态
-Remove-Item data\sqlite\* -Recurse -Force
-Remove-Item data\qdrant_storage\* -Recurse -Force
-Remove-Item data\uploads\* -Recurse -Force
-Remove-Item data\mineru_zips\* -Recurse -Force
-Remove-Item data\rag_output\* -Recurse -Force
+# Windows PowerShell — 清空数据库与缓存，重置为初始状态
+# 注：保留各目录下的 .gitkeep 文件，不影响目录结构
+
+# 删除 SQLite 数据库文件
+Remove-Item data\sqlite\mini_notebooklm.db -Force -ErrorAction SilentlyContinue
+
+# 清理向量存储、上传文件、解析缓存（保留 .gitkeep）
+foreach ($sub in @('qdrant_storage', 'uploads', 'mineru_zips', 'rag_output')) {
+    Get-ChildItem "data\$sub" -Recurse |
+        Where-Object { -not $_.PSIsContainer -and $_.Name -ne '.gitkeep' } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem "data\$sub" -Recurse -Directory |
+        Sort-Object FullName -Descending |
+        Remove-Item -ErrorAction SilentlyContinue
+}
 ```
+
+清理后重启后端，SQLite 数据库和向量索引会自动重新初始化。
 
 ---
 
