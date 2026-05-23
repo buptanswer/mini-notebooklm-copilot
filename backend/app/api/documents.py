@@ -29,9 +29,11 @@ class DocInfo(BaseModel):
     source_format: str
     file_size: int
     page_count: int
-    status: str            # uploaded / parsing / needs_review / indexed / failed
+    status: str            # uploaded / parsing / needs_review / indexed / failed / text_only / missing
     warnings: str = ""    # 解析警告（needs_review 时有内容）
     origin_pdf_path: str = ""  # 用于 PDF 预览
+    folder_category: str = ""  # recording / slides / homework / notice / review_note / ''
+    bound_file_path: str = ""  # 绑定文件夹模式下的文件绝对路径
     created_at: str
     updated_at: str
 
@@ -50,6 +52,8 @@ _DOC_SELECT = """
            source_format, file_size, page_count,
            status, COALESCE(warnings,'') AS warnings,
            COALESCE(origin_pdf_path,'') AS origin_pdf_path,
+           COALESCE(folder_category,'') AS folder_category,
+           COALESCE(bound_file_path,'') AS bound_file_path,
            created_at, updated_at
     FROM documents
 """

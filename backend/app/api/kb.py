@@ -213,6 +213,13 @@ async def delete_knowledge_base(kb_id: str):
         )
         await db.execute("DELETE FROM exam_papers WHERE kb_id=?", (kb_id,))
 
+        # 级联删除多轮对话
+        cur2 = await db.execute("SELECT conversation_id FROM conversations WHERE kb_id=?", (kb_id,))
+        conv_ids = [r[0] for r in await cur2.fetchall()]
+        for cid in conv_ids:
+            await db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+        await db.execute("DELETE FROM conversations WHERE kb_id=?", (kb_id,))
+
         kb_upload_dir = settings.upload_dir / kb_id
         if kb_upload_dir.exists():
             shutil.rmtree(kb_upload_dir, ignore_errors=True)

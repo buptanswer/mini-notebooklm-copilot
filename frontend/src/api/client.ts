@@ -565,3 +565,16 @@ export function streamReviewFollowup(
   run()
   return () => controller.abort()
 }
+
+// ── 提示词管理 ─────────────────────────────────────────────
+
+export async function listPrompts(): Promise<Record<string, string>> {
+  const data = await handleResponse<{ prompts: Record<string, string> }>(
+    await fetch(`${BASE}/settings/prompts`)
+  )
+  return data.prompts
+}
+
+export async function reloadPrompts(): Promise<{ detail: string; count: number }> {
+  return handleResponse(await fetch(`${BASE}/settings/prompts/reload`, { method: "POST" }))
+}

@@ -34,6 +34,8 @@ export interface DocInfo {
   status: DocStatus
   warnings: string   // 非空时表示有解析警告
   origin_pdf_path: string
+  folder_category: string  // recording / slides / homework / notice / review_note / ''
+  bound_file_path: string  // 绑定文件夹模式下的文件路径
   created_at: string
   updated_at: string
 }

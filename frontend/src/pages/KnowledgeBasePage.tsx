@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Plus, BookOpen, GraduationCap, Trash2, MessageSquare, FolderOpen, RefreshCw } from "lucide-react"
+import { Plus, BookOpen, GraduationCap, Trash2, MessageSquare, FolderOpen, RefreshCw, ClipboardList } from "lucide-react"
 import { listKBs, createKB, deleteKB } from "@/api/client"
 import type { KBInfo, KBType } from "@/api/types"
 import { Button } from "@/components/ui/button"
@@ -159,7 +159,7 @@ export default function KnowledgeBasePage() {
                   更新于 {new Date(kb.updated_at).toLocaleDateString("zh-CN")}
                 </p>
               </CardContent>
-              <CardFooter className="gap-2 border-t pt-3">
+              <CardFooter className="gap-2 border-t pt-3 flex-wrap">
                 <Button
                   size="sm"
                   variant="outline"
@@ -177,6 +177,28 @@ export default function KnowledgeBasePage() {
                   <MessageSquare className="h-3.5 w-3.5 mr-1" />
                   开始对话
                 </Button>
+                {kb.kb_type === "course" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-full text-xs"
+                      onClick={e => { e.stopPropagation(); navigate(`/kb/${kb.kb_id}/review`) }}
+                    >
+                      <BookOpen className="h-3.5 w-3.5 mr-1" />
+                      课后复习
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-full text-xs"
+                      onClick={e => { e.stopPropagation(); navigate(`/kb/${kb.kb_id}/info`) }}
+                    >
+                      <ClipboardList className="h-3.5 w-3.5 mr-1" />
+                      课程管家
+                    </Button>
+                  </>
+                )}
               </CardFooter>
             </Card>
           ))}

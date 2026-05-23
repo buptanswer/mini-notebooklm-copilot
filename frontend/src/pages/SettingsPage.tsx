@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react"
-import { ExternalLink, CheckCircle, AlertCircle } from "lucide-react"
+import { ExternalLink, CheckCircle, AlertCircle, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Button } from "@/components/ui/button"
+import { listPrompts, reloadPrompts } from "@/api/client"
 
 interface HealthStatus {
   ok: boolean
@@ -10,11 +12,15 @@ interface HealthStatus {
 
 export default function SettingsPage() {
   const [health, setHealth] = useState<HealthStatus>({ ok: false, checked: false })
+  const [prompts, setPrompts] = useState<Record<string, string>>({})
+  const [reloading, setReloading] = useState(false)
+  const [reloadMsg, setReloadMsg] = useState("")
 
   useEffect(() => {
     fetch("/api/health")
       .then(r => setHealth({ ok: r.ok, checked: true }))
       .catch(() => setHealth({ ok: false, checked: true }))
+    listPrompts().then(setPrompts).catch(() => {})
   }, [])
 
   return (
@@ -145,6 +151,54 @@ export default function SettingsPage() {
             ReDoc API 文档
           </a>
         </div>
+      </section>
+
+      <Separator className="my-6" />
+
+      {/* 提示词预览 */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">提示词预览</h2>
+          <div className="flex items-center gap-2">
+            {reloadMsg && <span className="text-xs text-green-600">{reloadMsg}</span>}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={reloading}
+              onClick={async () => {
+                setReloading(true)
+                try {
+                  const r = await reloadPrompts()
+                  setPrompts(await listPrompts())
+                  setReloadMsg(`已重载 ${r.count} 个提示词`)
+                  setTimeout(() => setReloadMsg(""), 3000)
+                } catch { /* ignore */ } finally { setReloading(false) }
+              }}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${reloading ? "animate-spin" : ""}`} />
+              重载磁盘文件
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {Object.entries(prompts).map(([name, content]) => (
+            <div key={name} className="rounded-lg border border-gray-200 bg-white">
+              <div className="px-3 py-2 border-b bg-gray-50 text-xs font-mono font-semibold text-gray-600">
+                {name}.md
+              </div>
+              <pre className="px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+                {content}
+              </pre>
+            </div>
+          ))}
+          {Object.keys(prompts).length === 0 && (
+            <p className="text-xs text-gray-400">加载中…</p>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          提示词文件位于 <code className="bg-gray-100 px-1 rounded">backend/app/prompts/*.md</code>，
+          修改文件后点"重载"即可生效，无需重启服务。
+        </p>
       </section>
     </div>
   )
