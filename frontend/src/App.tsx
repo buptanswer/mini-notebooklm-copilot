@@ -19,6 +19,7 @@ function App() {
             <Route index element={<Navigate to="files" replace />} />
             <Route path="files" element={<KBFilesPage />} />
             <Route path="chat" element={<ChatPage />} />
+            <Route path="chat/:conversationId" element={<ChatPage />} />
             <Route path="review" element={<ReviewPage />} />
             <Route path="review/:conversationId" element={<ReviewPage />} />
             <Route path="info" element={<CourseInfoPage />} />

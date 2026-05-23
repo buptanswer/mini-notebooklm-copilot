@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   CalendarDays, BookOpen, ChevronRight, Play, Save, Send,
   RefreshCw, GitBranch, Brain, Loader2, CheckCircle, Printer, FileText,
@@ -16,20 +18,10 @@ import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
-// 简单 Markdown 渲染（仅做基础格式化）
-function MarkdownBlock({ content }: { content: string }) {
-  const lines = content.split("\n")
+function MdBlock({ content }: { content: string }) {
   return (
-    <div className="prose prose-sm max-w-none text-sm leading-relaxed">
-      {lines.map((line, i) => {
-        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold mt-4 mb-2">{line.slice(2)}</h1>
-        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-semibold mt-3 mb-1">{line.slice(3)}</h2>
-        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-semibold mt-2 mb-1">{line.slice(4)}</h3>
-        if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} className="ml-4 list-disc">{line.slice(2)}</li>
-        if (/^\d+\./.test(line)) return <li key={i} className="ml-4 list-decimal">{line.replace(/^\d+\.\s*/, "")}</li>
-        if (line.trim() === "") return <div key={i} className="h-2" />
-        return <p key={i}>{line}</p>
-      })}
+    <div className="md-prose prose prose-sm max-w-none text-sm leading-relaxed">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   )
 }
@@ -97,10 +89,12 @@ export default function ReviewPage() {
     listReviewSections(kbId, selectedDate).then(setSections).catch(() => {})
   }, [kbId, selectedDate])
 
-  // Load existing notes if navigating to a conversation
+  // Load existing notes if navigating to a conversation; reset followup state
   useEffect(() => {
     if (!kbId || !urlConvId) return
     setConversationId(urlConvId)
+    setFollowupMessages([])
+    setSavedMsg("")
     getConversation(urlConvId).then(conv => {
       const meta = conv.metadata as Record<string, unknown>
       const date = meta.date as string || ""
@@ -266,7 +260,7 @@ export default function ReviewPage() {
         {dates.map(d => (
           <button
             key={d.date}
-            onClick={() => { setSelectedDate(d.date); setSectionNotes(new Map()); setConversationId(null) }}
+            onClick={() => { setSelectedDate(d.date); setSectionNotes(new Map()); setConversationId(null); setSavedMsg(""); setFollowupMessages([]) }}
             className={cn(
               "w-full text-left rounded-lg px-3 py-2 mb-1 text-sm transition-colors",
               selectedDate === d.date ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100 text-gray-700"
@@ -476,7 +470,7 @@ export default function ReviewPage() {
 
                 <div className="p-4">
                   {note.content
-                    ? <MarkdownBlock content={note.content} />
+                    ? <MdBlock content={note.content} />
                     : <div className="flex items-center gap-2 text-gray-400 text-sm"><Loader2 className="h-4 w-4 animate-spin" />等待生成…</div>
                   }
                 </div>
@@ -507,12 +501,16 @@ export default function ReviewPage() {
                 <div className="max-h-64 overflow-y-auto p-4 space-y-3">
                   {followupMessages.map((m, i) => (
                     <div key={i} className={cn("text-sm", m.role === "user" ? "text-right" : "text-left")}>
-                      <span className={cn(
+                      <div className={cn(
                         "inline-block rounded-lg px-3 py-2 max-w-[85%]",
                         m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
                       )}>
-                        {m.content || <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      </span>
+                        {m.role === "assistant"
+                          ? (m.content
+                            ? <div className="md-prose prose prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                            : <Loader2 className="h-3.5 w-3.5 animate-spin" />)
+                          : m.content}
+                      </div>
                     </div>
                   ))}
                   <div ref={chatEndRef} />

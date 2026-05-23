@@ -294,20 +294,29 @@ export function streamConversation(
   options: {
     metadata?: Record<string, unknown>
     extraSystem?: string
+    ragMode?: boolean
+    topK?: number
     onEvent: (event: ChatEvent & { section_num?: number }) => void
     onError?: (err: Error) => void
     onDone?: () => void
+    onMessageId?: (messageId: string) => void
   },
 ): () => void {
   const controller = new AbortController()
-  const { metadata, extraSystem, onEvent, onError, onDone } = options
+  const { metadata, extraSystem, ragMode, topK, onEvent, onError, onDone, onMessageId } = options
 
   const run = async () => {
     try {
       const res = await fetch(`${BASE}/conversations/${convId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, metadata: metadata || {}, extra_system: extraSystem }),
+        body: JSON.stringify({
+          content,
+          metadata: metadata || {},
+          extra_system: extraSystem,
+          rag_mode: ragMode || false,
+          top_k: topK || 5,
+        }),
         signal: controller.signal,
       })
       if (!res.ok) {
@@ -330,6 +339,11 @@ export function streamConversation(
           if (!data || data === "[DONE]") continue
           try {
             const event = JSON.parse(data)
+            if (event.type === "assistant_message_appended") {
+              onMessageId?.(event.message_id)
+              continue
+            }
+            if (event.type === "user_message_appended") continue
             onEvent(event)
             if (event.type === "end") { onDone?.(); return }
           } catch { /* ignore */ }
@@ -376,10 +390,11 @@ export function streamCourseInfoChat(
     onEvent: (event: ChatEvent) => void
     onError?: (err: Error) => void
     onDone?: (convId: string) => void
+    onMessageId?: (messageId: string) => void
   },
 ): () => void {
   const controller = new AbortController()
-  const { enableThinking = false, onEvent, onError, onDone } = options
+  const { enableThinking = false, onEvent, onError, onDone, onMessageId } = options
 
   const run = async () => {
     try {
@@ -410,6 +425,11 @@ export function streamCourseInfoChat(
           if (!data || data === "[DONE]") continue
           try {
             const event = JSON.parse(data) as ChatEvent
+            if (event.type === "assistant_message_appended") {
+              onMessageId?.(event.message_id)
+              continue
+            }
+            if (event.type === "user_message_appended") continue
             onEvent(event)
             if (event.type === "end") { onDone?.(newConvId); return }
           } catch { /* ignore */ }

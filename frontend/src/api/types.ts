@@ -76,6 +76,8 @@ export type ChatEvent =
   | { type: "thinking"; content: string }
   | { type: "end" }
   | { type: "error"; message: string }
+  | { type: "user_message_appended"; message_id: string }
+  | { type: "assistant_message_appended"; message_id: string }
 
 // ── 多轮对话 ────────────────────────────────────────────────
 

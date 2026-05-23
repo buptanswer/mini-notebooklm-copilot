@@ -26,6 +26,30 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 瞬时网络故障异常类型（可重试）
+_RETRY_EXC = (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.ReadError)
+
+
+async def _retry(coro_fn, *, max_retries: int = 3, base_delay: float = 2.0):
+    """
+    指数退避重试，仅对瞬时网络故障（连接失败、读超时等）重试。
+    delays: 2s → 4s → 8s
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn()
+        except _RETRY_EXC as exc:
+            if attempt >= max_retries:
+                raise RuntimeError(
+                    f"MinerU API 网络连接失败，已重试 {max_retries} 次，最后错误: {exc}"
+                ) from exc
+            delay = base_delay * (2 ** attempt)
+            logger.warning(
+                "MinerU 连接失败（第 %d/%d 次），%.0fs 后重试: %s",
+                attempt + 1, max_retries, delay, exc,
+            )
+            await asyncio.sleep(delay)
+
 _BASE = settings.mineru_api_base   # "https://mineru.net/api/v4"
 
 # ── API 响应已知字段集合（用于未知字段 WARNING 检测）─────────────────────
@@ -80,14 +104,18 @@ async def request_batch_upload_urls(
         "files": files_info,
         "model_version": model_version,
     }
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{_BASE}/file-urls/batch",
-            headers=_auth_headers(),
-            json=payload,
-        )
-        resp.raise_for_status()
-        body = resp.json()
+
+    async def _call():
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{_BASE}/file-urls/batch",
+                headers=_auth_headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    body = await _retry(_call)
 
     if body.get("code") != 0:
         raise RuntimeError(f"申请上传链接失败: code={body.get('code')}, msg={body.get('msg')}")
@@ -109,13 +137,16 @@ async def upload_file_to_presigned_url(presigned_url: str, local_path: Path) -> 
     with open(local_path, "rb") as f:
         data = f.read()
 
-    async with httpx.AsyncClient(timeout=180) as client:
-        resp = await client.put(presigned_url, content=data)
+    async def _call():
+        async with httpx.AsyncClient(timeout=180) as client:
+            resp = await client.put(presigned_url, content=data)
+        if resp.status_code not in (200, 201, 204):
+            raise RuntimeError(
+                f"预签名上传失败 {local_path.name}: HTTP {resp.status_code}, body={resp.text[:200]}"
+            )
+        return resp
 
-    if resp.status_code not in (200, 201, 204):
-        raise RuntimeError(
-            f"预签名上传失败 {local_path.name}: HTTP {resp.status_code}, body={resp.text[:200]}"
-        )
+    await _retry(_call)
     logger.info("上传完成: %s (%d bytes)", local_path.name, len(data))
 
 
@@ -134,13 +165,18 @@ async def poll_batch_results(
     elapsed = 0.0
 
     while elapsed < max_wait:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{_BASE}/extract-results/batch/{batch_id}",
-                headers=_auth_headers(),
-            )
-            resp.raise_for_status()
-            body = resp.json()
+        bid = batch_id
+
+        async def _call_batch():
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{_BASE}/extract-results/batch/{bid}",
+                    headers=_auth_headers(),
+                )
+                resp.raise_for_status()
+                return resp.json()
+
+        body = await _retry(_call_batch)
 
         if body.get("code") != 0:
             raise RuntimeError(f"查询批量结果失败: {body}")
@@ -184,14 +220,17 @@ async def submit_single_url_task(
     if data_id:
         payload["data_id"] = data_id
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{_BASE}/extract/task",
-            headers=_auth_headers(),
-            json=payload,
-        )
-        resp.raise_for_status()
-        body = resp.json()
+    async def _call():
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{_BASE}/extract/task",
+                headers=_auth_headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    body = await _retry(_call)
 
     if body.get("code") != 0:
         raise RuntimeError(f"提交单文件任务失败: {body}")
@@ -213,13 +252,18 @@ async def poll_single_task(
     elapsed = 0.0
 
     while elapsed < max_wait:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{_BASE}/extract/task/{task_id}",
-                headers=_auth_headers(),
-            )
-            resp.raise_for_status()
-            body = resp.json()
+        tid = task_id
+
+        async def _call_single():
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{_BASE}/extract/task/{tid}",
+                    headers=_auth_headers(),
+                )
+                resp.raise_for_status()
+                return resp.json()
+
+        body = await _retry(_call_single)
 
         if body.get("code") != 0:
             raise RuntimeError(f"查询单任务失败: {body}")
@@ -244,14 +288,16 @@ async def poll_single_task(
 # ─────────────────────────────────────────────────────────────
 
 async def download_zip(zip_url: str, dest_path: Path) -> None:
-    """流式下载解析结果 zip 包到 dest_path"""
+    """流式下载解析结果 zip 包到 dest_path（含连接失败重试）"""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
-        async with client.stream("GET", zip_url) as resp:
-            resp.raise_for_status()
-            with open(dest_path, "wb") as f:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    f.write(chunk)
+    async def _call():
+        async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+            async with client.stream("GET", zip_url) as resp:
+                resp.raise_for_status()
+                with open(dest_path, "wb") as f:
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        f.write(chunk)
 
+    await _retry(_call)
     logger.info("下载完成: %s (%d bytes)", dest_path, dest_path.stat().st_size)

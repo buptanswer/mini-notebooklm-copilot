@@ -2,16 +2,20 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { ArrowLeft, Send, BookOpen, ChevronDown, ChevronUp, FileText, Brain } from "lucide-react"
+import { ArrowLeft, Send, BookOpen, ChevronDown, ChevronUp, FileText, Brain, GitBranch, History, X } from "lucide-react"
 import { Document, Page, pdfjs } from "react-pdf"
-import { streamChat, getOriginPdfUrl } from "@/api/client"
-import type { CitationItem } from "@/api/types"
+import {
+  streamConversation, getOriginPdfUrl, createConversation,
+  forkConversation, listConversations, getConversation,
+} from "@/api/client"
+import type { CitationItem, ConversationInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
+import { cn } from "@/lib/utils"
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -25,6 +29,7 @@ interface Message {
   thinking?: string
   citations?: CitationItem[]
   isStreaming?: boolean
+  message_id?: string
 }
 
 interface PreviewState {
@@ -68,18 +73,13 @@ const CitationCard = ({
         onClick={() => setOpen(v => !v)}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Badge variant="outline" className="shrink-0 text-xs px-1.5">
-            [{item.index}]
-          </Badge>
+          <Badge variant="outline" className="shrink-0 text-xs px-1.5">[{item.index}]</Badge>
           <span className="text-gray-600 truncate text-xs">
             {item.header_path.length > 0 ? item.header_path.join(" › ") : item.doc_id}
           </span>
           {item.page_span_start != null && (
             <span className="text-gray-400 text-xs shrink-0">
-              p.{startPage}
-              {item.page_span_end != null && item.page_span_end !== item.page_span_start
-                ? `-${endPage}`
-                : ""}
+              p.{startPage}{item.page_span_end != null && item.page_span_end !== item.page_span_start ? `-${endPage}` : ""}
             </span>
           )}
         </div>
@@ -94,19 +94,11 @@ const CitationCard = ({
           <p className="text-xs text-gray-500 leading-relaxed line-clamp-6">{item.retrieval_text}</p>
           {hasBBox && <p className="text-[11px] text-amber-600">支持 bbox 高亮定位</p>}
           {item.anchor_origin_pdf_path ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs h-7"
-              onClick={() => onPreview(item)}
-            >
-              <FileText className="h-3 w-3 mr-1" />
-              查看原文 (p.{startPage})
+            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => onPreview(item)}>
+              <FileText className="h-3 w-3 mr-1" />查看原文 (p.{startPage})
             </Button>
           ) : (
-            <p className="text-[11px] text-gray-400">
-              非 PDF 格式，不支持原文预览（第 {startPage} 页）
-            </p>
+            <p className="text-[11px] text-gray-400">非 PDF 格式，不支持原文预览（第 {startPage} 页）</p>
           )}
         </div>
       )}
@@ -115,7 +107,7 @@ const CitationCard = ({
 }
 
 export default function ChatPage() {
-  const { kbId } = useParams<{ kbId: string }>()
+  const { kbId, conversationId: urlConvId } = useParams<{ kbId: string; conversationId?: string }>()
   const navigate = useNavigate()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -123,6 +115,9 @@ export default function ChatPage() {
   const [enableThinking, setEnableThinking] = useState(false)
   const [preview, setPreview] = useState<PreviewState | null>(null)
   const [pdfRenderWidth, setPdfRenderWidth] = useState(860)
+  const [conversationId, setConversationId] = useState<string | null>(urlConvId ?? null)
+  const [historyConvs, setHistoryConvs] = useState<ConversationInfo[]>([])
+  const [showHistory, setShowHistory] = useState(false)
   const abortRef = useRef<(() => void) | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -132,111 +127,133 @@ export default function ChatPage() {
   }, [messages])
 
   useEffect(() => {
-    const onResize = () => {
-      const next = Math.max(360, Math.min(1000, window.innerWidth - 260))
-      setPdfRenderWidth(next)
-    }
+    const onResize = () => setPdfRenderWidth(Math.max(360, Math.min(1000, window.innerWidth - 260)))
     onResize()
     window.addEventListener("resize", onResize)
     return () => window.removeEventListener("resize", onResize)
   }, [])
 
+  useEffect(() => () => { abortRef.current?.() }, [])
+
+  // Load history conversations
   useEffect(() => {
-    return () => {
-      abortRef.current?.()
-    }
-  }, [])
+    if (!kbId) return
+    listConversations(kbId, "chat").then(setHistoryConvs).catch(() => {})
+  }, [kbId, conversationId])
+
+  // Load conversation from URL param
+  useEffect(() => {
+    if (!kbId || !urlConvId) return
+    setConversationId(urlConvId)
+    setMessages([])
+    getConversation(urlConvId).then(conv => {
+      const msgs: Message[] = []
+      for (const m of conv.messages || []) {
+        if (m.role === "user" || m.role === "assistant") {
+          msgs.push({
+            id: m.message_id,
+            role: m.role,
+            content: m.content,
+            thinking: m.thinking || undefined,
+            citations: m.citations?.length ? m.citations : undefined,
+            message_id: m.message_id,
+          })
+        }
+      }
+      setMessages(msgs)
+    }).catch(() => {})
+  }, [kbId, urlConvId])
 
   const send = async () => {
     const q = input.trim()
     if (!q || streaming || !kbId) return
     setInput("")
 
+    let convId = conversationId
+    if (!convId) {
+      try {
+        const conv = await createConversation(kbId, "chat", "", {}, enableThinking)
+        convId = conv.conversation_id
+        setConversationId(convId)
+      } catch (e) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(), role: "assistant",
+          content: `⚠ 创建会话失败：${(e as Error).message}`,
+        }])
+        return
+      }
+    }
+
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: q }
     const assistantId = (Date.now() + 1).toString()
-    const assistantMsg: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      citations: [],
-      isStreaming: true,
-    }
+    const assistantMsg: Message = { id: assistantId, role: "assistant", content: "", citations: [], isStreaming: true }
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setStreaming(true)
 
-    abortRef.current = streamChat(kbId, q, {
-      enableThinking,
+    abortRef.current = streamConversation(convId, q, {
+      ragMode: true,
+      topK: 5,
       onEvent: (ev) => {
         if (ev.type === "citations") {
-          setMessages(prev =>
-            prev.map(m => m.id === assistantId ? { ...m, citations: ev.citations } : m)
-          )
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, citations: ev.citations } : m))
         } else if (ev.type === "delta") {
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantId ? { ...m, content: m.content + ev.content } : m
-            )
-          )
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, content: m.content + ev.content } : m
+          ))
         } else if (ev.type === "thinking") {
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantId ? { ...m, thinking: (m.thinking || "") + ev.content } : m
-            )
-          )
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, thinking: (m.thinking || "") + ev.content } : m
+          ))
         } else if (ev.type === "end") {
-          setMessages(prev =>
-            prev.map(m => m.id === assistantId ? { ...m, isStreaming: false } : m)
-          )
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, isStreaming: false } : m))
           setStreaming(false)
         } else if (ev.type === "error") {
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantId
-                ? { ...m, content: `⚠ 错误：${ev.message}`, isStreaming: false }
-                : m
-            )
-          )
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, content: `⚠ 错误：${ev.message}`, isStreaming: false } : m
+          ))
           setStreaming(false)
         }
       },
       onError: (err) => {
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === assistantId
-              ? { ...m, content: `⚠ 连接错误：${err}`, isStreaming: false }
-              : m
-          )
-        )
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, content: `⚠ 连接错误：${err}`, isStreaming: false } : m
+        ))
         setStreaming(false)
       },
       onDone: () => {
-        setMessages(prev =>
-          prev.map(m => m.id === assistantId ? { ...m, isStreaming: false } : m)
-        )
+        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, isStreaming: false } : m))
         setStreaming(false)
+      },
+      onMessageId: (msgId) => {
+        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, message_id: msgId } : m))
       },
     })
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      send()
+  const handleFork = async (message_id: string) => {
+    if (!conversationId) return
+    try {
+      const forked = await forkConversation(conversationId, message_id, "")
+      listConversations(kbId!, "chat").then(setHistoryConvs)
+      navigate(`/kb/${kbId}/chat/${forked.conversation_id}`)
+    } catch (e) {
+      alert("Fork 失败：" + (e as Error).message)
     }
   }
 
-  const citations = [...messages].reverse().find((m): m is Message => m.role === "assistant")?.citations ?? []
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send() }
+  }
+
+  const citations = [...messages].reverse().find(m => m.role === "assistant")?.citations ?? []
 
   const openPreview = (item: CitationItem) => {
     if (!kbId) return
-    const pageNumber = toUserPage(item.page_span_start)
-    const bboxes = normalizeBBoxes(item.bbox_norm1000)
-    const path = item.header_path.length > 0 ? item.header_path.join(" › ") : item.doc_id
     setPreview({
       url: getOriginPdfUrl(kbId, item.doc_id),
-      pageNumber,
-      bboxes,
-      title: path,
+      pageNumber: toUserPage(item.page_span_start),
+      bboxes: normalizeBBoxes(item.bbox_norm1000),
+      title: item.header_path.length > 0 ? item.header_path.join(" › ") : item.doc_id,
     })
   }
 
@@ -251,8 +268,51 @@ export default function ChatPage() {
               <ArrowLeft className="h-4 w-4" />
             </button>
             <span className="text-sm font-medium text-gray-700">对话问答</span>
+            {conversationId && (
+              <span className="text-xs text-gray-300 font-mono">{conversationId.slice(0, 8)}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => { setMessages([]); setConversationId(null); navigate(`/kb/${kbId}/chat`) }}
+            >
+              新对话
+            </Button>
+            <button
+              className={cn("text-gray-400 hover:text-gray-600", showHistory && "text-blue-500")}
+              onClick={() => setShowHistory(v => !v)}
+              title="历史对话"
+            >
+              <History className="h-4 w-4" />
+            </button>
           </div>
         </div>
+
+        {/* History Dropdown */}
+        {showHistory && historyConvs.length > 0 && (
+          <div className="border-b bg-gray-50 px-4 py-2 max-h-40 overflow-y-auto">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-gray-500 font-medium">历史对话</span>
+              <button onClick={() => setShowHistory(false)}><X className="h-3.5 w-3.5 text-gray-400" /></button>
+            </div>
+            {historyConvs.map(c => (
+              <button
+                key={c.conversation_id}
+                onClick={() => { setShowHistory(false); navigate(`/kb/${kbId}/chat/${c.conversation_id}`) }}
+                className={cn(
+                  "w-full text-left rounded px-2 py-1 text-xs mb-0.5 transition-colors",
+                  conversationId === c.conversation_id ? "bg-blue-50 text-blue-600" : "hover:bg-gray-100 text-gray-600"
+                )}
+              >
+                {c.title || `对话 ${c.conversation_id.slice(0, 8)}`}
+                <span className="ml-2 text-gray-300">{new Date(c.updated_at).toLocaleDateString()}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -263,26 +323,17 @@ export default function ChatPage() {
             </div>
           )}
           {messages.map(msg => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
+            <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
                 className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm
-                  ${msg.role === "user"
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-100 text-gray-800 shadow-sm"}`}
+                  ${msg.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800 shadow-sm"}`}
               >
                 {msg.role === "assistant" ? (
                   <>
                     {msg.thinking && (
                       <details className="mb-2">
-                        <summary className="cursor-pointer text-xs text-gray-400 select-none">
-                          💭 思考过程
-                        </summary>
-                        <p className="text-xs text-gray-400 mt-1 italic leading-relaxed">
-                          {msg.thinking}
-                        </p>
+                        <summary className="cursor-pointer text-xs text-gray-400 select-none">💭 思考过程</summary>
+                        <p className="text-xs text-gray-400 mt-1 italic leading-relaxed">{msg.thinking}</p>
                       </details>
                     )}
                     <div className="md-prose text-sm">
@@ -305,6 +356,15 @@ export default function ChatPage() {
                           </span>
                         ))}
                       </div>
+                    )}
+                    {!msg.isStreaming && msg.message_id && (
+                      <button
+                        onClick={() => handleFork(msg.message_id!)}
+                        className="mt-2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                        title="从此处分叉新对话"
+                      >
+                        <GitBranch className="h-3 w-3" />Fork
+                      </button>
                     )}
                   </>
                 ) : (
@@ -338,12 +398,7 @@ export default function ChatPage() {
             >
               <Brain className="h-4 w-4" />
             </Button>
-            <Button
-              size="sm"
-              className="h-10 px-3 shrink-0"
-              onClick={send}
-              disabled={streaming || !input.trim()}
-            >
+            <Button size="sm" className="h-10 px-3 shrink-0" onClick={send} disabled={streaming || !input.trim()}>
               {streaming ? <Spinner size="sm" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
@@ -357,17 +412,11 @@ export default function ChatPage() {
       {citations.length > 0 && (
         <div className="w-72 border-l bg-gray-50 flex flex-col overflow-hidden shrink-0">
           <div className="px-4 py-3 border-b bg-white shrink-0">
-            <p className="text-sm font-medium text-gray-700">
-              引用来源 ({citations.length})
-            </p>
+            <p className="text-sm font-medium text-gray-700">引用来源 ({citations.length})</p>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {citations.map((c: CitationItem) => (
-              <CitationCard
-                key={c.index}
-                item={c}
-                onPreview={openPreview}
-              />
+              <CitationCard key={c.index} item={c} onPreview={openPreview} />
             ))}
           </div>
         </div>
@@ -378,8 +427,7 @@ export default function ChatPage() {
         <DialogClose onClick={() => setPreview(null)} />
         <DialogHeader>
           <DialogTitle>
-            原文预览 (p.{preview?.pageNumber ?? 1})
-            {preview?.title ? ` · ${preview.title}` : ""}
+            原文预览 (p.{preview?.pageNumber ?? 1}){preview?.title ? ` · ${preview.title}` : ""}
           </DialogTitle>
         </DialogHeader>
         <div className="h-[72vh] overflow-auto rounded-lg bg-gray-100 p-4">
@@ -391,29 +439,20 @@ export default function ChatPage() {
                   loading={<div className="p-6 text-sm text-gray-500">PDF 加载中...</div>}
                   error={<div className="p-6 text-sm text-red-500">PDF 加载失败，请检查 origin.pdf 是否存在</div>}
                 >
-                  <Page
-                    pageNumber={preview.pageNumber}
-                    width={pdfRenderWidth}
-                    renderAnnotationLayer={false}
-                    renderTextLayer={false}
-                  />
+                  <Page pageNumber={preview.pageNumber} width={pdfRenderWidth} renderAnnotationLayer={false} renderTextLayer={false} />
                 </Document>
-
                 {preview.bboxes.map((bbox, idx) => (
                   <div
                     key={`${idx}-${bbox.join("-")}`}
                     className="pointer-events-none absolute border-2 border-amber-500 bg-amber-300/20 shadow-[0_0_0_1px_rgba(245,158,11,0.4)]"
                     style={{
-                      left: `${bbox[0] / 10}%`,
-                      top: `${bbox[1] / 10}%`,
-                      width: `${(bbox[2] - bbox[0]) / 10}%`,
-                      height: `${(bbox[3] - bbox[1]) / 10}%`,
+                      left: `${bbox[0] / 10}%`, top: `${bbox[1] / 10}%`,
+                      width: `${(bbox[2] - bbox[0]) / 10}%`, height: `${(bbox[3] - bbox[1]) / 10}%`,
                     }}
                     title="bbox 高亮定位"
                   />
                 ))}
               </div>
-
               {preview.bboxes.length === 0 && (
                 <p className="mt-3 text-xs text-gray-500">该引用未提供 bbox 坐标，当前仅定位到页码。</p>
               )}

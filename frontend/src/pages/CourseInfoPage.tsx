@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   User, Mail, BarChart3, Calendar, AlertCircle, RefreshCw,
-  Loader2, Send, MessageSquare, Trash2, Brain,
+  Loader2, Send, MessageSquare, Trash2, Brain, GitBranch,
 } from "lucide-react"
 import {
-  getCourseInfoCard, generateCourseInfoCard, deleteCourseInfoCard, streamCourseInfoChat,
+  getCourseInfoCard, generateCourseInfoCard, deleteCourseInfoCard,
+  streamCourseInfoChat, forkConversation, listConversations, getConversation,
 } from "@/api/client"
-import type { ChatEvent, CourseInfoCard } from "@/api/types"
+import type { ChatEvent, ConversationInfo, CourseInfoCard } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
+
+interface ChatMessage {
+  role: string
+  content: string
+  message_id?: string
+  streaming?: boolean
+}
 
 export default function CourseInfoPage() {
   const { kbId } = useParams<{ kbId: string }>()
@@ -23,10 +33,11 @@ export default function CourseInfoPage() {
 
   // Chat
   const [chatInput, setChatInput] = useState("")
-  const [chatMessages, setChatMessages] = useState<Array<{role: string; content: string}>>([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatStreaming, setChatStreaming] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [enableThinking, setEnableThinking] = useState(false)
+  const [historyConvs, setHistoryConvs] = useState<ConversationInfo[]>([])
   const abortRef = useRef<(() => void) | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -44,6 +55,11 @@ export default function CourseInfoPage() {
   }
 
   useEffect(() => { loadCard() }, [kbId])
+
+  useEffect(() => {
+    if (!kbId) return
+    listConversations(kbId, "course_info").then(setHistoryConvs).catch(() => {})
+  }, [kbId, conversationId])
 
   const handleGenerate = async () => {
     if (!kbId) return
@@ -74,13 +90,44 @@ export default function CourseInfoPage() {
     }
   }
 
+  const handleSwitchConv = async (convId: string) => {
+    if (!kbId) return
+    setConversationId(convId)
+    setChatMessages([])
+    try {
+      const conv = await getConversation(convId)
+      const msgs: ChatMessage[] = []
+      for (const m of conv.messages || []) {
+        if (m.role === "user" || m.role === "assistant") {
+          msgs.push({ role: m.role, content: m.content, message_id: m.message_id })
+        }
+      }
+      setChatMessages(msgs)
+    } catch { /* ignore */ }
+  }
+
+  const handleFork = async (messageId: string) => {
+    if (!conversationId) return
+    try {
+      const forked = await forkConversation(conversationId, messageId, "")
+      listConversations(kbId!, "course_info").then(setHistoryConvs)
+      await handleSwitchConv(forked.conversation_id)
+    } catch (e) {
+      alert("Fork 失败：" + (e as Error).message)
+    }
+  }
+
   const handleChat = () => {
     if (!kbId || !chatInput.trim() || chatStreaming) return
     const q = chatInput.trim()
     setChatInput("")
     setChatStreaming(true)
-    setChatMessages(prev => [...prev, { role: "user", content: q }])
 
+    setChatMessages(prev => [
+      ...prev,
+      { role: "user", content: q },
+      { role: "assistant", content: "", streaming: true },
+    ])
     let accContent = ""
 
     abortRef.current = streamCourseInfoChat(kbId, q, conversationId, {
@@ -89,21 +136,38 @@ export default function CourseInfoPage() {
         if (evt.type === "delta") {
           accContent += evt.content
           setChatMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { role: "assistant", content: accContent }]
-            }
-            return [...prev, { role: "assistant", content: accContent }]
+            const idx = prev.findLastIndex(m => m.streaming)
+            if (idx === -1) return prev
+            const next = [...prev]
+            next[idx] = { ...next[idx], content: accContent }
+            return next
           })
         }
       },
       onError(err) {
-        setChatMessages(prev => [...prev, { role: "assistant", content: `错误: ${err.message}` }])
+        setChatMessages(prev => {
+          const idx = prev.findLastIndex(m => m.streaming)
+          if (idx === -1) return [...prev, { role: "assistant", content: `错误: ${err.message}` }]
+          const next = [...prev]
+          next[idx] = { role: "assistant", content: `错误: ${err.message}` }
+          return next
+        })
         setChatStreaming(false)
       },
       onDone(newConvId) {
         if (newConvId) setConversationId(newConvId)
         setChatStreaming(false)
+        // Mark last streaming message as done
+        setChatMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m))
+      },
+      onMessageId(msgId) {
+        setChatMessages(prev => {
+          const idx = prev.findLastIndex(m => m.role === "assistant")
+          if (idx === -1) return prev
+          const next = [...prev]
+          next[idx] = { ...next[idx], message_id: msgId }
+          return next
+        })
       },
     })
 
@@ -128,24 +192,12 @@ export default function CourseInfoPage() {
           <div className="flex gap-2">
             {card && (
               <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleGenerate}
-                  disabled={generating}
-                >
+                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
                   <RefreshCw className={cn("h-4 w-4 mr-1", generating && "animate-spin")} />
                   重新生成
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-red-500 hover:text-red-600"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  重置
+                <Button size="sm" variant="outline" className="text-red-500 hover:text-red-600" onClick={handleDelete} disabled={deleting}>
+                  <Trash2 className="h-4 w-4 mr-1" />重置
                 </Button>
               </>
             )}
@@ -153,12 +205,9 @@ export default function CourseInfoPage() {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">
-            ⚠ {error}
-          </div>
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">⚠ {error}</div>
         )}
 
-        {/* No card state */}
         {!card && !generating && (
           <div className="rounded-xl border-2 border-dashed border-gray-200 p-12 text-center">
             <MessageSquare className="mx-auto mb-3 h-10 w-10 opacity-40 text-gray-400" />
@@ -166,9 +215,7 @@ export default function CourseInfoPage() {
             <p className="text-sm text-gray-400 mb-6">
               点击下方按钮，AI 将自动从本知识库中提取课程名称、老师信息、考核方式、截止日期等
             </p>
-            <Button onClick={handleGenerate}>
-              生成课程信息卡片
-            </Button>
+            <Button onClick={handleGenerate}>生成课程信息卡片</Button>
           </div>
         )}
 
@@ -179,31 +226,22 @@ export default function CourseInfoPage() {
           </div>
         )}
 
-        {/* Card display */}
         {card && (
           <div className="space-y-4 mb-6">
             {/* 基本信息 */}
             <div className="rounded-xl border bg-white p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-3">
-                {card.course_name || "课程信息"}
-              </h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-3">{card.course_name || "课程信息"}</h2>
               <div className="grid grid-cols-1 gap-2 text-sm">
                 {card.instructor && (
                   <div className="flex items-start gap-2">
                     <User className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
-                    <div>
-                      <span className="text-gray-500">任课老师：</span>
-                      <span className="text-gray-800">{card.instructor}</span>
-                    </div>
+                    <div><span className="text-gray-500">任课老师：</span><span className="text-gray-800">{card.instructor}</span></div>
                   </div>
                 )}
                 {card.contact && (
                   <div className="flex items-start gap-2">
                     <Mail className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
-                    <div>
-                      <span className="text-gray-500">联系方式：</span>
-                      <span className="text-gray-800 whitespace-pre-wrap">{card.contact}</span>
-                    </div>
+                    <div><span className="text-gray-500">联系方式：</span><span className="text-gray-800 whitespace-pre-wrap">{card.contact}</span></div>
                   </div>
                 )}
               </div>
@@ -254,8 +292,7 @@ export default function CourseInfoPage() {
                     <div key={i} className={cn(
                       "flex items-center justify-between rounded-lg px-3 py-2 text-sm",
                       dl.days_left !== undefined && dl.days_left !== null && dl.days_left <= 3
-                        ? "bg-red-50 border border-red-100"
-                        : "bg-gray-50"
+                        ? "bg-red-50 border border-red-100" : "bg-gray-50"
                     )}>
                       <div>
                         <span className="font-medium text-gray-800">{dl.name}</span>
@@ -295,9 +332,29 @@ export default function CourseInfoPage() {
         {/* Chat section */}
         {card && (
           <div className="rounded-xl border bg-white">
-            <div className="border-b px-4 py-3">
-              <h2 className="text-sm font-semibold text-gray-700">课程问答</h2>
-              <p className="text-xs text-gray-400">基于课程信息卡片进行多轮问答</p>
+            <div className="border-b px-4 py-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700">课程问答</h2>
+                <p className="text-xs text-gray-400">基于课程信息卡片进行多轮问答</p>
+              </div>
+              {/* 历史会话切换 */}
+              {historyConvs.length > 1 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-400">历史：</span>
+                  <select
+                    className="text-xs border rounded px-1 py-0.5 max-w-[120px] truncate"
+                    value={conversationId || ""}
+                    onChange={e => e.target.value && handleSwitchConv(e.target.value)}
+                  >
+                    <option value="">新对话</option>
+                    {historyConvs.map(c => (
+                      <option key={c.conversation_id} value={c.conversation_id}>
+                        {c.title || c.conversation_id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="max-h-72 overflow-y-auto p-4 space-y-3">
@@ -308,12 +365,27 @@ export default function CourseInfoPage() {
               )}
               {chatMessages.map((m, i) => (
                 <div key={i} className={cn("text-sm", m.role === "user" ? "text-right" : "text-left")}>
-                  <span className={cn(
-                    "inline-block rounded-lg px-3 py-2 max-w-[85%]",
+                  <div className={cn(
+                    "inline-block rounded-lg px-3 py-2 max-w-[85%] text-left",
                     m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
                   )}>
-                    {m.content || <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  </span>
+                    {m.role === "assistant" ? (
+                      <>
+                        {m.content
+                          ? <div className="md-prose prose prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                          : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        {!m.streaming && m.message_id && (
+                          <button
+                            onClick={() => handleFork(m.message_id!)}
+                            className="mt-1 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                            title="从此处分叉新对话"
+                          >
+                            <GitBranch className="h-3 w-3" />Fork
+                          </button>
+                        )}
+                      </>
+                    ) : m.content}
+                  </div>
                 </div>
               ))}
               <div ref={chatEndRef} />
