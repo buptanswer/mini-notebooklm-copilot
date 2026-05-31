@@ -61,7 +61,7 @@ export default function ReviewPage() {
 
   // Followup chat
   const [followupInput, setFollowupInput] = useState("")
-  const [followupMessages, setFollowupMessages] = useState<Array<{role: string; content: string; thinking?: string}>>([])
+  const [followupMessages, setFollowupMessages] = useState<Array<{role: string; content: string; thinking?: string; showThinking?: boolean}>>([])
   const [chatStreaming, setChatStreaming] = useState(false)
 
   // History
@@ -195,20 +195,24 @@ export default function ReviewPage() {
     setFollowupMessages(prev => [...prev, { role: "user", content: q }])
     let accContent = ""
     let accThinking = ""
+    // 更新（或创建）最后一条 assistant 消息，支持 thinking 先于 delta 到达
+    const upsertAssistant = (patch: { content?: string; thinking?: string }) =>
+      setFollowupMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last?.role === "assistant") {
+          return [...prev.slice(0, -1), { ...last, ...patch }]
+        }
+        return [...prev, { role: "assistant", content: "", ...patch }]
+      })
 
     abortRef.current = streamReviewFollowup(kbId, conversationId, q, {
       onEvent(evt) {
         if (evt.type === "delta") {
           accContent += evt.content as string
-          setFollowupMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, content: accContent }]
-            }
-            return [...prev, { role: "assistant", content: accContent }]
-          })
+          upsertAssistant({ content: accContent })
         } else if (evt.type === "thinking") {
           accThinking += evt.content as string
+          upsertAssistant({ thinking: accThinking })
         }
       },
       onError(err) {
@@ -501,6 +505,21 @@ export default function ReviewPage() {
                 <div className="max-h-64 overflow-y-auto p-4 space-y-3">
                   {followupMessages.map((m, i) => (
                     <div key={i} className={cn("text-sm", m.role === "user" ? "text-right" : "text-left")}>
+                      {m.role === "assistant" && m.thinking && (
+                        <div className="mb-1">
+                          <button
+                            onClick={() => setFollowupMessages(prev => prev.map((x, xi) => xi === i ? { ...x, showThinking: !x.showThinking } : x))}
+                            className="text-xs text-gray-400 hover:text-gray-600"
+                          >
+                            {m.showThinking ? "收起" : "展开"}思维链
+                          </button>
+                          {m.showThinking && (
+                            <div className="mt-1 inline-block max-w-[85%] whitespace-pre-wrap rounded border bg-gray-50 p-2 text-left text-xs text-gray-500">
+                              {m.thinking}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className={cn(
                         "inline-block rounded-lg px-3 py-2 max-w-[85%]",
                         m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
@@ -508,7 +527,7 @@ export default function ReviewPage() {
                         {m.role === "assistant"
                           ? (m.content
                             ? <div className="md-prose prose prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
-                            : <Loader2 className="h-3.5 w-3.5 animate-spin" />)
+                            : (m.thinking ? <span className="text-xs text-gray-400">思考中…</span> : <Loader2 className="h-3.5 w-3.5 animate-spin" />))
                           : m.content}
                       </div>
                     </div>

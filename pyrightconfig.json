@@ -1,0 +1,19 @@
+{
+  "include": ["backend/app", "backend/tools"],
+  "extraPaths": ["backend"],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportMissingModuleSource": false,
+  "reportMissingTypeArgument": false,
+  "reportImplicitRelativeImport": false,
+  "reportAny": false,
+  "reportExplicitAny": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownLambdaType": false,
+  "reportRedeclaration": false
+}

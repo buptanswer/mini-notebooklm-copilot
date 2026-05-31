@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 
@@ -30,7 +31,15 @@ logger = logging.getLogger(__name__)
 _RETRY_EXC = (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.ReadError)
 
 
-async def _retry(coro_fn, *, max_retries: int = 3, base_delay: float = 2.0):
+_T = TypeVar("_T")
+
+
+async def _retry(
+    coro_fn: Callable[[], Awaitable[_T]],
+    *,
+    max_retries: int = 3,
+    base_delay: float = 2.0,
+) -> _T:
     """
     指数退避重试，仅对瞬时网络故障（连接失败、读超时等）重试。
     delays: 2s → 4s → 8s
@@ -43,12 +52,14 @@ async def _retry(coro_fn, *, max_retries: int = 3, base_delay: float = 2.0):
                 raise RuntimeError(
                     f"MinerU API 网络连接失败，已重试 {max_retries} 次，最后错误: {exc}"
                 ) from exc
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             logger.warning(
                 "MinerU 连接失败（第 %d/%d 次），%.0fs 后重试: %s",
                 attempt + 1, max_retries, delay, exc,
             )
             await asyncio.sleep(delay)
+    # 循环要么 return 要么 raise，不会到这；显式声明让类型检查器确定返回类型为 _T
+    raise AssertionError("unreachable")
 
 _BASE = settings.mineru_api_base   # "https://mineru.net/api/v4"
 

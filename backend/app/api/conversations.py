@@ -60,6 +60,8 @@ async def create_conversation(req: CreateConvRequest):
         enable_thinking=req.enable_thinking,
     )
     conv = await conversation_service.get_conversation(conv_id)
+    if conv is None:
+        raise HTTPException(status_code=500, detail="会话创建后读取失败")
     return {**conv, "messages": []}
 
 
@@ -187,5 +189,7 @@ async def fork_conversation(conversation_id: str, req: ForkRequest):
         new_title=req.new_title,
     )
     conv = await conversation_service.get_conversation(new_conv_id)
+    if conv is None:
+        raise HTTPException(status_code=500, detail="Fork 会话后读取失败")
     msgs = await conversation_service.list_messages(new_conv_id)
     return {**conv, "messages": msgs}

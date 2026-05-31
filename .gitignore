@@ -4,7 +4,12 @@ data/qdrant_storage/*
 data/uploads/*
 data/mineru_zips/*
 data/rag_output/*
+# MinerU 格式漂移日志（运行时生成，空=正常，有内容=需排查）
+data/format_probe_log.jsonl
 !data/**/.gitkeep
+
+# ── Playwright CLI 本地浏览器状态 / 截图 / 快照（不纳入版本控制）──
+.playwright-cli/
 
 # ── Python ────────────────────────────────────────────
 __pycache__/

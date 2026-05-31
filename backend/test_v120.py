@@ -100,6 +100,7 @@ async def run_all_tests() -> None:
             await _test_txt_upload(c, kb_id)
             await _test_conversations(c, kb_id)
             await _test_course_info_endpoints(c, kb_id)
+            await _test_deadline_recompute(kb_id)
             await _test_review_endpoints(c, kb_id)
             await _test_prompts(c)
             await _cleanup(c, kb_id)
@@ -326,6 +327,62 @@ async def _test_course_info_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
     # Delete
     r6 = await c.delete(f"/api/course-info/{kb_id}")
     _record("DELETE /api/course-info/{id} → 200", r6.status_code == 200)
+
+
+async def _test_deadline_recompute(kb_id: str) -> None:
+    """回归：days_left 必须按当天从 ISO date 实时重算，而非沿用入库时的陈旧值。
+
+    bug：卡片在生成日算好 days_left 入库，之后 banner/卡片一直显示过期天数；
+    修复后 get_card 读取时按当天从权威 ISO `date` 重算。
+    """
+    print("\n[5b] 模块九：days_left 实时重算（回归）")
+    from datetime import date, timedelta
+
+    from app.db.database import get_db
+    from app.services import course_info_service
+
+    today = date.today()
+    future = (today + timedelta(days=5)).isoformat()
+    past = (today - timedelta(days=3)).isoformat()
+    # 故意写入陈旧/错误的 days_left；ISO date 才是权威来源
+    normalized = [
+        {"name": "未来DL", "date": future, "days_left": 999, "description": ""},
+        {"name": "已过DL", "date": past, "days_left": 999, "description": ""},
+        {"name": "无日期DL", "date": "", "days_left": None, "description": ""},
+    ]
+
+    async def _reset_card(rows: str | None) -> None:
+        db = await get_db()
+        try:
+            await db.execute("DELETE FROM course_info_cards WHERE kb_id=?", (kb_id,))
+            if rows is not None:
+                await db.execute(
+                    """INSERT INTO course_info_cards
+                       (card_id, kb_id, course_name, instructor, contact, assessment,
+                        deadlines, important_notes, deadlines_normalized, source_doc_ids,
+                        created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("regtest-card", kb_id, "回归课程", "", "", "{}",
+                     "[]", "", rows, "[]",
+                     "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+                )
+            await db.commit()
+        finally:
+            await db.close()
+
+    await _reset_card(json.dumps(normalized))
+    card = await course_info_service.get_card(kb_id)
+    dls = {d["name"]: d["days_left"] for d in (card or {}).get("deadlines_normalized", [])}
+    _record("未来DL days_left 重算为 5", dls.get("未来DL") == 5, f"got {dls.get('未来DL')}")
+    _record("已过DL days_left 重算为 -3", dls.get("已过DL") == -3, f"got {dls.get('已过DL')}")
+    _record("无日期DL days_left 保持 None", dls.get("无日期DL") is None)
+
+    upcoming = await course_info_service.upcoming_deadlines(kb_id, within_days=7)
+    names = {d["name"] for d in upcoming}
+    _record("upcoming 含未来7天内DL", "未来DL" in names)
+    _record("upcoming 排除已过期DL", "已过DL" not in names)
+
+    await _reset_card(None)  # 清理回归数据
 
 
 async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:

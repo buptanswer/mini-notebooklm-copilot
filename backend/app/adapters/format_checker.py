@@ -63,6 +63,8 @@ ZIP_OPTIONAL_PATTERNS = [
     "_origin.png",
     "_origin.jpg",
     "_origin.jpeg",
+    "_origin.xlsx",                  # Excel 原文（新版 MinerU 支持表格文件，2026-05）
+    "_origin.xls",
     "images/",                       # 图片资源目录
 ]
 
@@ -132,8 +134,9 @@ CONTENT_KNOWN_FIELDS: dict[str, frozenset[str]] = {
 
 TEXT_SEGMENT_KNOWN_FIELDS: frozenset[str] = frozenset({
     "type", "content",
-    "url",    # hyperlink 类型
-    "style",  # Office 原生解析字体标记
+    "url",       # hyperlink 类型
+    "style",     # Office 原生解析字体标记
+    "children",  # hyperlink 显示文本拆分出的嵌套子文本段（新版 MinerU 2026-05）
 })
 
 KNOWN_TEXT_SEGMENT_TYPES: frozenset[str] = frozenset({
@@ -369,7 +372,7 @@ def _check_zip_structure(zip_root: Path, report: FormatCheckReport) -> None:
             or name == "full.md"
             or name.endswith("_content_list.json")
             or name.endswith("_model.json")
-            or (name.endswith((".pdf", ".docx", ".doc", ".pptx", ".ppt", ".png", ".jpg", ".jpeg"))
+            or (name.endswith((".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"))
                 and "_origin." in name)
             or (entry.is_dir() and name == "images")
         )

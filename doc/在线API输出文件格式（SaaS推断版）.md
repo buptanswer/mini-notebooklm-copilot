@@ -38,8 +38,8 @@
 
 本文不是开源版旧文档的复述，而是基于以下信息综合整理：
 
-- 项目根目录旧文档 [输出文件格式 - MinerU.md](.\输出文件格式 - MinerU.md)
-- 项目根目录 API 文档 [mineru API文档（格式化）.md](.\mineru API文档（格式化）.md)
+- MinerU 官网下载文档 [输出文件格式（新的）.md](.\mineru\输出文件格式（新的）.md)（官网声称的输出格式，更新滞后、有误，仅供参考）
+- MinerU 官网下载文档 [MinerU API 文档（新的）.md](.\mineru\MinerU API 文档（新的）.md)（官网新版 API 文档）
 - 你与 MinerU 技术人员的沟通记录
 - 2026-03-12 使用 [mineru_vlm_upload.py](.\mineru_vlm_upload.py) 对样本文件的实测结果
 
@@ -1181,3 +1181,38 @@ for item in list_items:
     text = f”{indent}{prefix} {item_text}”.strip()
 ```
 
+
+### 9.7 格式探针实测新增（2026-05-23）
+
+> 来源：用户上传文件触发的 `data/format_probe_log.jsonl`。下列两条偏差均已收录并消除（探针复测 15/15 全部符合）。
+
+#### Excel（`.xlsx`）输入支持
+
+- MinerU 现支持 Excel 文件解析，结果包 origin 文件为 `{uuid}_origin.xlsx`（实测 `.xlsx`，推测同样支持 `.xls`）。
+- 表格内容以 `table` 块呈现。
+- 已加入 `format_checker` 的已知 origin 扩展名清单（`.xlsx` / `.xls`），探针不再报「未预期文件」。
+
+#### 文本段 `children` 字段（hyperlink 嵌套子段）
+
+`type=hyperlink` 的 `RawTextSegment` 新增 `children`：超链接显示文本按样式拆分出的嵌套子文本段数组。
+
+```json
+{
+  "type": "hyperlink",
+  "content": "http://www.icourse163.org/course/BUPT-1003561002（2026",
+  "url": "http://www.icourse163.org/course/BUPT-1003561002（2026",
+  "children": [
+    { "type": "text", "content": "http://www.icourse163.org/course/BUPT-1003561002", "style": ["italic"] },
+    { "type": "text", "content": "（", "style": ["italic"] }
+  ]
+}
+```
+
+**关键特性**：
+- `children[]` 元素本身是 `RawTextSegment`（含 `type`/`content`/`style`），结构可递归。
+- 实测 hyperlink 顶层 `content` 已含链接文本，正常情况不依赖 `children` 也不丢信息。
+- 更正：`style` 实测为**字符串列表**（如 `["italic"]`），非单一字符串。
+
+**解析处理（已实现）**：
+- `normalizer._flatten_text_segments`：某段 `content` 为空但存在 `children` 列表时，递归提取 children 文本作无损兜底。
+- `children` 已加入 `normalizer._KNOWN_TEXT_SEGMENT_KEYS` 与 `format_checker.TEXT_SEGMENT_KNOWN_FIELDS`，探针不再报未知字段。

@@ -157,6 +157,7 @@ Embedding 与最终召回上下文不是同一个粒度：
   <uuid>_origin.pdf             # PDF 源文件（仅 PDF 输入时存在）
   <uuid>_origin.docx            # DOCX 源文件（DOCX 输入时）
   <uuid>_origin.pptx            # PPTX 源文件（PPTX 输入时）
+  <uuid>_origin.xlsx            # Excel 源文件（XLSX 输入时，2026-05 实测）
   layout.json
   full.md
   images/*.jpg
@@ -178,6 +179,8 @@ Embedding 与最终召回上下文不是同一个粒度：
 - 所有块的 `bbox` 键**缺失**（不是 `null` 值，而是键完全不存在）
 - 无 `*_origin.pdf`，PDF 预览不可用
 - 使用 `[0, 0, 0, 0]` 作为 bbox 占位符（sentinel）
+
+**格式漂移追踪（2026-05-23）**：MinerU 现支持 Excel（`.xlsx`）输入；`hyperlink` 文本段新增 `children`（显示文本的嵌套子段）。详见《在线API输出文件格式（SaaS推断版）》§9.7；normalizer 已收录这些字段并对 children 做无损兜底提取。
 
 ## 3.2 本方案的输出物
 
@@ -367,7 +370,7 @@ rag_pipeline_output/
 {
   "doc_id": "sha1-or-business-id",
   "source_filename": "sample.pdf",
-  "source_format": "pdf|docx|pptx|jpg|jpeg|png",
+  "source_format": "pdf|docx|pptx|xlsx|xls|jpg|jpeg|png",
   "mineru_request_model": "vlm",
   "mineru_actual_backend": "hybrid",
   "mineru_version_name": "2.7.5",

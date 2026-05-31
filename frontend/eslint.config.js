@@ -19,5 +19,20 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // eslint-plugin-react-hooks v7 flags the canonical "load data on mount"
+      // pattern (useEffect(() => { load() }, [])) as an error. React's own docs
+      // sanction fetching in an effect, so downgrade to a warning instead of
+      // failing lint on every page that loads data.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
+  },
+  {
+    // shadcn/ui components intentionally co-export variant helpers
+    // (e.g. buttonVariants) alongside the component; that is fine here.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])

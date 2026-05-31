@@ -1,0 +1,80 @@
+# Mini-NotebookLM Copilot — 项目开发指南
+
+迷你版 NotebookLM：本地 AI 知识库系统（本科课程设计）。当前 v1.2.0（已通过用户验收）。
+
+## 技术栈
+- **后端**：FastAPI + aiosqlite + Qdrant（本地文件模式，单进程文件锁）+ httpx + openai SDK。包管理 **uv**（不是 pip）；Python ≥ 3.11。
+- **前端**：React 19 + Vite 7 + TypeScript（strict）+ Tailwind CSS v4 + shadcn/ui；路由 react-router-dom v7；Markdown 用 react-markdown + remark-gfm。
+- **文档解析**：MinerU SaaS API（`/api/v4` 精准解析）。
+- **嵌入 / 重排 / VLM**：阿里云百炼 DashScope（text-embedding-v4 / qwen3-rerank / qwen-vl-plus）。
+- **QA 问答**：多 Provider 可切换（默认 DashScope qwen-plus，可切 DeepSeek/OpenAI/Moonshot）。
+
+## 目录约定
+- `backend/app/` — 后端源码：`api/` `services/` `adapters/` `models/` `validators/` `db/` `prompts/`
+- `backend/tools/` — 独立脚本（如 MinerU 格式探针）
+- `backend/test_*.py` — 端到端 / 阶段测试（**脚本式，非 pytest**）
+- `frontend/src/pages/` — 页面；`frontend/src/components/ui/` — shadcn 组件
+- `doc/` — 设计与需求文档（见下文「文档」）
+- `data/` — 运行时数据：SQLite、Qdrant、MinerU zip、`format_probe_log.jsonl`
+
+## 命令
+
+### 后端
+- 安装依赖：`cd backend && uv sync`
+- 运行服务：`cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload`
+- **类型检查（权威）**：从**仓库根**运行 `uv run --project backend basedpyright`（读仓库根 `pyrightconfig.json`，standard 模式）
+- Lint：`cd backend && uv run ruff check .`（自动修：`--fix`）
+- 格式化：`cd backend && uv run ruff format .`
+- 测试（脚本式，**运行前必须停掉 uvicorn** —— Qdrant 单进程文件锁）：
+  - `uv run python test_api.py`（API 端到端）
+  - `uv run python test_v120.py`（v1.2.0 功能）
+  - `uv run python test_stage2.py` / `test_stage3.py` / `test_stage4.py`
+- MinerU 格式探针：`uv run python tools/mineru_format_probe.py [--online]`
+
+### 前端（在 `frontend/` 下）
+- 安装：`npm install`
+- 开发：`npm run dev`
+- **类型检查**：`npx tsc -p tsconfig.app.json --noEmit`
+  - ⚠️ 根 `tsconfig.json` 是 references-only（`files: []`），直接 `tsc --noEmit` 对它是**空跑、不检查源码**。必须指定 `tsconfig.app.json`。
+- 构建：`npm run build`
+- Lint：`npm run lint`
+
+## 开发工作流（务必遵循）
+改完代码 → 先静态分析（LSP / basedpyright / tsc / eslint）→ 再测试 / 试运行。
+
+### LSP 注意事项
+- LSP 插件提供符号导航 + 被动诊断推送，Python（basedpyright）与 TypeScript 均可用。
+- **Python LSP 插件对 `pyrightconfig.json` 热重载有滞后**：刚编辑文件后推送的诊断可能基于尚未完全加载新配置的快照（会残留已关闭的 strict 规则噪音、或误报 venv 内的包「无法解析」）。**权威 Python 类型检查以 CLI `uv run --project backend basedpyright` 为准**；插件诊断仅供参考，必要时重启 LSP server / Claude Code 让配置完全生效。
+- pyright 配置放在**仓库根** `pyrightconfig.json`（不是 `backend/`），因为 LSP 插件以仓库根为工作区根。CLI 也需从仓库根运行才能读到同一份配置。配置已关闭一批 basedpyright strict-only 噪音规则，保留能抓真 bug 的检查（None 访问、属性错误、类型不匹配等）。
+
+## 环境变量
+后端需要 `backend/.env`（从 `backend/.env.example` 复制）。必填：`MINERU_API_KEY`、`ALIBABA_CLOUD_ACCESS_KEY_SECRET`（DashScope）。
+**没有这两个 key，文档解析与问答的真机端到端无法运行**；静态分析、前端构建、以及不依赖真实 API 的逻辑仍可验证。
+
+## MinerU 格式漂移监控
+MinerU 更新频繁。`pipeline_service` 步骤 [E+] 对每次解析跑 `adapters/format_checker.check_bundle`，发现偏差时追加到 `data/format_probe_log.jsonl`（**无偏差不写**）。
+- **盯住 `data/format_probe_log.jsonl`**：文件增长 = 出现未处理的格式情况。按 severity 处理：`error` 必修，`warning` 通常需收录新字段/文件，`info` 酌情。
+- 注意：探针只覆盖「字段/文件层面」的新增或缺失；已知字段内部结构悄悄改变未必能抓到，需配合 normalizer 的 degraded 警告与 IR 校验兜底。
+- 出现新格式时同步更新：`doc/在线API输出文件格式（SaaS推断版）.md`、`doc/MinerU to RAG Pipeline 架构设计与数据流方案.md`，以及 `adapters/normalizer.py` + `adapters/format_checker.py` 的已知字段集合。
+
+## 文档（doc/）
+
+文档体系采用「当前情况 → 开发目标 → 实施手册」三件套滚动维护：
+
+- `doc/项目当前情况.md` — 项目此刻已实现到什么程度，**必须与代码一致**（交接文档）
+- `doc/下一步开发目标.md` — 需求规格 / 下一轮要做成的样子（含模块八、音视频等未实现的提升项）
+- `doc/开发实施手册.md` — 从当前情况到目标怎么做的逐步计划；当前内容覆盖 v1.1.0→v1.2.0 那一轮
+- `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md` — 当前在用的 MinerU 解析/入库方案
+- `doc/在线API输出文件格式（SaaS推断版）.md` — 当前所基于的 MinerU 输出格式推断
+- `doc/mineru/` — 从 MinerU 官网下载的文档（事实来源，原样保留）：`MinerU API 文档（新的）.md`（新版 API 文档）、`输出文件格式（新的）.md`（官网声称格式，更新滞后有误，仅供参考）
+- `doc/阿里云模型/` — 阿里云百炼官方文档（向量化 / VLM）
+
+**每轮开发完成后的文档维护约定**：
+- 更新三件套（当前情况 / 下一步开发目标 / 开发实施手册）+ README + RELEASE_NOTES（这是「更新」，不是「重新整理」）。
+- MinerU API 出现未知/错误字段 → 更新《在线API输出文件格式（SaaS推断版）》（+ normalizer/format_checker 已知字段集合）。
+- 解析入库工作流变化 → 更新《MinerU to RAG Pipeline 架构设计与数据流方案》。
+
+## 约定
+- **回复用户用中文**；代码产物（标识符、注释、commit message、PR 描述）用英文。
+- commit message 结尾：`Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
+- 仅在用户明确要求时才 commit / push。

@@ -102,8 +102,9 @@ _KNOWN_CONTENT_KEYS: dict[str, frozenset] = {
 
 _KNOWN_TEXT_SEGMENT_KEYS = frozenset({
     "type", "content",
-    "url",     # hyperlink 类型附带的 URL 字段
-    "style",   # Office 原生解析添加的字体/样式信息（忽略，不用于嵌入）
+    "url",      # hyperlink 类型附带的 URL 字段
+    "style",    # Office 原生解析添加的字体/样式信息（忽略，不用于嵌入）
+    "children", # hyperlink 显示文本拆分出的嵌套子文本段（新版 MinerU，2026-05）
 })
 _KNOWN_LIST_ITEM_KEYS    = frozenset({
     "item_type", "item_content",
@@ -501,6 +502,9 @@ def _flatten_text_segments(segs: list) -> tuple[str, list[TextSegment]]:
         _warn_extra_keys(s, _KNOWN_TEXT_SEGMENT_KEYS, "text_segment")
         seg_type = s.get("type", "text")
         seg_content = s.get("content", "")
+        # 新版 MinerU 的 hyperlink 可能把显示文本拆进 children；content 为空时递归兜底，避免丢文本
+        if not seg_content and isinstance(s.get("children"), list):
+            seg_content, _ = _flatten_text_segments(s["children"])
         if "equation" in seg_type:
             seg_t = "inline_equation"
         else:

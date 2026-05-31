@@ -17,11 +17,11 @@ import uuid
 from datetime import date, datetime, timezone
 
 from app.db.database import get_db
-
-logger = logging.getLogger(__name__)
 from app.prompts import load_prompt
 from app.services.qa_service import call_llm_json
-from app.services.retrieval_service import hybrid_search
+from app.services.retrieval_service import RetrievedChunk, hybrid_search
+
+logger = logging.getLogger(__name__)
 
 _QUERIES = [
     "考核方式 评分标准 成绩比例 平时分 期末分",
@@ -44,7 +44,7 @@ async def generate_card(kb_id: str) -> dict:
     )
 
     # 2. 去重合并（以 child_chunk_id 为 key）
-    seen: dict[str, object] = {}
+    seen: dict[str, RetrievedChunk] = {}
     for chunks in all_chunks_lists:
         for c in chunks:
             if c.child_chunk_id not in seen:
@@ -165,6 +165,16 @@ async def get_card(kb_id: str) -> dict | None:
         r = dict(row)
         for f in ("assessment", "deadlines", "deadlines_normalized", "source_doc_ids"):
             r[f] = json.loads(r.get(f) or ("[]" if f != "assessment" else "{}"))
+        # days_left 会随时间过期：按当天从权威的 ISO `date` 字段实时重算，
+        # 否则卡片生成日之后 banner / 卡片会一直显示陈旧甚至已过期的天数。
+        today = date.today()
+        for d in r["deadlines_normalized"]:
+            iso = d.get("date") if isinstance(d, dict) else None
+            if iso:
+                try:
+                    d["days_left"] = (date.fromisoformat(iso) - today).days
+                except (ValueError, TypeError):
+                    pass
         return r
     finally:
         await db.close()

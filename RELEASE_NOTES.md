@@ -4,6 +4,21 @@
 
 ---
 
+## 文档体系重构（2026-05-31，仅文档，不涉代码）
+
+v1.2.0 通过用户验收后，按「当前情况 → 开发目标 → 实施手册」三件套滚动模型重构 `doc/`：
+
+- `09班李宇2022210347-本地ai知识库需求分析报告V7.md` → **`项目当前情况.md`**（改写为与 v1.2.0 代码一致的交接文档）
+- `新文档/需求分析报告（最终交上去的版本，结合老师要求与ppt内容）.md` → **`下一步开发目标.md`**（需求规格 / 蓝图）
+- `新文档/v1.2.0-详细实施手册.md` → **`开发实施手册.md`**
+- 新建 `doc/mineru/`，收纳官网下载文档：`MinerU API 文档（新的）.md`（新版 API 文档）、`输出文件格式（新的）.md`（官网声称格式，更新滞后有误，仅供参考）
+- 删除 `mineru API文档（格式化）.md`（官网旧 API 文档）与 `03课：MinerU 在线 API 实战教程 - 文档.md`（与新 API 文档重叠，且其 SDK/CLI/MCP/飞书等内容本项目不用）
+- 移除空目录 `doc/新文档/`；新增 `doc/文档导览.md` 导览
+
+go-forward 维护约定：每轮开发后更新三件套 + README + RELEASE_NOTES；MinerU 字段变化更新《在线API输出文件格式（SaaS推断版）》；解析入库工作流变化更新《MinerU to RAG Pipeline 架构设计与数据流方案》。
+
+---
+
 ## v1.2.0（2026-05-22）
 
 ### 新增：文件夹绑定与自动同步
@@ -69,14 +84,43 @@
 | `ReviewPage.tsx` | 缺少「加载已存盘讲义」按钮（`has_notes=true` 时无法查看已保存内容） | 添加按钮，调用 `loadReviewNotes` 填充视图 |
 | `ReviewPage.tsx` | 缺少「导出 PDF」按钮 | 添加 `window.print()` 按钮 |
 
-### 测试
+### 第二轮验收修复（2026-05-23）
+
+| 位置 | 问题 | 修复 |
+|------|------|------|
+| `mineru_client.py` | MinerU API 偶发网络失败直接报错 | `_retry` 指数退避重试（3 次，2s→4s→8s），仅对瞬时网络故障重试，耗尽后报清晰错误 |
+| `KBFilesPage.tsx` | 文件列表是扁平列表，不直观 | 改为按 `relative_path` 分层的树形目录视图（可折叠）+ Shift 范围多选 |
+| `ChatPage.tsx` / `CourseInfoPage.tsx` | 对话界面缺少 Fork、历史会话功能 | 每条助手消息支持 Fork；历史会话切换；ChatPage 改用对话 API（持久化以支持 Fork） |
+| `ReviewPage.tsx` 等 | Markdown 未渲染、思维链流式中折叠、切换日期残留状态 | 统一改用 ReactMarkdown + remark-gfm；思维链改用受控显示状态；切换日期清理 savedMsg/followup |
+
+### 工程化加固与格式漂移修复（2026-05-30）
+
+- **工具链**：引入 `ruff`（lint+format）与 `basedpyright`（类型检查）；仓库根 `pyrightconfig.json`（standard 模式、关闭 strict-only 噪音规则）；新增项目级 `CLAUDE.md` 固化命令与工作流。
+- **后端类型修复**：basedpyright 从 21 错 → **0 错**。`mineru_client._retry` 补 `TypeVar` 泛型返回类型（消除下游 None 误报）；`conversations.py` 字典解包加 None 守卫；`course_info_service.py` 检索结果标注为 `RetrievedChunk`。
+- **前端编译修复**：`CourseInfoPage.tsx` 的 `findLastIndex` 实为 ES2023 方法，在 `lib=ES2022` 下编译失败（此前误判通过——根 `tsconfig` 空跑所致）；升级 `tsconfig.app.json` `lib/target` → ES2023。
+- **eslint**：`react-hooks` v7 的 `set-state-in-effect` 对标准"挂载加载"模式误报，降级为 warn；shadcn `ui/` 关闭 `react-refresh` 误报；清理 `ReviewPage` 未使用变量。
+- **MinerU 格式漂移**（来自 `format_probe_log.jsonl`）：收录 Excel（`.xlsx`）输入与 `hyperlink` 文本段的 `children` 字段；`normalizer` 对 children 做无损兜底提取；同步更新 `在线API输出文件格式（SaaS推断版）.md` §9.7 与架构文档。格式探针复测 **15/15 全部符合**。
+- **git 卫生**：运行时日志 `data/format_probe_log.jsonl` 纳入 `.gitignore`（空=正常，有内容=需排查）。
+- **修复 bug：模块九 deadline 天数会过期**。`days_left` 原在卡片生成时算好入库，之后 banner / 卡片一直显示陈旧甚至已过期的天数（实测一个已过 6 天的 DL 仍显示「明天」）。改为 `get_card` 读取时按当天从权威 ISO `date` 字段实时重算；新增 5 条回归测试覆盖。
+
+### 测试与验证
 
 ```
-后端 API 端到端测试（test_api.py）：49/49 全部通过
-v1.2.0 新功能测试（test_v120.py）：85/85 全部通过
-TypeScript 编译检查：0 错误
-前端生产构建：✓ 通过
+v1.2.0 新功能测试（test_v120.py）：91/91 全部通过（LLM mock，隔离临时 DB；含 5 条 deadline 重算回归）
+后端类型检查（basedpyright，standard 模式）：0 errors
+TypeScript 编译检查（tsc -p tsconfig.app.json）：0 错误
+前端 ESLint：0 errors（8 warnings）
+前端生产构建（npm run build）：✓ 通过
+MinerU 格式探针（离线复测）：15/15 全部符合
 ```
+
+真机端到端验证（Playwright 驱动浏览器 + 真实 API Key，针对真实课程 KB「程序设计基础实训」/ 188 文件）：
+- 树形文件视图：多级文件夹折叠 + 文件类型/大小/状态 + Shift 范围多选提示 ✓
+- 对话 RAG：embedding → 混合检索 → rerank（带相关度分数）→ LLM 流式 → Markdown 渲染 → 内联引用 + 引用面板 ✓
+- 会话 Fork：分叉跳转新会话且保留原对话历史，主线不受影响 ✓
+- 模块九课程管家：LLM 结构化抽取卡片（老师 / 考核 / 截止 / 通知）+ deadline banner + 课程问答输入 ✓
+
+> 仍未自动验证：模块七「追问思维链」的流式显示（代码已补全并通过编译，需带思维链的复习会话在浏览器内确认）；MinerU 对新上传文件的真实解析（按需触发）。
 
 ---
 
@@ -138,7 +182,7 @@ MinerU 对 DOCX/PPTX 使用 Office 原生引擎，bbox 坐标键**缺失**（非
 
 ### 文档更新
 
-- `doc/09班李宇2022210347-本地ai知识库需求分析报告V7.md`：完整重写为项目现状交接文档（~600 行）
+- `doc/09班李宇2022210347-本地ai知识库需求分析报告V7.md`（现已更名为 `doc/项目当前情况.md`，见文首「文档体系重构」）：完整重写为项目现状交接文档
 - `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md`：更新 §3.1 ZIP 结构、§5.7 新块类型，新增 §15 实现更新记录
 - `doc/在线API输出文件格式（SaaS推断版）.md`：新增 §9.5 `preproc_blocks` 字段说明，更新 §5.2.3、§5.2.4
 - `README.md`：新增格式监控系统使用说明、目录结构更新

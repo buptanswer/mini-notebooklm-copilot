@@ -124,11 +124,12 @@ mini-notebooklm/
 │   │   │   ├── models_ir.py           # 自研 IR 中间格式 Schema
 │   │   │   └── models_chunk.py        # Parent / Child Chunk Schema
 │   │   ├── prompts/           # 提示词文件（Markdown，支持热更新）
-│   │   │   ├── qa_system.md           # 知识库问答系统提示词
-│   │   │   ├── course_info_extract.md # 课程信息结构化抽取提示词
-│   │   │   ├── review_first.md        # 讲义生成-首节提示词
-│   │   │   ├── review_subsequent.md   # 讲义生成-后续节提示词
-│   │   │   └── course_info_chat.md    # 课程信息问答系统提示词
+│   │   │   ├── course_info_extract_system.md      # 模块九：课程信息结构化抽取
+│   │   │   ├── course_info_chat_system.md         # 模块九：课程信息问答系统提示词
+│   │   │   ├── lecture_review_section_first.md    # 模块七：讲义生成-首节
+│   │   │   ├── lecture_review_section_subsequent.md # 模块七：讲义生成-后续节
+│   │   │   └── lecture_review_followup_system.md  # 模块七：追问系统提示词
+│   │   │   # （通用问答的系统提示词内联在 qa_service.py，不在本目录）
 │   │   ├── services/          # 业务服务
 │   │   │   ├── pipeline_service.py    # 全流程编排（上传→解析→IR→切片→索引）
 │   │   │   ├── mineru_client.py       # MinerU API 客户端（v4 批量精准解析）
@@ -161,12 +162,9 @@ mini-notebooklm/
 │   │   │   ├── client.ts          # 所有后端 API 调用封装
 │   │   │   └── types.ts           # TypeScript 接口定义
 │   │   ├── components/
-│   │   │   ├── Layout.tsx         # 左侧主导航布局（可折叠）
-│   │   │   └── ui/                # 基础 UI 组件（Button、Badge、Dialog 等）
-│   │   ├── components/
-│   │   │   ├── KBLayout.tsx           # 知识库二级布局（二级侧边栏 + deadline banner）
 │   │   │   ├── Layout.tsx             # 左侧主导航布局（可折叠）
-│   │   │   └── ui/                    # 基础 UI 组件
+│   │   │   ├── KBLayout.tsx           # 知识库二级布局（二级侧边栏 + deadline banner）
+│   │   │   └── ui/                    # 基础 UI 组件（Button、Badge、Dialog 等）
 │   │   ├── pages/
 │   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（卡片网格，含类型选择 + 文件夹绑定）
 │   │   │   ├── KBFilesPage.tsx        # 文件管理页（上传 / 批量操作 / 同步按钮）
@@ -408,6 +406,25 @@ uv run python tools/mineru_format_probe.py --online
 
 ---
 
+## 代码质量检查（静态分析）
+
+```bash
+# 后端类型检查（standard 模式，读仓库根 pyrightconfig.json）— 从仓库根运行
+uv run --project backend basedpyright
+
+# 后端 lint / 格式化
+cd backend && uv run ruff check .      # 加 --fix 自动修
+cd backend && uv run ruff format .
+
+# 前端类型检查（必须指定 tsconfig.app.json；根 tsconfig 仅 references，直接跑等于空跑）
+cd frontend && npx tsc -p tsconfig.app.json --noEmit
+
+# 前端 lint
+cd frontend && npm run lint
+```
+
+---
+
 ## 测试
 
 ```bash
@@ -417,7 +434,7 @@ cd backend
 uv run python test_api.py        # 49 个测试
 
 # v1.2.0 新功能集成测试（不依赖外部 API，快速）
-uv run python test_v120.py       # 85 个测试
+uv run python test_v120.py       # 91 个测试（LLM mock，建议用临时数据路径隔离）
 # 注意：运行前需确保 uvicorn 服务未启动（Qdrant 文件锁限制单进程访问）
 
 # Stage 2: MinerU 解析与 IR 标准化（需要 MINERU_API_KEY）

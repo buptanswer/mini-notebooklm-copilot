@@ -53,13 +53,14 @@ class _RawBase(BaseModel):
 class RawTextSegment(_RawBase):
     """段落/标题内的文本片段 — {"type":"text","content":"..."}
     新版 MinerU 中还可能出现：
-    - type=hyperlink 附带 url 字段
-    - style 字段（Office 原生解析的字体/样式信息）
+    - type=hyperlink 附带 url 字段 + children（显示文本的嵌套子文本段）
+    - style 字段（Office 原生解析的字体/样式信息，实测为字符串列表如 ["italic"]）
     """
     type: str = "text"
     content: str = ""
-    url: Optional[str] = None      # hyperlink 类型的目标 URL
-    style: Optional[str] = None    # Office 原生解析的字体样式标记（不用于嵌入）
+    url: Optional[str] = None                          # hyperlink 类型的目标 URL
+    style: Optional[list[str]] = None                  # Office 原生解析的字体样式标记（不用于嵌入）
+    children: Optional[list["RawTextSegment"]] = None  # hyperlink 显示文本的嵌套子段（新版 MinerU 2026-05）
 
 
 class RawImageSource(_RawBase):
