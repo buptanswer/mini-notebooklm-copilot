@@ -221,6 +221,43 @@ async def trigger_parse(kb_id: str, doc_id: str, bg: BackgroundTasks):
     return {"detail": "解析任务已启动", "doc_id": doc_id}
 
 
+@router.post("/{kb_id}/{doc_id}/index-text", summary="索引文本文档（txt/md）到检索库")
+async def index_text(kb_id: str, doc_id: str, bg: BackgroundTasks):
+    """
+    把 txt/md 文本文档切片→嵌入→入库供混合检索。
+    **录音转写 .txt 不可索引**（仅作课后复习生成素材）。
+    """
+    from app.services import text_index_service
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, source_format, folder_category, bound_file_path, upload_path, status "
+            "FROM documents WHERE doc_id=? AND kb_id=?",
+            (doc_id, kb_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+    finally:
+        await db.close()
+
+    if not text_index_service.is_indexable_text(r.get("folder_category"), r.get("source_format")):
+        raise HTTPException(
+            status_code=400,
+            detail="该文档不可索引（仅非录音的 txt/md 文本可索引；录音转写仅作复习素材）",
+        )
+    path = r["bound_file_path"] or r["upload_path"] or ""
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=400, detail="原始文件不存在")
+
+    bg.add_task(
+        text_index_service.index_text_document_bg, doc_id, path, r["source_format"]
+    )
+    return {"detail": "文本索引任务已启动", "doc_id": doc_id}
+
+
 # ── 删除文档 ──────────────────────────────────────────────
 
 @router.delete("/{kb_id}/{doc_id}", summary="删除文档及其所有数据")

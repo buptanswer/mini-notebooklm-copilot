@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     child_chunk_max_tokens: int = 250
     child_chunk_overlap_ratio: float = 0.15
 
+    # ── 解析并发 ──────────────────────────────────────────
+    # 同时运行的解析流水线上限：批量重解析时避免 N 路并发打爆 MinerU/OSS/DashScope 连接
+    max_concurrent_parses: int = Field(default=2, validation_alias="MAX_CONCURRENT_PARSES")
+
     # ── Server ────────────────────────────────────────────
     host: str = "127.0.0.1"
     port: int = 8000

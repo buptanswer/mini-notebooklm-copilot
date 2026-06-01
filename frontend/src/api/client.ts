@@ -109,6 +109,12 @@ export async function triggerParse(kbId: string, docId: string): Promise<void> {
   await handleResponse<unknown>(res)
 }
 
+/** 索引文本文档（txt/md，录音转写不可索引）到检索库。 */
+export async function indexTextDoc(kbId: string, docId: string): Promise<void> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/index-text`, { method: "POST" })
+  await handleResponse<unknown>(res)
+}
+
 export async function deleteDocument(kbId: string, docId: string): Promise<void> {
   const res = await fetch(`${BASE}/documents/${kbId}/${docId}`, { method: "DELETE" })
   await handleResponse<unknown>(res)
@@ -149,76 +155,124 @@ export async function searchDocuments(
   return data.results
 }
 
-// ── 流式问答（SSE）────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// 统一流式 SSE：一个解析器服务所有对话端点（统一 ChatEvent 词汇）
+// ════════════════════════════════════════════════════════════
 
-/**
- * 发起 SSE 流式问答，通过回调函数逐事件通知调用者。
- * 返回一个 abort 函数，可中途取消请求。
- */
-export function streamChat(
-  kbId: string,
-  query: string,
-  options: {
-    topK?: number
-    enableThinking?: boolean
-    onEvent: (event: ChatEvent) => void
-    onError?: (err: Error) => void
-    onDone?: () => void
-  },
-): () => void {
+export interface StreamHandlers {
+  onEvent: (e: ChatEvent) => void
+  onError?: (err: Error) => void
+  onDone?: () => void
+}
+
+/** POST 一个端点并按行解析 SSE，逐事件回调；返回 abort 函数。 */
+function runSSE(url: string, body: unknown, h: StreamHandlers): () => void {
   const controller = new AbortController()
-  const { topK = 5, enableThinking = false, onEvent, onError, onDone } = options
 
   const run = async () => {
     try {
-      const res = await fetch(`${BASE}/chat/${kbId}`, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: topK, enable_thinking: enableThinking }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       })
-
       if (!res.ok) {
         let detail = `HTTP ${res.status}`
         try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
         throw new Error(detail)
       }
-
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let buf = ""
-
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         buf += decoder.decode(value, { stream: true })
         const lines = buf.split("\n")
         buf = lines.pop() ?? ""
-
         for (const line of lines) {
           if (!line.startsWith("data:")) continue
           const data = line.slice(5).trim()
           if (!data || data === "[DONE]") continue
           try {
-            const event = JSON.parse(data) as ChatEvent
-            onEvent(event)
-            if (event.type === "end") {
-              onDone?.()
-              return
-            }
+            const ev = JSON.parse(data) as ChatEvent
+            h.onEvent(ev)
+            if (ev.type === "done") { h.onDone?.(); return }
           } catch { /* ignore malformed */ }
         }
       }
-      onDone?.()
+      h.onDone?.()
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        onError?.(err as Error)
-      }
+      if ((err as Error).name !== "AbortError") h.onError?.(err as Error)
     }
   }
 
   run()
   return () => controller.abort()
+}
+
+/** 通用 / 课程管家 / 任意会话内发送一条消息（统一原语）。 */
+export function streamSend(
+  convId: string,
+  content: string,
+  opts: StreamHandlers & {
+    ragMode?: boolean
+    topK?: number
+    extraSystem?: string
+    enableThinking?: boolean
+    metadata?: Record<string, unknown>
+  },
+): () => void {
+  const { ragMode, topK, extraSystem, enableThinking, metadata, ...h } = opts
+  return runSSE(`${BASE}/conversations/${convId}/send`, {
+    content,
+    rag_mode: ragMode ?? false,
+    top_k: topK ?? 5,
+    extra_system: extraSystem,
+    enable_thinking: enableThinking,
+    metadata: metadata ?? {},
+  }, h)
+}
+
+/** 模块七：逐节生成讲义（一条流内多个 message_start/message_end）。 */
+export function streamReviewGenerate(
+  kbId: string,
+  params: {
+    date: string
+    course_name?: string
+    time_descriptor?: string
+    user_identity?: string
+    enable_thinking?: boolean
+  },
+  h: StreamHandlers,
+): () => void {
+  return runSSE(`${BASE}/review/${kbId}/generate`, params, h)
+}
+
+/** 模块七：课后追问（已有会话内）。 */
+export function streamReviewFollowup(
+  kbId: string,
+  conversationId: string,
+  content: string,
+  h: StreamHandlers,
+): () => void {
+  return runSSE(`${BASE}/review/${kbId}/followup`, { conversation_id: conversationId, content }, h)
+}
+
+/** 模块九：课程信息问答（conversationId 为空时后端自动建会话）。 */
+export function streamCourseInfoChat(
+  kbId: string,
+  content: string,
+  conversationId: string | null,
+  h: StreamHandlers & { enableThinking?: boolean },
+): () => void {
+  const { enableThinking, ...rest } = h
+  return runSSE(`${BASE}/course-info/${kbId}/chat`, {
+    content,
+    conversation_id: conversationId,
+    enable_thinking: enableThinking ?? false,
+  }, rest)
 }
 
 // ── 文件夹同步 ─────────────────────────────────────────────
@@ -228,7 +282,7 @@ export async function syncFolder(kbId: string): Promise<SyncDiff> {
   return handleResponse<SyncDiff>(res)
 }
 
-// ── 多轮对话 ───────────────────────────────────────────────
+// ── 多轮对话 CRUD ──────────────────────────────────────────
 
 export async function createConversation(
   kbId: string,
@@ -288,77 +342,7 @@ export async function forkConversation(
   return handleResponse<ConversationInfo>(res)
 }
 
-export function streamConversation(
-  convId: string,
-  content: string,
-  options: {
-    metadata?: Record<string, unknown>
-    extraSystem?: string
-    ragMode?: boolean
-    topK?: number
-    onEvent: (event: ChatEvent & { section_num?: number }) => void
-    onError?: (err: Error) => void
-    onDone?: () => void
-    onMessageId?: (messageId: string) => void
-  },
-): () => void {
-  const controller = new AbortController()
-  const { metadata, extraSystem, ragMode, topK, onEvent, onError, onDone, onMessageId } = options
-
-  const run = async () => {
-    try {
-      const res = await fetch(`${BASE}/conversations/${convId}/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content,
-          metadata: metadata || {},
-          extra_system: extraSystem,
-          rag_mode: ragMode || false,
-          top_k: topK || 5,
-        }),
-        signal: controller.signal,
-      })
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`
-        try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
-        throw new Error(detail)
-      }
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const data = line.slice(5).trim()
-          if (!data || data === "[DONE]") continue
-          try {
-            const event = JSON.parse(data)
-            if (event.type === "assistant_message_appended") {
-              onMessageId?.(event.message_id)
-              continue
-            }
-            if (event.type === "user_message_appended") continue
-            onEvent(event)
-            if (event.type === "end") { onDone?.(); return }
-          } catch { /* ignore */ }
-        }
-      }
-      onDone?.()
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") onError?.(err as Error)
-    }
-  }
-  run()
-  return () => controller.abort()
-}
-
-// ── 课程管家 ───────────────────────────────────────────────
+// ── 课程管家 REST ──────────────────────────────────────────
 
 export async function generateCourseInfoCard(kbId: string): Promise<CourseInfoCard> {
   const res = await fetch(`${BASE}/course-info/${kbId}/generate`, { method: "POST" })
@@ -381,70 +365,7 @@ export async function deleteCourseInfoCard(kbId: string): Promise<void> {
   await handleResponse<unknown>(res)
 }
 
-export function streamCourseInfoChat(
-  kbId: string,
-  content: string,
-  conversationId: string | null,
-  options: {
-    enableThinking?: boolean
-    onEvent: (event: ChatEvent) => void
-    onError?: (err: Error) => void
-    onDone?: (convId: string) => void
-    onMessageId?: (messageId: string) => void
-  },
-): () => void {
-  const controller = new AbortController()
-  const { enableThinking = false, onEvent, onError, onDone, onMessageId } = options
-
-  const run = async () => {
-    try {
-      const res = await fetch(`${BASE}/course-info/${kbId}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, conversation_id: conversationId, enable_thinking: enableThinking }),
-        signal: controller.signal,
-      })
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`
-        try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
-        throw new Error(detail)
-      }
-      const newConvId = res.headers.get("X-Conversation-Id") || conversationId || ""
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const data = line.slice(5).trim()
-          if (!data || data === "[DONE]") continue
-          try {
-            const event = JSON.parse(data) as ChatEvent
-            if (event.type === "assistant_message_appended") {
-              onMessageId?.(event.message_id)
-              continue
-            }
-            if (event.type === "user_message_appended") continue
-            onEvent(event)
-            if (event.type === "end") { onDone?.(newConvId); return }
-          } catch { /* ignore */ }
-        }
-      }
-      onDone?.(newConvId)
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") onError?.(err as Error)
-    }
-  }
-  run()
-  return () => controller.abort()
-}
-
-// ── 课后复习 ───────────────────────────────────────────────
+// ── 课后复习 REST ──────────────────────────────────────────
 
 export async function listReviewDates(kbId: string): Promise<ReviewDateInfo[]> {
   const res = await fetch(`${BASE}/review/${kbId}/dates`)
@@ -477,121 +398,6 @@ export async function listReviewConversations(kbId: string): Promise<Conversatio
   const res = await fetch(`${BASE}/review/${kbId}/conversations`)
   const data = await handleResponse<{ conversations: ConversationInfo[] }>(res)
   return data.conversations
-}
-
-export function streamReviewGenerate(
-  kbId: string,
-  params: {
-    date: string
-    course_name?: string
-    time_descriptor?: string
-    user_identity?: string
-    enable_thinking?: boolean
-  },
-  options: {
-    onEvent: (event: Record<string, unknown>) => void
-    onError?: (err: Error) => void
-    onDone?: () => void
-  },
-): () => void {
-  const controller = new AbortController()
-  const { onEvent, onError, onDone } = options
-
-  const run = async () => {
-    try {
-      const res = await fetch(`${BASE}/review/${kbId}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        signal: controller.signal,
-      })
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`
-        try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
-        throw new Error(detail)
-      }
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const data = line.slice(5).trim()
-          if (!data || data === "[DONE]") continue
-          try {
-            const event = JSON.parse(data) as Record<string, unknown>
-            onEvent(event)
-            if (event.type === "all_done") { onDone?.(); return }
-          } catch { /* ignore */ }
-        }
-      }
-      onDone?.()
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") onError?.(err as Error)
-    }
-  }
-  run()
-  return () => controller.abort()
-}
-
-export function streamReviewFollowup(
-  kbId: string,
-  conversationId: string,
-  content: string,
-  options: {
-    onEvent: (event: ChatEvent) => void
-    onError?: (err: Error) => void
-    onDone?: () => void
-  },
-): () => void {
-  const controller = new AbortController()
-  const { onEvent, onError, onDone } = options
-
-  const run = async () => {
-    try {
-      const res = await fetch(`${BASE}/review/${kbId}/followup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: conversationId, content }),
-        signal: controller.signal,
-      })
-      if (!res.ok) {
-        let detail = `HTTP ${res.status}`
-        try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
-        throw new Error(detail)
-      }
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const data = line.slice(5).trim()
-          if (!data || data === "[DONE]") continue
-          try {
-            const event = JSON.parse(data) as ChatEvent
-            onEvent(event)
-            if (event.type === "end") { onDone?.(); return }
-          } catch { /* ignore */ }
-        }
-      }
-      onDone?.()
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") onError?.(err as Error)
-    }
-  }
-  run()
-  return () => controller.abort()
 }
 
 // ── 提示词管理 ─────────────────────────────────────────────

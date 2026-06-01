@@ -1,418 +1,219 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { motion } from "motion/react"
 import {
-  User, Mail, BarChart3, Calendar, AlertCircle, RefreshCw,
-  Loader2, Send, MessageSquare, Trash2, Brain, GitBranch,
+  AlertCircle, BarChart3, CalendarClock, ClipboardList, Loader2, Mail,
+  MessagesSquare, RefreshCw, Trash2, User,
 } from "lucide-react"
 import {
-  getCourseInfoCard, generateCourseInfoCard, deleteCourseInfoCard,
-  streamCourseInfoChat, forkConversation, listConversations, getConversation,
+  deleteCourseInfoCard, forkConversation, generateCourseInfoCard, getConversation,
+  getCourseInfoCard, listConversations, streamCourseInfoChat,
 } from "@/api/client"
-import type { ChatEvent, ConversationInfo, CourseInfoCard } from "@/api/types"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/ui/spinner"
+import type { ConversationInfo, CourseInfoCard } from "@/api/types"
+import { threadFromHistory, useConversation } from "@/hooks/useConversation"
+import { ChatThread, Composer } from "@/components/ChatThread"
 import { cn } from "@/lib/utils"
 
-interface ChatMessage {
-  role: string
-  content: string
-  message_id?: string
-  streaming?: boolean
-}
+const pct = (v: number) => (v > 0 ? `${Math.round(v * 100)}%` : "—")
 
 export default function CourseInfoPage() {
   const { kbId } = useParams<{ kbId: string }>()
+  const convo = useConversation()
   const [card, setCard] = useState<CourseInfoCard | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState("")
-  const [deleting, setDeleting] = useState(false)
-
-  // Chat
-  const [chatInput, setChatInput] = useState("")
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatStreaming, setChatStreaming] = useState(false)
-  const [conversationId, setConversationId] = useState<string | null>(null)
   const [enableThinking, setEnableThinking] = useState(false)
-  const [historyConvs, setHistoryConvs] = useState<ConversationInfo[]>([])
-  const abortRef = useRef<(() => void) | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const [history, setHistory] = useState<ConversationInfo[]>([])
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   const loadCard = async () => {
     if (!kbId) return
     setLoading(true)
-    try {
-      const c = await getCourseInfoCard(kbId)
-      setCard(c)
-    } catch {
-      setCard(null)
-    } finally {
-      setLoading(false)
-    }
+    try { setCard(await getCourseInfoCard(kbId)) } catch { setCard(null) } finally { setLoading(false) }
   }
-
-  useEffect(() => { loadCard() }, [kbId])
-
+  useEffect(() => { loadCard() /* eslint-disable-next-line */ }, [kbId])
   useEffect(() => {
-    if (!kbId) return
-    listConversations(kbId, "course_info").then(setHistoryConvs).catch(() => {})
-  }, [kbId, conversationId])
+    if (kbId) listConversations(kbId, "course_info").then(setHistory).catch(() => {})
+  }, [kbId, convo.convId])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [convo.messages])
 
   const handleGenerate = async () => {
     if (!kbId) return
-    setGenerating(true)
-    setError("")
-    try {
-      const c = await generateCourseInfoCard(kbId)
-      setCard(c)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setGenerating(false)
-    }
+    setGenerating(true); setError("")
+    try { setCard(await generateCourseInfoCard(kbId)) }
+    catch (e) { setError((e as Error).message) }
+    finally { setGenerating(false) }
   }
 
   const handleDelete = async () => {
     if (!kbId || !window.confirm("确认重置课程信息卡片？")) return
-    setDeleting(true)
-    try {
-      await deleteCourseInfoCard(kbId)
-      setCard(null)
-      setChatMessages([])
-      setConversationId(null)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setDeleting(false)
-    }
+    try { await deleteCourseInfoCard(kbId); setCard(null); convo.reset([], null) }
+    catch (e) { setError((e as Error).message) }
   }
 
-  const handleSwitchConv = async (convId: string) => {
+  const send = (text: string) => {
     if (!kbId) return
-    setConversationId(convId)
-    setChatMessages([])
-    try {
-      const conv = await getConversation(convId)
-      const msgs: ChatMessage[] = []
-      for (const m of conv.messages || []) {
-        if (m.role === "user" || m.role === "assistant") {
-          msgs.push({ role: m.role, content: m.content, message_id: m.message_id })
-        }
-      }
-      setChatMessages(msgs)
-    } catch { /* ignore */ }
+    convo.start({
+      optimisticUser: text,
+      starter: (h) => streamCourseInfoChat(kbId, text, convo.convId, { enableThinking, ...h }),
+    })
   }
 
   const handleFork = async (messageId: string) => {
-    if (!conversationId) return
+    if (!kbId || !convo.convId) return
     try {
-      const forked = await forkConversation(conversationId, messageId, "")
-      listConversations(kbId!, "course_info").then(setHistoryConvs)
-      await handleSwitchConv(forked.conversation_id)
-    } catch (e) {
-      alert("Fork 失败：" + (e as Error).message)
-    }
+      const forked = await forkConversation(convo.convId, messageId, "")
+      const c = await getConversation(forked.conversation_id)
+      convo.reset(threadFromHistory(c.messages || []), forked.conversation_id)
+    } catch (e) { alert("分叉失败：" + (e as Error).message) }
   }
 
-  const handleChat = () => {
-    if (!kbId || !chatInput.trim() || chatStreaming) return
-    const q = chatInput.trim()
-    setChatInput("")
-    setChatStreaming(true)
-
-    setChatMessages(prev => [
-      ...prev,
-      { role: "user", content: q },
-      { role: "assistant", content: "", streaming: true },
-    ])
-    let accContent = ""
-
-    abortRef.current = streamCourseInfoChat(kbId, q, conversationId, {
-      enableThinking,
-      onEvent(evt: ChatEvent) {
-        if (evt.type === "delta") {
-          accContent += evt.content
-          setChatMessages(prev => {
-            const idx = prev.findLastIndex(m => m.streaming)
-            if (idx === -1) return prev
-            const next = [...prev]
-            next[idx] = { ...next[idx], content: accContent }
-            return next
-          })
-        }
-      },
-      onError(err) {
-        setChatMessages(prev => {
-          const idx = prev.findLastIndex(m => m.streaming)
-          if (idx === -1) return [...prev, { role: "assistant", content: `错误: ${err.message}` }]
-          const next = [...prev]
-          next[idx] = { role: "assistant", content: `错误: ${err.message}` }
-          return next
-        })
-        setChatStreaming(false)
-      },
-      onDone(newConvId) {
-        if (newConvId) setConversationId(newConvId)
-        setChatStreaming(false)
-        // Mark last streaming message as done
-        setChatMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m))
-      },
-      onMessageId(msgId) {
-        setChatMessages(prev => {
-          const idx = prev.findLastIndex(m => m.role === "assistant")
-          if (idx === -1) return prev
-          const next = [...prev]
-          next[idx] = { ...next[idx], message_id: msgId }
-          return next
-        })
-      },
-    })
-
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
+  const loadConv = async (convId: string) => {
+    if (!convId) { convo.reset([], null); return }
+    const c = await getConversation(convId).catch(() => null)
+    if (c) convo.reset(threadFromHistory(c.messages || []), convId)
   }
-
-  const pctToStr = (v: number) => v > 0 ? `${Math.round(v * 100)}%` : "未知"
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-gray-400">
-        <Spinner className="mr-2" /> 加载中…
-      </div>
-    )
+    return <div className="flex h-full items-center justify-center text-ink-faint"><Loader2 className="mr-2 h-5 w-5 animate-spin" />加载中…</div>
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-5 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">课程管家</h1>
-          <div className="flex gap-2">
-            {card && (
-              <>
-                <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
-                  <RefreshCw className={cn("h-4 w-4 mr-1", generating && "animate-spin")} />
-                  重新生成
-                </Button>
-                <Button size="sm" variant="outline" className="text-red-500 hover:text-red-600" onClick={handleDelete} disabled={deleting}>
-                  <Trash2 className="h-4 w-4 mr-1" />重置
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-6 py-6">
+        <header className="mb-6 flex items-center justify-between">
+          <h1 className="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
+            <ClipboardList className="h-6 w-6 text-accent" />课程管家
+          </h1>
+          {card && (
+            <div className="flex gap-2">
+              <button onClick={handleGenerate} disabled={generating}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent disabled:opacity-50">
+                <RefreshCw className={cn("h-3.5 w-3.5", generating && "animate-spin")} />重新生成
+              </button>
+              <button onClick={handleDelete}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-faint hover:text-accent">
+                <Trash2 className="h-3.5 w-3.5" />重置
+              </button>
+            </div>
+          )}
+        </header>
 
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">⚠ {error}</div>
-        )}
+        {error && <div className="mb-4 rounded-xl border border-border bg-accent-soft px-4 py-2.5 text-sm text-accent">⚠ {error}</div>}
 
         {!card && !generating && (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 p-12 text-center">
-            <MessageSquare className="mx-auto mb-3 h-10 w-10 opacity-40 text-gray-400" />
-            <p className="text-gray-500 mb-4">尚未生成课程信息卡片</p>
-            <p className="text-sm text-gray-400 mb-6">
-              点击下方按钮，AI 将自动从本知识库中提取课程名称、老师信息、考核方式、截止日期等
-            </p>
-            <Button onClick={handleGenerate}>生成课程信息卡片</Button>
+          <div className="card flex flex-col items-center border-dashed p-12 text-center">
+            <ClipboardList className="mb-3 h-10 w-10 text-ink-faint opacity-50" />
+            <p className="mb-1 font-display text-lg text-ink-soft">尚未生成课程信息卡片</p>
+            <p className="mb-6 max-w-sm text-sm text-ink-faint">AI 将从本知识库提取课程名称、老师信息、考核方式、截止日期与重要通知。</p>
+            <button onClick={handleGenerate} className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-ink hover:brightness-105">生成课程信息卡片</button>
           </div>
         )}
 
         {generating && (
-          <div className="rounded-xl border bg-white p-12 text-center">
-            <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-blue-500" />
-            <p className="text-gray-600">AI 正在提取课程信息…（约 10-30 秒）</p>
+          <div className="card p-12 text-center">
+            <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-accent" />
+            <p className="text-ink-soft">AI 正在提取课程信息…（约 10–30 秒）</p>
           </div>
         )}
 
         {card && (
-          <div className="space-y-4 mb-6">
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             {/* 基本信息 */}
-            <div className="rounded-xl border bg-white p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-3">{card.course_name || "课程信息"}</h2>
-              <div className="grid grid-cols-1 gap-2 text-sm">
+            <div className="card p-5">
+              <h2 className="mb-3 font-display text-lg font-semibold text-ink">{card.course_name || "课程信息"}</h2>
+              <div className="space-y-2 text-sm">
                 {card.instructor && (
-                  <div className="flex items-start gap-2">
-                    <User className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
-                    <div><span className="text-gray-500">任课老师：</span><span className="text-gray-800">{card.instructor}</span></div>
-                  </div>
+                  <div className="flex items-start gap-2"><User className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" /><span className="text-ink-soft">任课老师：</span><span className="text-ink">{card.instructor}</span></div>
                 )}
                 {card.contact && (
-                  <div className="flex items-start gap-2">
-                    <Mail className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
-                    <div><span className="text-gray-500">联系方式：</span><span className="text-gray-800 whitespace-pre-wrap">{card.contact}</span></div>
-                  </div>
+                  <div className="flex items-start gap-2"><Mail className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" /><span className="text-ink-soft">联系方式：</span><span className="whitespace-pre-wrap text-ink">{card.contact}</span></div>
                 )}
               </div>
             </div>
 
             {/* 考核方式 */}
             {card.assessment && (
-              <div className="rounded-xl border bg-white p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <BarChart3 className="h-4 w-4 text-blue-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">考核方式</h3>
+              <div className="card p-5">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-soft"><BarChart3 className="h-4 w-4 text-accent" />考核方式</h3>
+                <div className="flex gap-3">
+                  {[
+                    { label: "期末考试", v: card.assessment.exam_ratio },
+                    { label: "作业", v: card.assessment.hw_ratio },
+                    { label: "出勤", v: card.assessment.attendance_ratio },
+                  ].filter((x) => x.v > 0).map((x) => (
+                    <div key={x.label} className="flex-1 rounded-xl bg-surface-2 p-3 text-center">
+                      <div className="font-display text-2xl font-semibold text-accent">{pct(x.v)}</div>
+                      <div className="text-xs text-ink-faint">{x.label}</div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex gap-3 mb-2">
-                  {card.assessment.exam_ratio > 0 && (
-                    <div className="flex-1 rounded-lg bg-blue-50 p-3 text-center">
-                      <div className="text-xl font-bold text-blue-600">{pctToStr(card.assessment.exam_ratio)}</div>
-                      <div className="text-xs text-gray-500">期末考试</div>
-                    </div>
-                  )}
-                  {card.assessment.hw_ratio > 0 && (
-                    <div className="flex-1 rounded-lg bg-green-50 p-3 text-center">
-                      <div className="text-xl font-bold text-green-600">{pctToStr(card.assessment.hw_ratio)}</div>
-                      <div className="text-xs text-gray-500">作业</div>
-                    </div>
-                  )}
-                  {card.assessment.attendance_ratio > 0 && (
-                    <div className="flex-1 rounded-lg bg-amber-50 p-3 text-center">
-                      <div className="text-xl font-bold text-amber-600">{pctToStr(card.assessment.attendance_ratio)}</div>
-                      <div className="text-xs text-gray-500">出勤</div>
-                    </div>
-                  )}
-                </div>
-                {card.assessment.description && (
-                  <p className="text-xs text-gray-500 mt-2">{card.assessment.description}</p>
-                )}
+                {card.assessment.description && <p className="mt-3 text-xs text-ink-faint">{card.assessment.description}</p>}
               </div>
             )}
 
             {/* 截止日期 */}
-            {card.deadlines_normalized && card.deadlines_normalized.length > 0 && (
-              <div className="rounded-xl border bg-white p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Calendar className="h-4 w-4 text-amber-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">截止日期</h3>
-                </div>
+            {card.deadlines_normalized?.length > 0 && (
+              <div className="card p-5">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-soft"><CalendarClock className="h-4 w-4 text-accent" />截止日期</h3>
                 <div className="space-y-2">
-                  {card.deadlines_normalized.map((dl, i) => (
-                    <div key={i} className={cn(
-                      "flex items-center justify-between rounded-lg px-3 py-2 text-sm",
-                      dl.days_left !== undefined && dl.days_left !== null && dl.days_left <= 3
-                        ? "bg-red-50 border border-red-100" : "bg-gray-50"
-                    )}>
-                      <div>
-                        <span className="font-medium text-gray-800">{dl.name}</span>
-                        {dl.date_text && <span className="ml-2 text-xs text-gray-400">({dl.date_text})</span>}
+                  {card.deadlines_normalized.map((dl, i) => {
+                    const soon = dl.days_left != null && dl.days_left <= 3
+                    return (
+                      <div key={i} className={cn("flex items-center justify-between rounded-xl px-3 py-2 text-sm", soon ? "bg-accent-soft" : "bg-surface-2")}>
+                        <div><span className="font-medium text-ink">{dl.name}</span>{dl.date_text && <span className="ml-2 text-xs text-ink-faint">({dl.date_text})</span>}</div>
+                        {dl.days_left != null ? (
+                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", dl.days_left <= 0 ? "bg-accent text-accent-ink" : soon ? "text-accent" : "text-ink-faint")}>
+                            {dl.days_left <= 0 ? "已截止" : dl.days_left === 1 ? "明天" : `${dl.days_left}天后`}
+                          </span>
+                        ) : <span className="text-xs text-ink-faint">{dl.date || "日期未知"}</span>}
                       </div>
-                      {dl.days_left !== undefined && dl.days_left !== null ? (
-                        <span className={cn(
-                          "text-xs rounded-full px-2 py-0.5",
-                          dl.days_left <= 0 ? "bg-red-100 text-red-600" :
-                          dl.days_left <= 3 ? "bg-orange-100 text-orange-600" :
-                          "bg-gray-100 text-gray-500"
-                        )}>
-                          {dl.days_left <= 0 ? "已截止" : dl.days_left === 1 ? "明天" : `${dl.days_left}天后`}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400">{dl.date || "日期未知"}</span>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
 
             {/* 重要通知 */}
             {card.important_notes && (
-              <div className="rounded-xl border bg-white p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <AlertCircle className="h-4 w-4 text-red-400" />
-                  <h3 className="text-sm font-semibold text-gray-700">重要通知</h3>
-                </div>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{card.important_notes}</p>
+              <div className="card p-5">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-soft"><AlertCircle className="h-4 w-4 text-accent" />重要通知</h3>
+                <p className="whitespace-pre-wrap text-sm text-ink">{card.important_notes}</p>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
 
-        {/* Chat section */}
+        {/* 问答 */}
         {card && (
-          <div className="rounded-xl border bg-white">
-            <div className="border-b px-4 py-3 flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-700">课程问答</h2>
-                <p className="text-xs text-gray-400">基于课程信息卡片进行多轮问答</p>
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-ink-faint">
+                <MessagesSquare className="h-3.5 w-3.5" />课程问答
+              </p>
+              {history.length > 0 && (
+                <select
+                  className="max-w-[140px] truncate rounded-lg border border-border bg-surface px-2 py-1 text-xs text-ink-soft"
+                  value={convo.convId || ""}
+                  onChange={(e) => loadConv(e.target.value)}
+                >
+                  <option value="">新对话</option>
+                  {history.map((c) => <option key={c.conversation_id} value={c.conversation_id}>{c.title || c.conversation_id.slice(0, 8)}</option>)}
+                </select>
+              )}
+            </div>
+
+            {convo.messages.length > 0 && (
+              <div className="mb-3 max-h-[28rem] overflow-y-auto rounded-2xl border border-border bg-surface/40 p-4">
+                <ChatThread messages={convo.messages} streaming={convo.streaming} onToggleThinking={convo.toggleThinking} onFork={convo.convId ? handleFork : undefined} />
+                <div ref={bottomRef} />
               </div>
-              {/* 历史会话切换 */}
-              {historyConvs.length > 1 && (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-400">历史：</span>
-                  <select
-                    className="text-xs border rounded px-1 py-0.5 max-w-[120px] truncate"
-                    value={conversationId || ""}
-                    onChange={e => e.target.value && handleSwitchConv(e.target.value)}
-                  >
-                    <option value="">新对话</option>
-                    {historyConvs.map(c => (
-                      <option key={c.conversation_id} value={c.conversation_id}>
-                        {c.title || c.conversation_id.slice(0, 8)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="max-h-72 overflow-y-auto p-4 space-y-3">
-              {chatMessages.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">
-                  你可以问："作业怎么提交？" "期末考什么时候？" "老师邮箱是多少？" 等
-                </p>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className={cn("text-sm", m.role === "user" ? "text-right" : "text-left")}>
-                  <div className={cn(
-                    "inline-block rounded-lg px-3 py-2 max-w-[85%] text-left",
-                    m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
-                  )}>
-                    {m.role === "assistant" ? (
-                      <>
-                        {m.content
-                          ? <div className="md-prose prose prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
-                          : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                        {!m.streaming && m.message_id && (
-                          <button
-                            onClick={() => handleFork(m.message_id!)}
-                            className="mt-1 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-                            title="从此处分叉新对话"
-                          >
-                            <GitBranch className="h-3 w-3" />Fork
-                          </button>
-                        )}
-                      </>
-                    ) : m.content}
-                  </div>
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            <div className="border-t p-3 flex gap-2">
-              <Input
-                className="flex-1 h-8 text-sm"
-                placeholder="问关于课程的任何问题…"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleChat()}
-                disabled={chatStreaming}
-              />
-              <Button
-                size="sm"
-                variant={enableThinking ? "default" : "outline"}
-                className="shrink-0"
-                onClick={() => setEnableThinking(v => !v)}
-                title={enableThinking ? "已开启思维链（点击关闭）" : "开启思维链（深度思考模式）"}
-              >
-                <Brain className="h-4 w-4" />
-              </Button>
-              <Button size="sm" onClick={handleChat} disabled={chatStreaming || !chatInput.trim()}>
-                {chatStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
-            </div>
+            )}
+            {convo.messages.length === 0 && (
+              <p className="mb-3 px-1 text-xs text-ink-faint">试着问："作业怎么提交？""期末什么时候考？""老师邮箱是多少？"</p>
+            )}
+            <Composer onSend={send} disabled={convo.streaming} placeholder="问关于课程的任何问题…" enableThinking={enableThinking} onToggleThinking={setEnableThinking} />
           </div>
         )}
       </div>

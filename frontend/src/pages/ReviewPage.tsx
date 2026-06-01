@@ -1,302 +1,162 @@
-import { useEffect, useRef, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { useEffect, useState } from "react"
+import { useNavigate, useParams } from "react-router-dom"
+import { motion } from "motion/react"
 import {
-  CalendarDays, BookOpen, ChevronRight, Play, Save, Send,
-  RefreshCw, GitBranch, Brain, Loader2, CheckCircle, Printer, FileText,
+  Brain, CalendarDays, CheckCircle2, FileText, Play, Printer, RefreshCw, Save, Sparkles,
 } from "lucide-react"
 import {
-  listReviewDates, listReviewSections, streamReviewGenerate, saveReviewNotes,
-  streamReviewFollowup, listReviewConversations, forkConversation, getConversation,
-  loadReviewNotes,
+  forkConversation, getConversation, listReviewConversations, listReviewDates,
+  listReviewSections, loadReviewNotes, saveReviewNotes, streamReviewFollowup, streamReviewGenerate,
 } from "@/api/client"
 import type { ConversationInfo, ReviewDateInfo, ReviewSectionInfo } from "@/api/types"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Spinner } from "@/components/ui/spinner"
+import { threadFromHistory, useConversation, type ThreadMessage } from "@/hooks/useConversation"
+import { ChatThread, Composer } from "@/components/ChatThread"
 import { cn } from "@/lib/utils"
-
-function MdBlock({ content }: { content: string }) {
-  return (
-    <div className="md-prose prose prose-sm max-w-none text-sm leading-relaxed">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-    </div>
-  )
-}
-
-interface SectionNote {
-  section_num: number
-  content: string
-  done: boolean
-  thinking: string
-  showThinking: boolean
-  message_id?: string
-}
 
 export default function ReviewPage() {
   const { kbId, conversationId: urlConvId } = useParams<{ kbId: string; conversationId?: string }>()
   const navigate = useNavigate()
+  const convo = useConversation()
 
   const [dates, setDates] = useState<ReviewDateInfo[]>([])
-  const [selectedDate, setSelectedDate] = useState<string>("")
+  const [selectedDate, setSelectedDate] = useState("")
   const [sections, setSections] = useState<ReviewSectionInfo[]>([])
-  const [loadingDates, setLoadingDates] = useState(true)
+  const [history, setHistory] = useState<ConversationInfo[]>([])
 
-  // Generation params
   const [timeDescriptor, setTimeDescriptor] = useState("")
   const [userIdentity, setUserIdentity] = useState("北邮通信工程专业大二下")
   const [enableThinking, setEnableThinking] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [generationError, setGenerationError] = useState("")
-
-  // Generated notes per section
-  const [sectionNotes, setSectionNotes] = useState<Map<number, SectionNote>>(new Map())
-  const [conversationId, setConversationId] = useState<string | null>(urlConvId ?? null)
-
-  // Save state
-  const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState("")
 
-  // Followup chat
-  const [followupInput, setFollowupInput] = useState("")
-  const [followupMessages, setFollowupMessages] = useState<Array<{role: string; content: string; thinking?: string; showThinking?: boolean}>>([])
-  const [chatStreaming, setChatStreaming] = useState(false)
+  const hasSections = convo.messages.some((m) => (m.metadata as { kind?: string }).kind === "section")
+  const sectionsDone = hasSections && !convo.streaming
+  const readOnly = !convo.convId // 磁盘只读视图（无会话）
 
-  // History
-  const [historyConvs, setHistoryConvs] = useState<ConversationInfo[]>([])
-  const [showHistory, setShowHistory] = useState(false)
+  const refreshDates = () => { if (kbId) listReviewDates(kbId).then(setDates).catch(() => {}) }
 
-  const abortRef = useRef<(() => void) | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-
+  useEffect(() => { refreshDates() /* eslint-disable-next-line */ }, [kbId])
   useEffect(() => {
-    if (!kbId) return
-    listReviewDates(kbId).then(d => {
-      setDates(d)
-      setLoadingDates(false)
-    }).catch(() => setLoadingDates(false))
-  }, [kbId])
-
+    if (kbId) listReviewConversations(kbId).then(setHistory).catch(() => {})
+  }, [kbId, convo.convId])
   useEffect(() => {
-    if (!kbId) return
-    listReviewConversations(kbId).then(setHistoryConvs).catch(() => {})
-  }, [kbId, conversationId])
-
-  useEffect(() => {
-    if (!kbId || !selectedDate) return
-    listReviewSections(kbId, selectedDate).then(setSections).catch(() => {})
+    if (kbId && selectedDate) listReviewSections(kbId, selectedDate).then(setSections).catch(() => {})
   }, [kbId, selectedDate])
 
-  // Load existing notes if navigating to a conversation; reset followup state
+  // 打开历史会话：线程化重载（修复重载错乱）
   useEffect(() => {
     if (!kbId || !urlConvId) return
-    setConversationId(urlConvId)
-    setFollowupMessages([])
     setSavedMsg("")
-    getConversation(urlConvId).then(conv => {
-      const meta = conv.metadata as Record<string, unknown>
-      const date = meta.date as string || ""
-      setSelectedDate(date)
-      const msgs = conv.messages || []
-      const notes = new Map<number, SectionNote>()
-      let sectionNum = 1
-      msgs.forEach(m => {
-        if (m.role === "assistant") {
-          const secNum = (m.metadata as Record<string, unknown>)?.section_num as number || sectionNum++
-          notes.set(secNum, { section_num: secNum, content: m.content, done: true, thinking: m.thinking || "", showThinking: false, message_id: m.message_id })
-        }
+    getConversation(urlConvId)
+      .then((c) => {
+        const date = (c.metadata as { date?: string })?.date || ""
+        setSelectedDate(date)
+        convo.reset(threadFromHistory(c.messages || []), urlConvId)
       })
-      setSectionNotes(notes)
-    }).catch(() => {})
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kbId, urlConvId])
 
-  const handleGenerate = () => {
-    if (!kbId || !selectedDate || generating) return
-    setGenerating(true)
-    setGenerationError("")
-    setSectionNotes(new Map())
-    setConversationId(null)
+  const selectDate = (d: string) => {
+    setSelectedDate(d)
     setSavedMsg("")
-
-    const currentNotes = new Map<number, SectionNote>()
-
-    abortRef.current = streamReviewGenerate(
-      kbId,
-      { date: selectedDate, time_descriptor: timeDescriptor, user_identity: userIdentity, enable_thinking: enableThinking },
-      {
-        onEvent(evt) {
-          const type = evt.type as string
-          if (type === "conversation_created") {
-            setConversationId(evt.conversation_id as string)
-          } else if (type === "section_start") {
-            const sn = evt.section_num as number
-            currentNotes.set(sn, { section_num: sn, content: "", done: false, thinking: "", showThinking: false })
-            setSectionNotes(new Map(currentNotes))
-          } else if (type === "delta") {
-            const sn = evt.section_num as number
-            const note = currentNotes.get(sn)
-            if (note) {
-              note.content += evt.content as string
-              currentNotes.set(sn, { ...note })
-              setSectionNotes(new Map(currentNotes))
-            }
-          } else if (type === "thinking") {
-            const sn = evt.section_num as number
-            const note = currentNotes.get(sn)
-            if (note) {
-              note.thinking += evt.content as string
-              currentNotes.set(sn, { ...note })
-              setSectionNotes(new Map(currentNotes))
-            }
-          } else if (type === "section_done") {
-            const sn = evt.section_num as number
-            const note = currentNotes.get(sn)
-            if (note) {
-              note.done = true
-              note.message_id = evt.message_id as string
-              currentNotes.set(sn, { ...note })
-              setSectionNotes(new Map(currentNotes))
-            }
-          } else if (type === "error") {
-            setGenerationError(evt.message as string)
-          }
-        },
-        onError(err) { setGenerationError(err.message); setGenerating(false) },
-        onDone() {
-          setGenerating(false)
-          listReviewDates(kbId!).then(setDates).catch(() => {})
-        },
-      }
-    )
+    convo.reset([], null)
+    if (urlConvId) navigate(`/kb/${kbId}/review`)
   }
 
-  const handleSave = async () => {
-    if (!kbId || !conversationId) return
-    setSaving(true)
-    try {
-      await saveReviewNotes(kbId, conversationId)
-      setSavedMsg("讲义已保存到磁盘")
-      listReviewDates(kbId).then(setDates)
-    } catch (e) {
-      setGenerationError((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleFollowup = () => {
-    if (!kbId || !conversationId || !followupInput.trim() || chatStreaming) return
-    const q = followupInput.trim()
-    setFollowupInput("")
-    setChatStreaming(true)
-
-    setFollowupMessages(prev => [...prev, { role: "user", content: q }])
-    let accContent = ""
-    let accThinking = ""
-    // 更新（或创建）最后一条 assistant 消息，支持 thinking 先于 delta 到达
-    const upsertAssistant = (patch: { content?: string; thinking?: string }) =>
-      setFollowupMessages(prev => {
-        const last = prev[prev.length - 1]
-        if (last?.role === "assistant") {
-          return [...prev.slice(0, -1), { ...last, ...patch }]
-        }
-        return [...prev, { role: "assistant", content: "", ...patch }]
-      })
-
-    abortRef.current = streamReviewFollowup(kbId, conversationId, q, {
-      onEvent(evt) {
-        if (evt.type === "delta") {
-          accContent += evt.content as string
-          upsertAssistant({ content: accContent })
-        } else if (evt.type === "thinking") {
-          accThinking += evt.content as string
-          upsertAssistant({ thinking: accThinking })
-        }
-      },
-      onError(err) {
-        setFollowupMessages(prev => [...prev, { role: "assistant", content: `错误: ${err.message}` }])
-        setChatStreaming(false)
-      },
-      onDone() { setChatStreaming(false) },
+  const handleGenerate = () => {
+    if (!kbId || !selectedDate || convo.streaming) return
+    setSavedMsg("")
+    convo.reset([], null)
+    convo.start({
+      starter: (h) => streamReviewGenerate(
+        kbId,
+        { date: selectedDate, time_descriptor: timeDescriptor, user_identity: userIdentity, enable_thinking: enableThinking },
+        h,
+      ),
     })
+  }
 
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
+  const handleFollowup = (text: string) => {
+    if (!kbId || !convo.convId) return
+    convo.start({
+      optimisticUser: text,
+      starter: (h) => streamReviewFollowup(kbId, convo.convId!, text, h),
+    })
   }
 
   const handleFork = async (messageId: string) => {
-    if (!conversationId) return
+    if (!kbId || !convo.convId) return
     try {
-      const forked = await forkConversation(conversationId, messageId, "")
-      alert(`已 Fork 出新会话：${forked.conversation_id}\n（可在历史中找到）`)
-      listReviewConversations(kbId!).then(setHistoryConvs)
+      const forked = await forkConversation(convo.convId, messageId, "")
+      navigate(`/kb/${kbId}/review/${forked.conversation_id}`)
     } catch (e) {
-      alert("Fork 失败：" + (e as Error).message)
+      alert("分叉失败：" + (e as Error).message)
     }
   }
 
-  const sortedNotes = Array.from(sectionNotes.values()).sort((a, b) => a.section_num - b.section_num)
-  const allDone = sortedNotes.length > 0 && sortedNotes.every(n => n.done)
+  const handleSave = async () => {
+    if (!kbId || !convo.convId) return
+    try {
+      await saveReviewNotes(kbId, convo.convId)
+      setSavedMsg("讲义已保存到磁盘，并已索引供问答检索")
+      refreshDates()
+    } catch (e) {
+      setSavedMsg("保存失败：" + (e as Error).message)
+    }
+  }
+
+  const viewSaved = async () => {
+    if (!kbId) return
+    const notes = await loadReviewNotes(kbId, selectedDate).catch(() => [])
+    if (!notes.length) return
+    const thread: ThreadMessage[] = notes.map((n) => ({
+      id: `disk-${n.section_num}`, role: "assistant", content: n.content_md, thinking: "",
+      citations: [], metadata: { kind: "section", section_num: n.section_num }, streaming: false, showThinking: false,
+    }))
+    convo.reset(thread, null)
+    setSavedMsg("已加载磁盘讲义（只读）")
+  }
 
   return (
     <div className="flex h-full">
-      {/* 左侧：日期列表 */}
-      <div className="w-52 shrink-0 border-r bg-gray-50 overflow-y-auto p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-700">课堂日期</h2>
-          <button
-            onClick={() => kbId && listReviewDates(kbId).then(setDates)}
-            className="text-gray-400 hover:text-gray-600"
-          >
+      {/* 左：日期 + 历史 */}
+      <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface/40 p-3">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">课堂日期</h2>
+          <button onClick={refreshDates} className="text-ink-faint hover:text-accent">
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
         </div>
-
-        {loadingDates && <Spinner size="sm" className="mx-auto" />}
-
-        {!loadingDates && dates.length === 0 && (
-          <p className="text-xs text-gray-400 text-center mt-4">
-            暂无录音文件，请先绑定文件夹并同步
-          </p>
+        {dates.length === 0 && (
+          <p className="px-1 py-4 text-center text-xs text-ink-faint">暂无录音，请先绑定文件夹并同步</p>
         )}
-
-        {dates.map(d => (
+        {dates.map((d) => (
           <button
             key={d.date}
-            onClick={() => { setSelectedDate(d.date); setSectionNotes(new Map()); setConversationId(null); setSavedMsg(""); setFollowupMessages([]) }}
+            onClick={() => selectDate(d.date)}
             className={cn(
-              "w-full text-left rounded-lg px-3 py-2 mb-1 text-sm transition-colors",
-              selectedDate === d.date ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100 text-gray-700"
+              "mb-1 w-full rounded-xl px-3 py-2 text-left text-sm transition-all",
+              selectedDate === d.date && !urlConvId ? "bg-accent-soft text-accent" : "text-ink-soft hover:bg-surface-2",
             )}
           >
             <div className="flex items-center justify-between">
               <span className="font-medium">{d.date}</span>
-              {d.has_notes && <CheckCircle className="h-3.5 w-3.5 text-green-500" />}
+              {d.has_notes && <CheckCircle2 className="h-3.5 w-3.5 text-[color:var(--c-success)]" />}
             </div>
-            <div className="text-xs text-gray-400 mt-0.5">
-              {d.section_count} 节 {d.has_notes ? "· 已有讲义" : ""}
-            </div>
+            <div className="mt-0.5 text-xs text-ink-faint">{d.section_count} 节{d.has_notes ? " · 已有讲义" : ""}</div>
           </button>
         ))}
 
-        {/* 历史会话 */}
-        {historyConvs.length > 0 && (
+        {history.length > 0 && (
           <div className="mt-4">
-            <button
-              onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 mb-2"
-            >
-              <ChevronRight className={cn("h-3 w-3 transition-transform", showHistory && "rotate-90")} />
-              历史会话 ({historyConvs.length})
-            </button>
-            {showHistory && historyConvs.map(c => (
+            <h2 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">历史会话</h2>
+            {history.map((c) => (
               <button
                 key={c.conversation_id}
                 onClick={() => navigate(`/kb/${kbId}/review/${c.conversation_id}`)}
                 className={cn(
-                  "w-full text-left rounded px-2 py-1.5 mb-1 text-xs transition-colors",
-                  conversationId === c.conversation_id ? "bg-blue-50 text-blue-600" : "hover:bg-gray-100 text-gray-600"
+                  "mb-0.5 block w-full truncate rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors",
+                  urlConvId === c.conversation_id ? "bg-accent-soft text-accent" : "text-ink-soft hover:bg-surface-2",
                 )}
               >
                 {c.title || c.conversation_id.slice(0, 8)}
@@ -304,252 +164,102 @@ export default function ReviewPage() {
             ))}
           </div>
         )}
-      </div>
+      </aside>
 
-      {/* 右侧：主内容 */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {!selectedDate && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <CalendarDays className="h-12 w-12 mb-3 opacity-40" />
-            <p>从左侧选择一个日期开始课后复习</p>
+      {/* 右：内容 */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {!selectedDate ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-faint">
+            <CalendarDays className="h-12 w-12 opacity-40" />
+            <p className="font-display text-lg">从左侧选择一个日期开始课后复习</p>
           </div>
-        )}
-
-        {selectedDate && (
+        ) : (
           <>
-            <div className="mb-4 flex items-center justify-between">
-              <h1 className="text-xl font-bold text-gray-900">
-                {selectedDate} 课后复习
-              </h1>
+            {/* 头部 */}
+            <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
+              <h1 className="font-display text-lg font-semibold text-ink">{selectedDate} · 课后复盘</h1>
               <div className="flex items-center gap-2">
-                {/* 加载已存盘讲义 */}
-                {sectionNotes.size === 0 && !generating && dates.find(d => d.date === selectedDate)?.has_notes && (
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    if (!kbId) return
-                    const notes = await loadReviewNotes(kbId, selectedDate).catch(() => [])
-                    if (notes.length > 0) {
-                      const m = new Map<number, SectionNote>()
-                      notes.forEach(n => m.set(n.section_num, {
-                        section_num: n.section_num, content: n.content_md,
-                        done: true, thinking: "", showThinking: false,
-                      }))
-                      setSectionNotes(m)
-                      setSavedMsg("已加载磁盘讲义")
-                    }
-                  }}>
-                    <FileText className="h-4 w-4 mr-1" />
-                    加载已存盘讲义
-                  </Button>
+                {!hasSections && !convo.streaming && dates.find((d) => d.date === selectedDate)?.has_notes && (
+                  <button onClick={viewSaved} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent">
+                    <FileText className="h-3.5 w-3.5" />查看已存讲义
+                  </button>
                 )}
-                {allDone && conversationId && (
-                  <Button size="sm" variant="outline" onClick={handleSave} disabled={saving}>
-                    {saving ? <Spinner size="sm" className="mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-                    保存讲义
-                  </Button>
+                {sectionsDone && !readOnly && (
+                  <button onClick={handleSave} className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink hover:brightness-105">
+                    <Save className="h-3.5 w-3.5" />保存讲义
+                  </button>
                 )}
-                {allDone && sortedNotes.length > 0 && (
-                  <Button size="sm" variant="outline" onClick={() => window.print()} title="导出为 PDF（浏览器打印）">
-                    <Printer className="h-4 w-4 mr-1" />
-                    导出 PDF
-                  </Button>
+                {hasSections && (
+                  <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent">
+                    <Printer className="h-3.5 w-3.5" />导出
+                  </button>
+                )}
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-3xl px-6 py-6">
+                {savedMsg && (
+                  <div className="mb-4 rounded-xl border border-border bg-accent-soft px-4 py-2.5 text-sm text-accent">✓ {savedMsg}</div>
+                )}
+
+                {/* 生成参数（未生成且无消息时） */}
+                {!hasSections && !convo.streaming && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card mb-6 p-6">
+                    <h2 className="mb-4 font-display text-base font-semibold text-ink">生成参数</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block">
+                        <span className="text-xs text-ink-soft">上课描述</span>
+                        <input value={timeDescriptor} onChange={(e) => setTimeDescriptor(e.target.value)} placeholder="如：下午第 2 节"
+                          className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-ink-soft">身份描述</span>
+                        <input value={userIdentity} onChange={(e) => setUserIdentity(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+                      </label>
+                    </div>
+                    <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-soft">
+                      <input type="checkbox" checked={enableThinking} onChange={(e) => setEnableThinking(e.target.checked)} className="accent-[color:var(--c-accent)]" />
+                      <Brain className="h-4 w-4 text-accent" />开启思维链
+                    </label>
+                    {sections.length > 0 && (
+                      <p className="mt-3 text-xs text-ink-faint">共 {sections.length} 节：{sections.map((s) => `第${s.section_num}节`).join("、")}</p>
+                    )}
+                    <button onClick={handleGenerate} disabled={sections.length === 0}
+                      className="mt-5 flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-ink transition-all hover:brightness-105 disabled:opacity-40">
+                      <Play className="h-4 w-4" />开始生成课后讲义
+                    </button>
+                  </motion.div>
+                )}
+
+                {convo.streaming && !hasSections && (
+                  <div className="mb-4 flex items-center gap-2 text-sm text-accent">
+                    <Sparkles className="breathe-dot h-4 w-4" />正在准备生成…
+                  </div>
+                )}
+
+                {/* 讲义 + 追问（统一线程） */}
+                <ChatThread
+                  messages={convo.messages}
+                  streaming={convo.streaming}
+                  onToggleThinking={convo.toggleThinking}
+                  onFork={readOnly ? undefined : handleFork}
+                />
+
+                {convo.error && (
+                  <div className="mt-4 rounded-xl border border-border bg-accent-soft px-4 py-2.5 text-sm text-accent">⚠ {convo.error}</div>
+                )}
+
+                {/* 追问输入（有真实会话且讲义已生成） */}
+                {convo.convId && sectionsDone && (
+                  <div className="mt-6">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">课后追问</p>
+                    <Composer onSend={handleFollowup} disabled={convo.streaming} placeholder="在本次课堂上下文内继续提问…" />
+                  </div>
                 )}
               </div>
             </div>
-
-            {savedMsg && (
-              <div className="mb-3 rounded-lg bg-green-50 border border-green-200 text-green-700 p-2.5 text-sm">
-                ✓ {savedMsg}
-              </div>
-            )}
-
-            {generationError && (
-              <div className="mb-3 rounded-lg bg-red-50 border border-red-200 text-red-700 p-2.5 text-sm">
-                ⚠ {generationError}
-              </div>
-            )}
-
-            {/* 生成参数 */}
-            {!generating && sectionNotes.size === 0 && (
-              <div className="mb-6 rounded-xl border bg-white p-5 space-y-4">
-                <h2 className="text-sm font-semibold text-gray-700">生成参数</h2>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs">上课描述（如"下午2节"）</Label>
-                    <Input
-                      className="mt-1 h-8 text-sm"
-                      placeholder="下午2节"
-                      value={timeDescriptor}
-                      onChange={e => setTimeDescriptor(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">身份描述</Label>
-                    <Input
-                      className="mt-1 h-8 text-sm"
-                      placeholder="北邮通信工程专业大二下"
-                      value={userIdentity}
-                      onChange={e => setUserIdentity(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enableThinking}
-                      onChange={e => setEnableThinking(e.target.checked)}
-                      className="rounded"
-                    />
-                    <Brain className="h-4 w-4 text-purple-500" />
-                    开启思维链
-                  </label>
-                </div>
-
-                {sections.length > 0 && (
-                  <div className="text-xs text-gray-400">
-                    共 {sections.length} 节：{sections.map(s => `第${s.section_num}节`).join("、")}
-                  </div>
-                )}
-
-                <Button onClick={handleGenerate} disabled={sections.length === 0}>
-                  <Play className="h-4 w-4 mr-1" />
-                  开始生成课后讲义
-                </Button>
-              </div>
-            )}
-
-            {/* 生成中提示 */}
-            {generating && (
-              <div className="mb-4 flex items-center gap-2 text-sm text-blue-600">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                正在生成课后讲义…
-              </div>
-            )}
-
-            {/* 每节讲义 */}
-            {sortedNotes.map(note => (
-              <div key={note.section_num} className="mb-6 rounded-xl border bg-white overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-4 w-4 text-blue-500" />
-                    <span className="font-semibold text-sm">第 {note.section_num} 节</span>
-                    {note.done
-                      ? <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">已生成</span>
-                      : <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />生成中</span>
-                    }
-                  </div>
-                  {note.done && note.message_id && (
-                    <button
-                      onClick={() => handleFork(note.message_id!)}
-                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-                      title="从此处分叉新对话"
-                    >
-                      <GitBranch className="h-3.5 w-3.5" />
-                      Fork
-                    </button>
-                  )}
-                </div>
-
-                {note.thinking && (
-                  <div className="border-b">
-                    <button
-                      onClick={() => setSectionNotes(prev => {
-                        const next = new Map(prev)
-                        const n = next.get(note.section_num)!
-                        next.set(note.section_num, { ...n, showThinking: !n.showThinking })
-                        return next
-                      })}
-                      className="w-full flex items-center gap-2 px-4 py-2 text-xs text-purple-600 hover:bg-purple-50 text-left"
-                    >
-                      <Brain className="h-3.5 w-3.5" />
-                      {note.showThinking ? "收起" : "展开"}思维链
-                    </button>
-                    {note.showThinking && (
-                      <div className="px-4 pb-3 text-xs text-gray-500 font-mono whitespace-pre-wrap bg-purple-50">
-                        {note.thinking}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="p-4">
-                  {note.content
-                    ? <MdBlock content={note.content} />
-                    : <div className="flex items-center gap-2 text-gray-400 text-sm"><Loader2 className="h-4 w-4 animate-spin" />等待生成…</div>
-                  }
-                </div>
-              </div>
-            ))}
-
-            {/* 重新生成按钮 */}
-            {!generating && sectionNotes.size > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="mb-6"
-                onClick={() => { setSectionNotes(new Map()); setConversationId(null); setSavedMsg("") }}
-              >
-                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                重新生成
-              </Button>
-            )}
-
-            {/* 追问区 */}
-            {conversationId && allDone && (
-              <div className="rounded-xl border bg-white">
-                <div className="border-b px-4 py-3">
-                  <h2 className="text-sm font-semibold text-gray-700">课后追问</h2>
-                  <p className="text-xs text-gray-400">在本次课堂上下文内继续提问</p>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto p-4 space-y-3">
-                  {followupMessages.map((m, i) => (
-                    <div key={i} className={cn("text-sm", m.role === "user" ? "text-right" : "text-left")}>
-                      {m.role === "assistant" && m.thinking && (
-                        <div className="mb-1">
-                          <button
-                            onClick={() => setFollowupMessages(prev => prev.map((x, xi) => xi === i ? { ...x, showThinking: !x.showThinking } : x))}
-                            className="text-xs text-gray-400 hover:text-gray-600"
-                          >
-                            {m.showThinking ? "收起" : "展开"}思维链
-                          </button>
-                          {m.showThinking && (
-                            <div className="mt-1 inline-block max-w-[85%] whitespace-pre-wrap rounded border bg-gray-50 p-2 text-left text-xs text-gray-500">
-                              {m.thinking}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className={cn(
-                        "inline-block rounded-lg px-3 py-2 max-w-[85%]",
-                        m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
-                      )}>
-                        {m.role === "assistant"
-                          ? (m.content
-                            ? <div className="md-prose prose prose-sm max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
-                            : (m.thinking ? <span className="text-xs text-gray-400">思考中…</span> : <Loader2 className="h-3.5 w-3.5 animate-spin" />))
-                          : m.content}
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={chatEndRef} />
-                </div>
-
-                <div className="border-t p-3 flex gap-2">
-                  <Input
-                    className="flex-1 h-8 text-sm"
-                    placeholder="提问…"
-                    value={followupInput}
-                    onChange={e => setFollowupInput(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleFollowup()}
-                    disabled={chatStreaming}
-                  />
-                  <Button size="sm" onClick={handleFollowup} disabled={chatStreaming || !followupInput.trim()}>
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

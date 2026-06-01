@@ -86,8 +86,9 @@ async def chat(kb_id: str, req: ChatRequest):
             )
 
     # 首次注入系统提示（只有会话无 system message 时注入）
-    from app.prompts import load_prompt
     import json
+
+    from app.prompts import load_prompt
     msgs = await conversation_service.list_messages(conv_id)
     has_system = any(m["role"] == "system" for m in msgs)
 
@@ -103,12 +104,22 @@ async def chat(kb_id: str, req: ChatRequest):
         }, ensure_ascii=False, indent=2)
         extra_system = load_prompt("course_info_chat_system", card_json=card_json)
 
-    return StreamingResponse(
-        conversation_service.stream_completion(
+    async def _stream():
+        yield conversation_service.sse_line(
+            {"type": "conversation", "conversation_id": conv_id}
+        )
+        async for chunk in conversation_service.stream_turn(
             conv_id,
-            req.content,
+            user_content=req.content,
             extra_system_for_this_turn=extra_system,
-        ),
+        ):
+            yield chunk
+        yield conversation_service.sse_line(
+            {"type": "done", "conversation_id": conv_id}
+        )
+
+    return StreamingResponse(
+        _stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -4,18 +4,54 @@
 
 ---
 
+## v1.3.0（2026-05-31 开发 · 2026-06-01 验收定稿）— 统一对话架构 + 大厂级阅读器前端重构
+
+针对 v1.2.0 验收暴露的对话体系割裂与 UI 通用感问题，做前后端协同重构。**已通过用户验收。**
+
+### 后端：统一对话核心
+- 新增**单一流式原语 `conversation_service.stream_turn`** + **单一 SSE 词汇**（`conversation / message_start / citations / thinking / delta / message_end / done / error`），取代此前 3 套互不相同的实现。
+- 模块七讲义生成（`lecture_review_service`）重写为按节调用 `stream_turn`（录音作 hidden user message，section 元数据打到 assistant），与追问、模块九、通用对话共用同一条流式路径与渲染。
+- 通用对话迁移到会话（`scenario="general"` + `rag_mode`），从此**有历史、可 fork、可重载**；引用持久化到 assistant message。
+- **Fork 通用化**：任意会话的任意 assistant 消息均可分叉（统一回传 `message_id`）。
+
+### 后端：讲义索引（问题 3）
+- 新增 `text_index_service`：Markdown 感知切片（**标题分 Parent + 空行分段 + 句窗滑动**，非整段索引）→ 嵌入 → 写 Qdrant + FTS。生成的「课堂要点.md」**保存时自动索引**；新增 `POST /api/documents/{kb}/{doc}/index-text` 手动索引端点。
+- **录音转写 .txt 永不进 RAG 索引**（仅作模块七生成素材，避免原始噪声污染问答检索）。
+
+### 后端：热修——切片死循环导致后端冻结
+- `child_chunker._build_windows` 旧实现用 `while i < len(sentences)` 推进，遇到「单句长度落在 `(max−overlap, max]` 区间」时 flush 后会反复重试同一句、永不前进，**陷入死循环并冻结整个 asyncio 事件循环**（验收时点击讲义索引后整个后端卡死、前端全部「加载中 / failed to fetch」即由此引起）。
+- 改为 `for sent in sentences` 逐句消费 + 超长句硬切（`len(sent) > max_chars` 先切段），flush 后 `current = [overlap_text, sent]` 直接消费当前句、不再回退重试。新增 `_test_chunk_windows` 用 480 字「杀手句」回归，确保必然终止。
+
+### 后端：批量解析稳定性（问题 1）
+- 新增全局解析并发上限（`MAX_CONCURRENT_PARSES`，默认 2），批量重解析不再 N 路齐发打爆 MinerU/OSS/DashScope 连接。
+- 抽出共享瞬时重试 `services/http_retry.py`，应用到 MinerU + DashScope（嵌入/重排/VLM）调用。
+
+### 前端：「研读室」设计系统 + 体验修复
+- 全新设计语言：暖纸阅读器质感 + 精致 AI 动效；**浅色 / 暗色 / 护眼(sepia) 三主题**（长时间复习护眼）；Fraunces × Hanken Grotesk 字体；terracotta 主调；纸纹质感；`motion` 动效（流式光标、思维链 shimmer、入场动画，尊重 reduced-motion）。
+- **统一 `ChatThread` + `useConversation` + 单一 SSE 解析器**（替代原 5 个重复 stream 函数），所有对话页复用。
+- 修复 v1.2.0 验收问题：
+  - 生成讲义时**思维链展开不再自动收起**（改函数式 state，不再被流式事件整体覆盖）；
+  - 重新打开历史对话**讲义不再被追问消息覆盖、追问区不再空白**（线程化重载，不再手搓 sectionNotes）；
+  - **课后追问可 fork**（任意消息均可）。
+- 全部页面与外壳（书架首页 / 文件 / 阅读·对话 / 课后复习 / 课程管家 / 任务 / 设置 / 二级侧边栏 + DDL banner）在新系统上重做。
+
+### 验证
+- 后端 `test_v120.py` **105/105 通过**（含统一词汇、讲义多 section、任意消息 fork、讲义 .md 自动索引、录音 .txt 不索引、index-text 拒绝录音、`_test_chunk_windows` 切片死循环回归等）；`basedpyright` standard **0 错误**。
+- 前端 `tsc -p tsconfig.app.json`（项目本地 5.9.3）**0 错误**、`eslint` **0 错误**（11 warnings）、生产构建通过；真机渲染经 playwright 验证（首页 / 复习页 / 三主题切换，0 控制台报错）。
+
+---
+
 ## 文档体系重构（2026-05-31，仅文档，不涉代码）
 
-v1.2.0 通过用户验收后，按「当前情况 → 开发目标 → 实施手册」三件套滚动模型重构 `doc/`：
+v1.2.0 通过用户验收后重构 `doc/`，并在 v1.3.0 开发中进一步收敛为「稳定快照（`项目当前情况.md`）+ 实时进度（`progress.md`）」双文档模型：
 
-- `09班李宇2022210347-本地ai知识库需求分析报告V7.md` → **`项目当前情况.md`**（改写为与 v1.2.0 代码一致的交接文档）
-- `新文档/需求分析报告（最终交上去的版本，结合老师要求与ppt内容）.md` → **`下一步开发目标.md`**（需求规格 / 蓝图）
-- `新文档/v1.2.0-详细实施手册.md` → **`开发实施手册.md`**
+- `09班李宇2022210347-本地ai知识库需求分析报告V7.md` → **`项目当前情况.md`**（改写为与代码一致的交接文档）
+- 原计划保留的 `下一步开发目标.md` / `开发实施手册.md` 两篇规划文档，**在 v1.3.0 中并入项目根目录 `progress.md`**（实时计划 + 进度 + 自上版改动记录），并据此把「写 progress.md」固化为长任务的全局约定；两篇原文如需查阅可从 v1.2.0 git 历史找回。
 - 新建 `doc/mineru/`，收纳官网下载文档：`MinerU API 文档（新的）.md`（新版 API 文档）、`输出文件格式（新的）.md`（官网声称格式，更新滞后有误，仅供参考）
 - 删除 `mineru API文档（格式化）.md`（官网旧 API 文档）与 `03课：MinerU 在线 API 实战教程 - 文档.md`（与新 API 文档重叠，且其 SDK/CLI/MCP/飞书等内容本项目不用）
 - 移除空目录 `doc/新文档/`；新增 `doc/文档导览.md` 导览
 
-go-forward 维护约定：每轮开发后更新三件套 + README + RELEASE_NOTES；MinerU 字段变化更新《在线API输出文件格式（SaaS推断版）》；解析入库工作流变化更新《MinerU to RAG Pipeline 架构设计与数据流方案》。
+go-forward 维护约定：进行中长任务随时更新 `progress.md`；每轮开发后更新 `项目当前情况.md` + README + RELEASE_NOTES；MinerU 字段变化更新《在线API输出文件格式（SaaS推断版）》；解析入库工作流变化更新《MinerU to RAG Pipeline 架构设计与数据流方案》。
 
 ---
 

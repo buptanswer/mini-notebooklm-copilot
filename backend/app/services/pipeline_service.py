@@ -54,6 +54,7 @@ Pipeline Service — 完整文档解析流水线（异步后台任务）
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -83,6 +84,9 @@ from app.writers.chunk_writer import write_chunks
 from app.writers.ir_writer import write_ir
 
 logger = logging.getLogger(__name__)
+
+# 全局解析并发上限：批量重解析时避免 N 路 pipeline 并发打爆 MinerU/OSS/DashScope 连接
+_PARSE_SEMAPHORE = asyncio.Semaphore(settings.max_concurrent_parses)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -160,12 +164,30 @@ async def run_parse_pipeline(
     source_format: str,
 ) -> str:
     """
-    启动并执行完整解析流水线。
+    解析流水线入口（**全局并发受限**）。先创建任务（前端显示排队中），
+    再在信号量内执行实际流水线，避免批量重解析时 N 路并发打爆
+    MinerU/OSS/DashScope 连接（"All connection attempts failed"）。
 
     Returns:
         task_id（已写入 SQLite）
     """
     task_id = await _create_task(doc_id, "parse")
+    logger.info("[pipeline] 任务已创建 doc_id=%s file=%s（等待解析槽位）", doc_id, filename)
+    async with _PARSE_SEMAPHORE:
+        return await _run_parse_pipeline_impl(
+            task_id, doc_id, kb_id, upload_path, filename, source_format
+        )
+
+
+async def _run_parse_pipeline_impl(
+    task_id: str,
+    doc_id: str,
+    kb_id: str,
+    upload_path: Path,
+    filename: str,
+    source_format: str,
+) -> str:
+    """实际流水线主体（已在并发信号量内执行）。"""
     logger.info("[pipeline] 开始解析 doc_id=%s file=%s", doc_id, filename)
 
     try:

@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -18,7 +18,8 @@ from pathlib import Path
 from app.db.database import get_db
 from app.prompts import load_prompt
 from app.services import conversation_service
-from app.services.qa_service import stream_llm_completion
+
+logger = logging.getLogger(__name__)
 
 _SECTION_RE = re.compile(r"第(\d+)节")          # 匹配"第N节"，提取节次号
 _NOTE_SUFFIX = "课堂要点.md"
@@ -133,20 +134,23 @@ async def generate_notes_streaming(
     enable_thinking: bool = False,
 ) -> AsyncIterator[str]:
     """
-    主入口：为指定日期的所有节次生成讲义（流式）。
-    yield SSE 字符串（含 \\n\\n）。
+    主入口：为指定日期的所有节次生成讲义（流式，**统一 SSE 词汇**）。
 
-    SSE 事件类型：
-      section_start      — 开始生成某节（含 section_num、total_sections）
-      thinking           — 思维链内容（含 section_num）
-      delta              — 正文增量（含 section_num）
-      section_done       — 某节生成完毕（含 message_id）
-      all_done           — 所有节完成（含 conversation_id）
-      error              — 错误
+    每节通过 conversation_service.stream_turn 生成：录音转写作为 hidden user
+    message（进入 LLM 上下文但前端不渲染），assistant message 打
+    metadata={"kind":"section","section_num":N}。所有节共享同一 conversation 上下文。
+
+    事件序列：
+      conversation {conversation_id, total_sections}
+      （每节）message_start(assistant,{kind:section,section_num}) / thinking / delta / message_end
+      done {conversation_id}
+      error {message[, section_num]}
     """
     sections = await list_sections(kb_id, date)
     if not sections:
-        yield _sse({"type": "error", "message": f"日期 {date} 下没有找到录音文件"})
+        yield conversation_service.sse_line(
+            {"type": "error", "message": f"日期 {date} 下没有找到录音文件"}
+        )
         return
 
     # 从 KB 名称获取课程名
@@ -175,19 +179,20 @@ async def generate_notes_streaming(
         enable_thinking=enable_thinking,
     )
 
-    yield _sse({"type": "conversation_created", "conversation_id": conv_id,
-                "total_sections": len(sections)})
+    yield conversation_service.sse_line(
+        {"type": "conversation", "conversation_id": conv_id, "total_sections": len(sections)}
+    )
 
     for idx, sec in enumerate(sections):
         section_num = sec["section_num"]
-        yield _sse({"type": "section_start", "section_num": section_num,
-                    "total_sections": len(sections)})
 
         # 读取录音文本
         try:
             txt_content = await read_section_text(sec["txt_path"])
         except FileNotFoundError as e:
-            yield _sse({"type": "error", "message": str(e), "section_num": section_num})
+            yield conversation_service.sse_line(
+                {"type": "error", "message": str(e), "section_num": section_num}
+            )
             continue
 
         # 构造 prompt
@@ -209,48 +214,16 @@ async def generate_notes_streaming(
 
         user_content = f"{prompt_text}\n\n【录音转写】\n{txt_content}"
 
-        # 追加 user message
-        user_msg_id = await conversation_service.append_message(
-            conv_id, "user", user_content,
-            metadata={"section_num": section_num},
-        )
+        # 通过统一原语生成本节（录音作为隐藏 user，section 元数据打到 assistant）
+        async for chunk in conversation_service.stream_turn(
+            conv_id,
+            user_content=user_content,
+            hidden_user=True,
+            assistant_metadata={"kind": "section", "section_num": section_num},
+        ):
+            yield chunk
 
-        # 构造完整 messages 历史
-        all_msgs = await conversation_service.list_messages(conv_id)
-        openai_msgs = [
-            {"role": m["role"], "content": m["content"]}
-            for m in all_msgs
-            if m["role"] in ("user", "assistant", "system")
-        ]
-
-        # 流式生成
-        accumulated_content: list[str] = []
-        accumulated_thinking: list[str] = []
-
-        async for evt in stream_llm_completion(openai_msgs, enable_thinking=enable_thinking):
-            if evt["type"] == "thinking":
-                accumulated_thinking.append(evt["content"])
-                yield _sse({"type": "thinking", "content": evt["content"],
-                            "section_num": section_num})
-            elif evt["type"] == "delta":
-                accumulated_content.append(evt["content"])
-                yield _sse({"type": "delta", "content": evt["content"],
-                            "section_num": section_num})
-            elif evt["type"] == "error":
-                yield _sse({"type": "error", "message": evt["message"],
-                            "section_num": section_num})
-
-        # 落库 assistant message
-        asst_msg_id = await conversation_service.append_message(
-            conv_id, "assistant",
-            content="".join(accumulated_content),
-            thinking="".join(accumulated_thinking),
-            metadata={"section_num": section_num},
-        )
-        yield _sse({"type": "section_done", "section_num": section_num,
-                    "message_id": asst_msg_id})
-
-    yield _sse({"type": "all_done", "conversation_id": conv_id})
+    yield conversation_service.sse_line({"type": "done", "conversation_id": conv_id})
 
 
 async def save_notes_to_disk(kb_id: str, conversation_id: str) -> list[dict]:
@@ -303,7 +276,31 @@ async def save_notes_to_disk(kb_id: str, conversation_id: str) -> list[dict]:
     try:
         await folder_sync_service.scan_and_sync(kb_id)
     except Exception:
-        pass  # 同步失败不影响保存结果
+        logger.warning("讲义保存后文件夹同步失败 kb=%s", kb_id, exc_info=True)
+
+    # 自动索引生成的讲义 .md（录音 .txt 永不索引），供问答检索高质量讲义
+    from app.services import text_index_service
+    for item in saved:
+        try:
+            db2 = await get_db()
+            try:
+                cur = await db2.execute(
+                    "SELECT doc_id, source_format, folder_category FROM documents "
+                    "WHERE kb_id=? AND bound_file_path=? AND status!='missing'",
+                    (kb_id, item["path"]),
+                )
+                row = await cur.fetchone()
+            finally:
+                await db2.close()
+            if not row:
+                continue
+            r = dict(row)
+            if text_index_service.is_indexable_text(r.get("folder_category"), r.get("source_format")):
+                await text_index_service.index_text_document(
+                    r["doc_id"], item["path"], source_format=r["source_format"]
+                )
+        except Exception:
+            logger.warning("讲义自动索引失败: %s", item.get("path"), exc_info=True)
 
     return saved
 
@@ -339,7 +336,3 @@ async def load_existing_notes(kb_id: str, date: str) -> list[dict]:
         results.append({"section_num": section_num, "path": path_str, "content_md": content})
 
     return sorted(results, key=lambda x: x["section_num"])
-
-
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"

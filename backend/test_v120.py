@@ -72,12 +72,37 @@ def _collect_sse(response_text: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────────────
+# 切片回归：长句不得卡死（v1.3.0 修复事件循环冻结的根因）
+# ──────────────────────────────────────────────────────────────
+
+def _test_chunk_windows() -> None:
+    print("\n[0] 切片回归：_build_windows 长句不死循环")
+    from app.chunkers.child_chunker import _build_windows
+
+    max_chars, min_chars, overlap = 500, 300, 75
+    # 致命用例：句长 480 ∈ (max-overlap, max]，旧实现会无限重试同一句卡死事件循环
+    killer = ["啊" * 480, "啊" * 480, "啊" * 480]
+    w = _build_windows(killer, max_chars, min_chars, overlap)
+    _record("长句不卡死且产出窗口", len(w) > 0)
+    _record("窗口长度有界", all(len(x) <= max_chars + overlap for x in w))
+
+    # 单句远超上限：硬切多块
+    w2 = _build_windows(["b" * 1300], max_chars, min_chars, overlap)
+    _record("超长单句被硬切为多块", len(w2) >= 3)
+
+    # 正常短句仍合并
+    w3 = _build_windows(["第一句。", "第二句。", "第三句。"], max_chars, min_chars, overlap)
+    _record("短句合并为单窗口", len(w3) == 1)
+
+
+# ──────────────────────────────────────────────────────────────
 # 主测试
 # ──────────────────────────────────────────────────────────────
 
 async def run_all_tests() -> None:
     await init_db()
     init_qdrant()
+    _test_chunk_windows()
 
     # Mock LLM 流式输出（避免真实 API 调用）
     async def _mock_stream_llm(messages, *, enable_thinking=False, model=None):
@@ -87,12 +112,14 @@ async def run_all_tests() -> None:
     mock_pipeline = AsyncMock(return_value="mock-task-id")
     transport = httpx.ASGITransport(app=app)
 
+    # Mock 嵌入，让文本索引（讲义 .md）在无 API key 下也能跑通（仍写真实本地 Qdrant）
+    async def _mock_embed(texts, text_type="document"):
+        return [[0.0] * 1024 for _ in texts]
+
     with (
         patch("app.services.pipeline_service.run_parse_pipeline", mock_pipeline),
         patch("app.services.qa_service.stream_llm_completion", _mock_stream_llm),
-        patch("app.services.conversation_service.stream_completion",
-              wraps=__import__("app.services.conversation_service",
-                               fromlist=["stream_completion"]).stream_completion),
+        patch("app.services.embedding_service.embed_texts", _mock_embed),
     ):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             await _test_folder_binding(c)
@@ -236,8 +263,10 @@ async def _test_conversations(c: httpx.AsyncClient, kb_id: str) -> None:
     events = _collect_sse(r5.text)
     types = {e.get("type") for e in events}
     _record("SSE has delta event", "delta" in types)
-    _record("SSE has end event", "end" in types)
-    _record("SSE has user_message_appended", "user_message_appended" in types)
+    _record("SSE has done event", "done" in types)
+    _record("SSE has conversation event", "conversation" in types)
+    _record("SSE has message_start", "message_start" in types)
+    _record("SSE has message_end", "message_end" in types)
 
     # Verify messages persisted
     r6 = await c.get(f"/api/conversations/{conv_id}")
@@ -467,15 +496,20 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
         _record("generate → 200 (SSE)", r_gen.status_code == 200)
         events = _collect_sse(r_gen.text)
         event_types = {e.get("type") for e in events}
-        _record("generate 有 conversation_created 事件", "conversation_created" in event_types)
-        _record("generate 有 section_start 事件", "section_start" in event_types)
-        _record("generate 有 section_done 事件", "section_done" in event_types)
-        _record("generate 有 all_done 事件", "all_done" in event_types)
+        _record("generate 有 conversation 事件", "conversation" in event_types)
+        _record("generate 有 message_start 事件", "message_start" in event_types)
+        _record("generate 有 message_end 事件", "message_end" in event_types)
+        _record("generate 有 done 事件", "done" in event_types)
+        # 统一词汇：每节是一个 assistant message_start，section 元数据在 metadata
+        sec_starts = [e for e in events if e.get("type") == "message_start" and e.get("role") == "assistant"]
+        _record("有 2 个 section 的 assistant message_start", len(sec_starts) == 2)
+        _record("section message_start 带 kind=section 元数据",
+                all((e.get("metadata") or {}).get("kind") == "section" for e in sec_starts))
 
         # 拿到 conversation_id
-        conv_created = next((e for e in events if e.get("type") == "conversation_created"), None)
-        _record("all_done 包含 conversation_id", conv_created is not None and "conversation_id" in conv_created)
-        gen_conv_id = conv_created["conversation_id"] if conv_created else None
+        conv_ev = next((e for e in events if e.get("type") == "conversation"), None)
+        _record("conversation 事件含 conversation_id", conv_ev is not None and "conversation_id" in conv_ev)
+        gen_conv_id = conv_ev["conversation_id"] if conv_ev else None
 
         if gen_conv_id:
             # 保存讲义到磁盘
@@ -492,6 +526,24 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
             _record("notes 非空", len(notes) > 0)
             _record("notes 有 content_md", all("content_md" in n for n in notes))
 
+            # Phase 2 / 问题3：保存后讲义 .md 自动索引；录音 .txt 永不索引
+            r_docs = await c.get(f"/api/documents/{review_kb_id}")
+            docs_list = r_docs.json().get("items", [])
+            note_doc = next((d for d in docs_list if d.get("folder_category") == "review_note"), None)
+            _record("讲义 .md 已登记", note_doc is not None)
+            if note_doc:
+                _record("讲义 .md 保存后自动索引 (status=indexed)", note_doc.get("status") == "indexed")
+            rec_txt = next((d for d in docs_list
+                            if d.get("folder_category") == "recording" and d.get("source_format") == "txt"), None)
+            _record("录音 .txt 不被索引（保持 text_only）",
+                    rec_txt is not None and rec_txt.get("status") == "text_only")
+            if rec_txt:
+                r_idx_rec = await c.post(f"/api/documents/{review_kb_id}/{rec_txt['doc_id']}/index-text")
+                _record("录音 .txt index-text → 400（拒绝索引）", r_idx_rec.status_code == 400)
+            if note_doc:
+                r_idx_note = await c.post(f"/api/documents/{review_kb_id}/{note_doc['doc_id']}/index-text")
+                _record("讲义 .md index-text → 200", r_idx_note.status_code == 200)
+
             # 追问 followup
             r_followup = await c.post(f"/api/review/{review_kb_id}/followup",
                                        json={"conversation_id": gen_conv_id, "content": "帮我总结一下"})
@@ -499,7 +551,11 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
             fup_events = _collect_sse(r_followup.text)
             fup_types = {e.get("type") for e in fup_events}
             _record("followup SSE has delta", "delta" in fup_types)
-            _record("followup SSE has end", "end" in fup_types)
+            _record("followup SSE has done", "done" in fup_types)
+            # 追问消息也带 message_id（可 fork）
+            fup_ends = [e for e in fup_events if e.get("type") == "message_end"]
+            _record("followup assistant message 有 message_id（可 fork）",
+                    len(fup_ends) > 0 and all("message_id" in e for e in fup_ends))
 
         # 日期有 has_notes 标记
         r_dates2 = await c.get(f"/api/review/{review_kb_id}/dates")

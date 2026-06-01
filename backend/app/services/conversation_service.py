@@ -8,11 +8,14 @@ Fork 语义：在指定 message 处截断，复制历史到新会话，主线不
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 from app.db.database import get_db
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────── 会话 CRUD ────────────
@@ -148,9 +151,10 @@ async def append_message(
     thinking: str = "",
     citations: list | None = None,
     metadata: dict | None = None,
+    message_id: str | None = None,
 ) -> str:
-    """追加消息并返回 message_id；自动计算 sequence_num。"""
-    msg_id = str(uuid.uuid4())
+    """追加消息并返回 message_id；自动计算 sequence_num。message_id 可预先指定。"""
+    msg_id = message_id or str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
@@ -256,19 +260,38 @@ async def fork_conversation(
     return new_conv_id
 
 
-# ──────────── 流式生成 ────────────
+# ──────────── 流式生成（统一原语）────────────
 
-async def stream_completion(
+def sse_line(data: dict) -> str:
+    """Serialize one SSE event line."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def stream_turn(
     conversation_id: str,
-    user_content: str,
     *,
+    user_content: str,
+    hidden_user: bool = False,
     user_metadata: dict | None = None,
+    assistant_metadata: dict | None = None,
     extra_system_for_this_turn: str | None = None,
-    inject_context_chunks: list | None = None,
+    rag_mode: bool = False,
+    top_k: int = 5,
+    enable_thinking: bool | None = None,
 ) -> AsyncIterator[str]:
     """
-    向会话追加 user message，流式生成 assistant 回复，落库后发 end 事件。
-    yield SSE 字符串（含结尾 \\n\\n）。
+    统一的"一轮"流式原语：追加 user message →（可选 RAG）→ 流式生成 assistant → 落库。
+    发出统一 SSE 词汇（**不含** conversation / done，由调用方负责）：
+      message_start {role, message_id, metadata}
+      citations     {citations}        # 仅 rag_mode 且检索到内容
+      thinking      {content}
+      delta         {content}
+      message_end   {message_id}
+      error         {message}
+
+    hidden_user=True：user message 标记 metadata.hidden（讲义生成的长 prompt+录音），
+      不发 message_start、前端不渲染，但仍进入 LLM 上下文。
+    assistant_metadata：写入 assistant message 的 metadata（如 {"kind":"section","section_num":N}）。
     """
     from app.services.qa_service import stream_llm_completion
 
@@ -278,63 +301,116 @@ async def stream_completion(
         raise HTTPException(status_code=404, detail="会话不存在")
 
     # 1. 写入 user message
+    umeta = dict(user_metadata or {})
+    if hidden_user:
+        umeta["hidden"] = True
     user_msg_id = await append_message(
-        conversation_id, "user", user_content, metadata=user_metadata or {}
+        conversation_id, "user", user_content, metadata=umeta
     )
-    yield _sse({"type": "user_message_appended", "message_id": user_msg_id})
+    if not hidden_user:
+        yield sse_line({"type": "message_start", "role": "user",
+                        "message_id": user_msg_id, "metadata": umeta})
 
-    # 2. 组装 OpenAI messages 数组
+    # 2. 可选 RAG 检索
+    citations: list | None = None
+    inject_chunks: list | None = None
+    if rag_mode:
+        citations, inject_chunks = await _fetch_rag_context(
+            user_content, conv["kb_id"], top_k
+        )
+
+    # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
     msgs = await list_messages(conversation_id)
     openai_msgs: list[dict] = []
-
-    # 插入 extra_system（仅本轮）
     if extra_system_for_this_turn:
         openai_msgs.append({"role": "system", "content": extra_system_for_this_turn})
-
     for m in msgs:
-        if m["role"] == "system":
-            openai_msgs.append({"role": "system", "content": m["content"]})
-        elif m["role"] == "user":
-            openai_msgs.append({"role": "user", "content": m["content"]})
-        elif m["role"] == "assistant":
-            openai_msgs.append({"role": "assistant", "content": m["content"]})
+        if m["role"] in ("system", "user", "assistant"):
+            openai_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # 3. 如有 RAG 注入，改写最后一条 user message
-    if inject_context_chunks:
+    # 4. RAG 注入到最后一条 user message
+    if inject_chunks:
         for i in range(len(openai_msgs) - 1, -1, -1):
             if openai_msgs[i]["role"] == "user":
                 openai_msgs[i]["content"] = _build_rag_content(
-                    openai_msgs[i]["content"], inject_context_chunks
+                    openai_msgs[i]["content"], inject_chunks
                 )
                 break
 
-    # 4. 流式调用 LLM
-    accumulated_content: list[str] = []
-    accumulated_thinking: list[str] = []
+    # 5. assistant message_start（预生成 id，便于前端绑定 / fork）
+    asst_msg_id = str(uuid.uuid4())
+    ameta = dict(assistant_metadata or {})
+    yield sse_line({"type": "message_start", "role": "assistant",
+                    "message_id": asst_msg_id, "metadata": ameta})
+    if citations:
+        yield sse_line({"type": "citations", "citations": citations})
 
-    async for evt in stream_llm_completion(openai_msgs, enable_thinking=conv["enable_thinking"]):
+    # 6. 流式调用 LLM
+    acc_content: list[str] = []
+    acc_thinking: list[str] = []
+    use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
+    async for evt in stream_llm_completion(openai_msgs, enable_thinking=use_thinking):
         if evt["type"] == "thinking":
-            accumulated_thinking.append(evt["content"])
-            yield _sse({"type": "thinking", "content": evt["content"]})
+            acc_thinking.append(evt["content"])
+            yield sse_line({"type": "thinking", "content": evt["content"]})
         elif evt["type"] == "delta":
-            accumulated_content.append(evt["content"])
-            yield _sse({"type": "delta", "content": evt["content"]})
+            acc_content.append(evt["content"])
+            yield sse_line({"type": "delta", "content": evt["content"]})
         elif evt["type"] == "error":
-            yield _sse({"type": "error", "message": evt["message"]})
+            yield sse_line({"type": "error", "message": evt["message"]})
 
-    # 5. 落库 assistant message
-    assistant_msg_id = await append_message(
+    # 7. 落库 assistant message（用预生成 id）
+    await append_message(
         conversation_id, "assistant",
-        content="".join(accumulated_content),
-        thinking="".join(accumulated_thinking),
-        citations=inject_context_chunks or [],
+        content="".join(acc_content),
+        thinking="".join(acc_thinking),
+        citations=citations or [],
+        metadata=ameta,
+        message_id=asst_msg_id,
     )
-    yield _sse({"type": "assistant_message_appended", "message_id": assistant_msg_id})
-    yield _sse({"type": "end"})
+    yield sse_line({"type": "message_end", "message_id": asst_msg_id})
 
 
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+async def _fetch_rag_context(
+    query: str, kb_id: str, top_k: int
+) -> tuple[list | None, list | None]:
+    """混合检索 + 重排，返回 (citations, inject_chunks)；失败降级 (None, None)。"""
+    try:
+        from app.services.rerank_service import rerank
+        from app.services.retrieval_service import fetch_parent_chunks, hybrid_search
+
+        hybrid_results = await hybrid_search(
+            query, kb_id, vector_limit=20, keyword_limit=20, top_k=15
+        )
+        if not hybrid_results:
+            return None, None
+
+        reranked = await rerank(query, hybrid_results, top_n=top_k)
+        parent_ids = list({c.parent_chunk_id for c in reranked})
+        parent_map = await fetch_parent_chunks(parent_ids)
+
+        citations = []
+        for i, c in enumerate(reranked, 1):
+            parent = parent_map.get(c.parent_chunk_id, {})
+            hp = parent.get("header_path") or c.header_path or []
+            citations.append({
+                "index": i,
+                "child_chunk_id": c.child_chunk_id,
+                "parent_chunk_id": c.parent_chunk_id,
+                "doc_id": c.doc_id,
+                "header_path": hp,
+                "page_span_start": parent.get("page_span_start", c.page_span_start),
+                "page_span_end": parent.get("page_span_end", c.page_span_end),
+                "bbox_norm1000": c.bbox_norm1000,
+                "bbox_page": c.bbox_page,
+                "anchor_origin_pdf_path": c.anchor_origin_pdf_path,
+                "retrieval_text": (c.retrieval_text or "")[:300],
+                "score": round(c.score, 4),
+            })
+        return citations, citations
+    except Exception:
+        logger.warning("RAG 检索失败，降级为纯对话模式", exc_info=True)
+        return None, None
 
 
 def _build_rag_content(user_content: str, chunks: list) -> str:

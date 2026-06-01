@@ -5,16 +5,11 @@
 """
 from __future__ import annotations
 
-import json
-import logging
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services import conversation_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -41,6 +36,7 @@ class SendMessageRequest(BaseModel):
     extra_system: str | None = None    # 本轮额外 system 提示（课程管家首次注入卡片用）
     rag_mode: bool = False             # 启用混合检索 RAG（对话问答模式）
     top_k: int = Field(default=5, ge=1, le=20)
+    enable_thinking: bool | None = None  # 本轮思维链覆盖；None 用会话设置
 
 
 class ForkRequest(BaseModel):
@@ -104,30 +100,28 @@ async def delete_conversation(conversation_id: str, cascade: bool = False):
 
 @router.post("/{conversation_id}/send")
 async def send_message(conversation_id: str, req: SendMessageRequest):
-    """流式发送消息并获取 AI 回复（SSE）。支持 rag_mode 混合检索增强。"""
+    """流式发送消息并获取 AI 回复（SSE，统一词汇）。支持 rag_mode 混合检索增强。"""
     conv = await conversation_service.get_conversation(conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    citations: list | None = None
-    inject_chunks: list | None = None
-
-    if req.rag_mode:
-        citations, inject_chunks = await _fetch_rag_context(
-            req.content, conv["kb_id"], req.top_k
-        )
-
     async def _stream():
-        if citations:
-            yield f"data: {json.dumps({'type': 'citations', 'citations': citations}, ensure_ascii=False)}\n\n"
-        async for chunk in conversation_service.stream_completion(
+        yield conversation_service.sse_line(
+            {"type": "conversation", "conversation_id": conversation_id}
+        )
+        async for chunk in conversation_service.stream_turn(
             conversation_id,
-            req.content,
+            user_content=req.content,
             user_metadata=req.metadata,
             extra_system_for_this_turn=req.extra_system,
-            inject_context_chunks=inject_chunks,
+            rag_mode=req.rag_mode,
+            top_k=req.top_k,
+            enable_thinking=req.enable_thinking,
         ):
             yield chunk
+        yield conversation_service.sse_line(
+            {"type": "done", "conversation_id": conversation_id}
+        )
 
     return StreamingResponse(
         _stream(),
@@ -137,48 +131,6 @@ async def send_message(conversation_id: str, req: SendMessageRequest):
             "X-Accel-Buffering": "no",
         },
     )
-
-
-async def _fetch_rag_context(
-    query: str, kb_id: str, top_k: int
-) -> tuple[list | None, list | None]:
-    """混合检索 + 重排，返回 (citations, inject_chunks)；失败时降级返回 (None, None)。"""
-    try:
-        from app.services.retrieval_service import hybrid_search, fetch_parent_chunks
-        from app.services.rerank_service import rerank
-
-        hybrid_results = await hybrid_search(
-            query, kb_id, vector_limit=20, keyword_limit=20, top_k=15
-        )
-        if not hybrid_results:
-            return None, None
-
-        reranked = await rerank(query, hybrid_results, top_n=top_k)
-        parent_ids = list({c.parent_chunk_id for c in reranked})
-        parent_map = await fetch_parent_chunks(parent_ids)
-
-        citations = []
-        for i, c in enumerate(reranked, 1):
-            parent = parent_map.get(c.parent_chunk_id, {})
-            hp = parent.get("header_path") or c.header_path or []
-            citations.append({
-                "index": i,
-                "child_chunk_id": c.child_chunk_id,
-                "parent_chunk_id": c.parent_chunk_id,
-                "doc_id": c.doc_id,
-                "header_path": hp,
-                "page_span_start": parent.get("page_span_start", c.page_span_start),
-                "page_span_end": parent.get("page_span_end", c.page_span_end),
-                "bbox_norm1000": c.bbox_norm1000,
-                "bbox_page": c.bbox_page,
-                "anchor_origin_pdf_path": c.anchor_origin_pdf_path,
-                "retrieval_text": (c.retrieval_text or "")[:300],
-                "score": round(c.score, 4),
-            })
-        return citations, citations
-    except Exception:
-        logger.warning("RAG 检索失败，降级为纯对话模式", exc_info=True)
-        return None, None
 
 
 @router.post("/{conversation_id}/fork")

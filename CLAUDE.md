@@ -1,6 +1,6 @@
 # Mini-NotebookLM Copilot — 项目开发指南
 
-迷你版 NotebookLM：本地 AI 知识库系统（本科课程设计）。当前 v1.2.0（已通过用户验收）。
+迷你版 NotebookLM：本地 AI 知识库系统（本科课程设计）。当前 v1.3.0（已通过用户验收）。
 
 ## 技术栈
 - **后端**：FastAPI + aiosqlite + Qdrant（本地文件模式，单进程文件锁）+ httpx + openai SDK。包管理 **uv**（不是 pip）；Python ≥ 3.11。
@@ -57,20 +57,21 @@ MinerU 更新频繁。`pipeline_service` 步骤 [E+] 对每次解析跑 `adapter
 - 注意：探针只覆盖「字段/文件层面」的新增或缺失；已知字段内部结构悄悄改变未必能抓到，需配合 normalizer 的 degraded 警告与 IR 校验兜底。
 - 出现新格式时同步更新：`doc/在线API输出文件格式（SaaS推断版）.md`、`doc/MinerU to RAG Pipeline 架构设计与数据流方案.md`，以及 `adapters/normalizer.py` + `adapters/format_checker.py` 的已知字段集合。
 
-## 文档（doc/）
+## 文档
 
-文档体系采用「当前情况 → 开发目标 → 实施手册」三件套滚动维护：
+- **`progress.md`（项目根目录）** — 进行中长任务的**实时状态**（在做什么 / 计划阶段 / 自上版以来改了哪些文件怎么改 / 下一步 / 如何验证）。长任务每完成一小步即更新；接手第一篇读它。详见全局 CLAUDE.md「长任务：维护 progress.md」。
+- `doc/项目当前情况.md` — 项目此刻已实现到什么程度，**必须与代码一致**（稳定交接快照，每次发版更新）。
+- `doc/文档导览.md` — doc 目录导览。
+- `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md` — 当前在用的 MinerU 解析/入库方案。
+- `doc/在线API输出文件格式（SaaS推断版）.md` — 当前所基于的 MinerU 输出格式推断。
+- `doc/mineru/` — 从 MinerU 官网下载的文档（事实来源，原样保留）。
+- `doc/阿里云模型/` — 阿里云百炼官方文档（向量化 / VLM）。
 
-- `doc/项目当前情况.md` — 项目此刻已实现到什么程度，**必须与代码一致**（交接文档）
-- `doc/下一步开发目标.md` — 需求规格 / 下一轮要做成的样子（含模块八、音视频等未实现的提升项）
-- `doc/开发实施手册.md` — 从当前情况到目标怎么做的逐步计划；当前内容覆盖 v1.1.0→v1.2.0 那一轮
-- `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md` — 当前在用的 MinerU 解析/入库方案
-- `doc/在线API输出文件格式（SaaS推断版）.md` — 当前所基于的 MinerU 输出格式推断
-- `doc/mineru/` — 从 MinerU 官网下载的文档（事实来源，原样保留）：`MinerU API 文档（新的）.md`（新版 API 文档）、`输出文件格式（新的）.md`（官网声称格式，更新滞后有误，仅供参考）
-- `doc/阿里云模型/` — 阿里云百炼官方文档（向量化 / VLM）
+> 原「下一步开发目标 / 开发实施手册」两篇规划文档已删除，其角色由 `progress.md` 承担（实时计划 + 进度 + 改动记录）。
 
-**每轮开发完成后的文档维护约定**：
-- 更新三件套（当前情况 / 下一步开发目标 / 开发实施手册）+ README + RELEASE_NOTES（这是「更新」，不是「重新整理」）。
+**文档维护约定**：
+- 进行中长任务 → 随时更新 `progress.md`。
+- 每轮开发完成后 → 更新 `doc/项目当前情况.md` + README + RELEASE_NOTES。
 - MinerU API 出现未知/错误字段 → 更新《在线API输出文件格式（SaaS推断版）》（+ normalizer/format_checker 已知字段集合）。
 - 解析入库工作流变化 → 更新《MinerU to RAG Pipeline 架构设计与数据流方案》。
 

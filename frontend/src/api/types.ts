@@ -70,14 +70,28 @@ export interface CitationItem {
   score: number
 }
 
+/**
+ * 统一 SSE 词汇（后端 conversation_service.stream_turn + 各场景编排共用）。
+ * 一条流：conversation → (message_start[user] → message_start[assistant] →
+ *   citations? → thinking* → delta* → message_end) → done
+ * 讲义生成在同一条流内重复多个 message_start[assistant]/message_end（每节一个）。
+ */
 export type ChatEvent =
+  | { type: "conversation"; conversation_id: string; total_sections?: number }
+  | {
+      type: "message_start"
+      role: "user" | "assistant"
+      message_id: string
+      metadata?: Record<string, unknown>
+    }
   | { type: "citations"; citations: CitationItem[] }
-  | { type: "delta"; content: string }
   | { type: "thinking"; content: string }
-  | { type: "end" }
+  | { type: "delta"; content: string }
+  | { type: "message_end"; message_id: string }
+  | { type: "done"; conversation_id?: string }
   | { type: "error"; message: string }
-  | { type: "user_message_appended"; message_id: string }
-  | { type: "assistant_message_appended"; message_id: string }
+
+export type ThemeMode = "light" | "dark" | "sepia"
 
 // ── 多轮对话 ────────────────────────────────────────────────
 

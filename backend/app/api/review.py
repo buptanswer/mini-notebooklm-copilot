@@ -101,8 +101,8 @@ async def list_conversations(kb_id: str):
 @router.post("/{kb_id}/followup")
 async def followup(kb_id: str, req: FollowupRequest):
     """
-    在已有 lecture_review 会话内继续追问（SSE）。
-    使用 conversation_service.stream_completion 保持完整上下文。
+    在已有 lecture_review 会话内继续追问（SSE，统一词汇）。
+    使用 conversation_service.stream_turn 保持完整上下文。
     """
     conv = await conversation_service.get_conversation(req.conversation_id)
     if not conv:
@@ -118,13 +118,23 @@ async def followup(kb_id: str, req: FollowupRequest):
     if not has_system:
         extra_system = load_prompt("lecture_review_followup_system")
 
-    return StreamingResponse(
-        conversation_service.stream_completion(
+    async def _stream():
+        yield conversation_service.sse_line(
+            {"type": "conversation", "conversation_id": req.conversation_id}
+        )
+        async for chunk in conversation_service.stream_turn(
             req.conversation_id,
-            req.content,
+            user_content=req.content,
             user_metadata=req.metadata,
             extra_system_for_this_turn=extra_system,
-        ),
+        ):
+            yield chunk
+        yield conversation_service.sse_line(
+            {"type": "done", "conversation_id": req.conversation_id}
+        )
+
+    return StreamingResponse(
+        _stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

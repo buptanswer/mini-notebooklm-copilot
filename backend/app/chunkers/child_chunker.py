@@ -211,31 +211,40 @@ def _build_windows(
     min_chars: int,
     overlap_chars: int,
 ) -> list[str]:
-    """将句子列表合并为滑动窗口文本块。"""
+    """
+    将句子列表合并为滑动窗口文本块（带重叠）。
+
+    用 for 循环逐句消费，保证每次迭代都前进——避免「单句长度超过
+    max_chars - overlap_chars」时 flush 后反复重试同一句导致**死循环卡死事件循环**。
+    """
     windows: list[str] = []
     current: list[str] = []
     current_len = 0
 
-    i = 0
-    while i < len(sentences):
-        sent = sentences[i]
+    for sent in sentences:
+        # 单句本身超过窗口上限：先收尾当前窗口，再把长句按 max_chars 硬切成多块
+        if len(sent) > max_chars:
+            if current:
+                windows.append("".join(current))
+                current = []
+                current_len = 0
+            for k in range(0, len(sent), max_chars):
+                windows.append(sent[k:k + max_chars])
+            continue
+
         if current_len + len(sent) <= max_chars:
             current.append(sent)
             current_len += len(sent)
-            i += 1
         else:
+            # 收尾当前窗口；新窗口 = overlap 前缀 + 本句（本句一定被消费，不再重试）
             if current:
                 windows.append("".join(current))
-                # 回退 overlap：从 current 末尾取 overlap_chars 字符作为下一窗口开头
-                overlap_text = "".join(current)[-overlap_chars:]
-                current = [overlap_text] if overlap_text else []
-                current_len = len(overlap_text)
+                overlap_text = "".join(current)[-overlap_chars:] if overlap_chars else ""
+                current = [overlap_text, sent] if overlap_text else [sent]
+                current_len = len(overlap_text) + len(sent)
             else:
-                # 单句超长，强制截断
-                windows.append(sent[:max_chars])
-                i += 1
-                current = []
-                current_len = 0
+                current = [sent]
+                current_len = len(sent)
 
     if current:
         tail = "".join(current)

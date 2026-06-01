@@ -29,6 +29,7 @@ from typing import Literal
 import httpx
 
 from app.config import settings
+from app.services.http_retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +86,16 @@ async def _embed_batch(
         },
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(url, headers=headers, json=payload)
+    async def _call() -> dict:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Embedding API 请求失败: HTTP {resp.status_code}\n{resp.text[:400]}"
+            )
+        return resp.json()
 
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Embedding API 请求失败: HTTP {resp.status_code}\n{resp.text[:400]}"
-        )
-
-    body = resp.json()
+    body = await retry_async(_call, what="Embedding API")
 
     # 兼容 OpenAI 格式：body["data"] 是按 index 排好序的列表
     data = body.get("data", [])

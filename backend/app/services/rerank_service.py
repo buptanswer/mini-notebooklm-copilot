@@ -27,6 +27,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.services.http_retry import retry_async
 from app.services.retrieval_service import RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -80,15 +81,16 @@ async def rerank(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(_RERANK_URL, headers=headers, json=payload)
+    async def _call() -> dict:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(_RERANK_URL, headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Rerank API 失败: HTTP {resp.status_code}\n{resp.text[:400]}"
+            )
+        return resp.json()
 
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Rerank API 失败: HTTP {resp.status_code}\n{resp.text[:400]}"
-        )
-
-    body = resp.json()
+    body = await retry_async(_call, what="Rerank API")
     raw_results = body.get("output", {}).get("results", [])
 
     # 重排后按 relevance_score 降序

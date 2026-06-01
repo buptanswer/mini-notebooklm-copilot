@@ -28,9 +28,9 @@ from app.models.models_ir import (
     ImageEnrichment,
     IRBlock,
     IRBlockEnriched,
-    NeighborContext,
     TableEnrichment,
 )
+from app.services.http_retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -259,11 +259,13 @@ async def _call_vision_api(image_path: str, prompt: str) -> str:
     }
     url = f"{settings.dashscope_base_url}/chat/completions"
 
-    async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        body = resp.json()
+    async def _call() -> dict:
+        async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
 
+    body = await retry_async(_call, what="VLM API")
     content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
     return content.strip()
 
@@ -286,10 +288,12 @@ async def _call_text_summary(text: str, prompt: str) -> str:
     }
     url = f"{settings.dashscope_base_url}/chat/completions"
 
-    async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        body = resp.json()
+    async def _call() -> dict:
+        async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
 
+    body = await retry_async(_call, what="VLM API")
     content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
     return content.strip()

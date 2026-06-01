@@ -46,11 +46,13 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | 模块九：AI 管家·课程信息 | 自动提取课程名称、老师联系方式、考核方式、截止日期；多轮问答；deadline banner |
 | 提示词管理 | 提示词文件化（`app/prompts/*.md`），支持热更新无需重启 |
 | 设置页 | 展示 API 配置说明、当前模型信息、服务健康状态及链接 |
+| **统一对话体系（v1.3.0）** | 单一流式原语 `stream_turn` + 单一 SSE 词汇；讲义生成 / 追问 / 课程问答 / 通用对话共用一套 `ChatThread`；任意会话任意消息可 Fork；历史线程化重载 |
+| **讲义自动索引（v1.3.0）** | 生成的「课堂要点.md」保存即 Markdown 感知切片入库供问答；录音转写 .txt 永不进 RAG 索引 |
+| **「研读室」设计系统（v1.3.0）** | 暖纸阅读器质感 + 精致 AI 动效；浅 / 暗 / 护眼(sepia) 三主题；Fraunces×Hanken 字体；`motion` 流式光标 / 思维链 shimmer，尊重 reduced-motion |
 
 ### 暂未实现（提升项）
 
 - 音视频转写（飞书妙记 / 通义听悟）
-- 目录树浏览与文件夹展开/收起
 - 文件夹删除 / 重命名 / 文件移动
 - 按文件类型筛选
 - 模块八：AI 考官·期末冲刺（智能出题与答卷批改）
@@ -80,13 +82,15 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 
 | 组件 | 选型 |
 |------|------|
-| 框架 | React 19 + Vite |
-| 样式 | Tailwind CSS v4 |
+| 框架 | React 19 + Vite 7 |
+| 样式 | Tailwind CSS v4（`@theme inline` 设计 token） |
+| 设计系统 | 「研读室」浅 / 暗 / 护眼(sepia) 三主题（`<html data-theme>`）；Fraunces × Hanken Grotesk 字体 |
+| 动效 | motion（framer-motion）：流式光标 / 思维链 shimmer / 入场，尊重 prefers-reduced-motion |
 | 路由 | React Router v7 |
 | Markdown 渲染 | react-markdown + remark-gfm |
 | 图标 | lucide-react |
 | PDF 预览 | react-pdf |
-| SSE 流式 | fetch + ReadableStream（非 EventSource） |
+| SSE 流式 | fetch + ReadableStream（非 EventSource），单一 `runSSE` 解析器 |
 
 ---
 
@@ -139,9 +143,11 @@ mini-notebooklm/
 │   │   │   ├── rerank_service.py      # qwen3-rerank 重排序
 │   │   │   ├── qa_service.py          # 多 Provider 流式问答 + stream_llm_completion
 │   │   │   ├── folder_sync_service.py # 文件夹绑定扫描同步
-│   │   │   ├── conversation_service.py# 多轮会话 CRUD + Fork + 流式补全
+│   │   │   ├── conversation_service.py# 多轮会话 CRUD + Fork + 统一流式原语 stream_turn
 │   │   │   ├── course_info_service.py # 模块九：课程信息提取与截止日期解析
-│   │   │   └── lecture_review_service.py # 模块七：课后讲义生成与保存
+│   │   │   ├── lecture_review_service.py # 模块七：课后讲义生成与保存（保存即自动索引）
+│   │   │   ├── text_index_service.py  # v1.3.0：文本/讲义 .md 切片→嵌入→入库（录音 .txt 排除）
+│   │   │   └── http_retry.py          # v1.3.0：共享瞬时网络重试（MinerU / DashScope）
 │   │   ├── validators/        # IR / Chunk 结构校验
 │   │   ├── writers/           # IR / Chunk JSONL 落盘
 │   │   ├── config.py          # 全局配置（pydantic-settings，多 Provider 支持）
@@ -159,22 +165,30 @@ mini-notebooklm/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/
-│   │   │   ├── client.ts          # 所有后端 API 调用封装
-│   │   │   └── types.ts           # TypeScript 接口定义
+│   │   │   ├── client.ts          # 所有后端 API 调用封装（含单一 runSSE 流式解析器）
+│   │   │   └── types.ts           # TypeScript 接口定义（统一 ChatEvent + ThemeMode）
+│   │   ├── hooks/                 # v1.3.0
+│   │   │   ├── useConversation.ts # 一条会话的 messages 线程（流式 / 思维链 / 历史重载）
+│   │   │   └── useTheme.ts        # 浅 / 暗 / sepia 主题切换
+│   │   ├── lib/
+│   │   │   ├── theme.ts           # 主题常量与 localStorage 持久化（v1.3.0）
+│   │   │   └── utils.ts
 │   │   ├── components/
 │   │   │   ├── Layout.tsx             # 左侧主导航布局（可折叠）
 │   │   │   ├── KBLayout.tsx           # 知识库二级布局（二级侧边栏 + deadline banner）
+│   │   │   ├── ChatThread.tsx         # v1.3.0：统一会话渲染（ChatThread + Composer），所有对话页复用
+│   │   │   ├── ThemeSwitch.tsx        # v1.3.0：主题切换控件
+│   │   │   ├── Modal.tsx              # v1.3.0：统一弹窗 / 按钮 / 输入（Modal + Btn + Field）
 │   │   │   └── ui/                    # 基础 UI 组件（Button、Badge、Dialog 等）
 │   │   ├── pages/
-│   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（卡片网格，含类型选择 + 文件夹绑定）
-│   │   │   ├── KBFilesPage.tsx        # 文件管理页（上传 / 批量操作 / 同步按钮）
-│   │   │   ├── ChatPage.tsx           # 对话问答页（SSE + 引用面板 + PDF bbox 高亮）
-│   │   │   ├── ReviewPage.tsx         # 模块七：课后复习（日期选择 + 流式生成 + 追问）
+│   │   │   ├── KnowledgeBasePage.tsx  # 知识库首页（书架式卡片网格，含类型选择 + 文件夹绑定）
+│   │   │   ├── KBFilesPage.tsx        # 文件管理页（树形视图 / 批量操作 / 同步 / 文本索引）
+│   │   │   ├── ChatPage.tsx           # 对话问答页（统一 ChatThread + 引用面板 + PDF bbox 高亮）
+│   │   │   ├── ReviewPage.tsx         # 模块七：课后复习（讲义 section 与追问同处一条线程）
 │   │   │   ├── CourseInfoPage.tsx     # 模块九：课程管家（信息卡片 + deadline + 问答）
 │   │   │   ├── TasksPage.tsx          # 任务监控页
 │   │   │   └── SettingsPage.tsx       # 设置页（配置说明 / 服务状态）
-│   │   ├── lib/utils.ts
-│   │   ├── index.css
+│   │   ├── index.css              # 「研读室」设计系统（@theme token + 三主题 + motion，v1.3.0 重写）
 │   │   ├── App.tsx                # 路由配置（含 KBLayout 嵌套路由）
 │   │   └── main.tsx
 │   ├── package.json
@@ -297,6 +311,7 @@ npm run dev
 | `POST` | `/api/chat/{kb_id}/search` | 纯检索（不生成回答，供调试） |
 | `POST` | `/api/kb/{kb_id}/sync-folder` | 扫描绑定文件夹并同步文件状态 |
 | `GET` | `/api/documents/{kb_id}/{doc_id}/raw-text` | 获取 txt/md 文件纯文本内容 |
+| `POST` | `/api/documents/{kb_id}/{doc_id}/index-text` | 文本/讲义 .md 切片入库供问答（录音转写 .txt 返回 400 拒绝） |
 | `POST` | `/api/conversations` | 创建多轮会话 |
 | `GET` | `/api/conversations` | 列出会话（按 kb_id/scenario 筛选） |
 | `POST` | `/api/conversations/{id}/send` | 发送消息并获取流式回复（SSE） |
@@ -434,7 +449,7 @@ cd backend
 uv run python test_api.py        # 49 个测试
 
 # v1.2.0 新功能集成测试（不依赖外部 API，快速）
-uv run python test_v120.py       # 91 个测试（LLM mock，建议用临时数据路径隔离）
+uv run python test_v120.py       # 105 个测试（LLM mock，建议用临时数据路径隔离）
 # 注意：运行前需确保 uvicorn 服务未启动（Qdrant 文件锁限制单进程访问）
 
 # Stage 2: MinerU 解析与 IR 标准化（需要 MINERU_API_KEY）
