@@ -65,7 +65,7 @@ MinerU 更新频繁。`pipeline_service` 步骤 [E+] 对每次解析跑 `adapter
 - `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md` — 当前在用的 MinerU 解析/入库方案。
 - `doc/在线API输出文件格式（SaaS推断版）.md` — 当前所基于的 MinerU 输出格式推断。
 - `doc/mineru/` — 从 MinerU 官网下载的文档（事实来源，原样保留）。
-- `doc/阿里云模型/` — 阿里云百炼官方文档（向量化 / VLM）。
+- 阿里云百炼（DashScope）官方文档**不在本地留存**——用到时用 exa / context7 实时检索（大厂文档更新快、手动维护成本高，原 `doc/阿里云模型/` 已删除）。
 
 > 原「下一步开发目标 / 开发实施手册」两篇规划文档已删除，其角色由 `progress.md` 承担（实时计划 + 进度 + 改动记录）。
 

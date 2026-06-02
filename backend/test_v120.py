@@ -27,8 +27,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import shutil
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -125,6 +127,7 @@ async def run_all_tests() -> None:
             await _test_folder_binding(c)
             kb_id = await _test_folder_sync(c)
             await _test_txt_upload(c, kb_id)
+            await _test_delete_safety(c)
             await _test_conversations(c, kb_id)
             await _test_course_info_endpoints(c, kb_id)
             await _test_deadline_recompute(kb_id)
@@ -226,6 +229,61 @@ async def _test_txt_upload(c: httpx.AsyncClient, kb_id: str) -> None:
     data = r3.json()
     _record("raw-text has doc_id and text", "doc_id" in data and "text" in data)
     _record("text content correct", txt_content in data.get("text", ""))
+
+
+async def _test_delete_safety(c: httpx.AsyncClient) -> None:
+    """v1.3.0 热修回归：删除文档绝不能误删工作目录或用户原始文件。
+
+    致命 bug：文件夹绑定文档 upload_path 为空串 → 旧删除端点 Path("").parent == "."，
+    shutil.rmtree(".") 把整个后端工作目录（源码、测试…）删光。
+    修复：删除路径全部由 kb_id/doc_id 显式拼接、限定在 data 子目录内；绑定原始文件不删。
+    """
+    print("\n[3b] 删除安全（绑定文档不误删 CWD/原始文件，上传文档正常清目录）")
+
+    # ── 场景 A：文件夹绑定文档（upload_path 为空串）──
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sub = Path(tmpdir) / "课件"
+        sub.mkdir(parents=True)
+        bound_file = sub / "lecture.md"
+        bound_file.write_text("# 讲义\n内容", encoding="utf-8")
+
+        kb_id = (await c.post("/api/kb", json={
+            "name": "删除安全-绑定", "kb_type": "course", "bound_folder_path": tmpdir,
+        })).json()["kb_id"]
+        await c.post(f"/api/kb/{kb_id}/sync-folder")
+        docs = (await c.get(f"/api/documents/{kb_id}")).json()["items"]
+        _record("绑定文档已登记", len(docs) == 1)
+        bound_doc_id = docs[0]["doc_id"]
+
+        # 哨兵目录放在当前工作目录：旧 bug 的 rmtree(".") 会把它连同整个 CWD 一起删掉
+        sentinel = Path.cwd() / f"_del_regression_{uuid.uuid4().hex}"
+        sentinel.mkdir()
+        (sentinel / "keep.txt").write_text("keep", encoding="utf-8")
+        try:
+            r_del = await c.delete(f"/api/documents/{kb_id}/{bound_doc_id}")
+            _record("DELETE 绑定文档 → 200", r_del.status_code == 200)
+            _record("工作目录未被误删（哨兵存活）",
+                    sentinel.exists() and (sentinel / "keep.txt").exists())
+            _record("用户原始绑定文件未被删除", bound_file.exists())
+            left = (await c.get(f"/api/documents/{kb_id}")).json()["items"]
+            _record("绑定文档记录已从 DB 移除", len(left) == 0)
+        finally:
+            shutil.rmtree(sentinel, ignore_errors=True)
+            await c.delete(f"/api/kb/{kb_id}")
+
+    # ── 场景 B：上传文档（upload_path 非空）正常清理其独立目录 ──
+    up_kb_id = (await c.post("/api/kb", json={
+        "name": "删除安全-上传", "kb_type": "general",
+    })).json()["kb_id"]
+    files = {"file": ("note.md", io.BytesIO(b"# hi"), "text/markdown")}
+    up_doc_id = (await c.post(f"/api/documents/{up_kb_id}/upload", files=files)).json()["doc_id"]
+    doc_dir = settings.upload_dir / up_kb_id / up_doc_id
+    _record("上传文档独立目录已创建", doc_dir.exists())
+    r_del2 = await c.delete(f"/api/documents/{up_kb_id}/{up_doc_id}")
+    _record("DELETE 上传文档 → 200", r_del2.status_code == 200)
+    _record("上传文档独立目录已删除", not doc_dir.exists())
+    _record("uploads 根目录仍在（未被误删）", settings.upload_dir.exists())
+    await c.delete(f"/api/kb/{up_kb_id}")
 
 
 async def _test_conversations(c: httpx.AsyncClient, kb_id: str) -> None:

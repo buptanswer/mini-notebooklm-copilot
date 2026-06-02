@@ -269,13 +269,11 @@ async def delete_document(kb_id: str, doc_id: str):
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT doc_id, kb_id, upload_path FROM documents WHERE doc_id=? AND kb_id=?",
+            "SELECT doc_id FROM documents WHERE doc_id=? AND kb_id=?",
             (doc_id, kb_id),
         )
-        row = await cur.fetchone()
-        if not row:
+        if not await cur.fetchone():
             raise HTTPException(status_code=404, detail="文档不存在")
-        r = dict(row)
 
         # 1. 清除 Qdrant 向量（失败不阻断删除）
         try:
@@ -306,13 +304,23 @@ async def delete_document(kb_id: str, doc_id: str):
     finally:
         await db.close()
 
-    # 3. 删除本地文件（失败不影响请求）
-    try:
-        p = Path(r["upload_path"])
-        if p.parent.exists():
-            shutil.rmtree(p.parent, ignore_errors=True)
-    except Exception:
-        pass
+    # 3. 删除本系统生成的本地数据（失败不影响请求）。
+    #    路径全部由 kb_id/doc_id 显式拼接、限定在 data 子目录内：
+    #    - 绝不再从 upload_path 反推父目录——文件夹绑定文档的 upload_path 为空串，
+    #      旧实现 Path("").parent == "."，shutil.rmtree(".") 会把整个后端工作目录删光（致命 bug）。
+    #    - 文件夹绑定模式下用户的原始文件（bound_file_path）也绝不删除，只清我们的派生数据。
+    import logging
+    _logger = logging.getLogger(__name__)
+    for target in (
+        settings.upload_dir / kb_id / doc_id,   # 上传模式：该文档独立目录
+        settings.rag_output_dir / doc_id,        # IR / chunk / origin.pdf 落盘目录
+        settings.mineru_zip_dir / doc_id,        # MinerU zip 解压目录
+    ):
+        try:
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+        except Exception as exc:
+            _logger.warning("删除本地数据失败（继续）: %s", exc)
 
     return {"detail": "已删除", "doc_id": doc_id}
 

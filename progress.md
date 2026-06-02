@@ -11,8 +11,16 @@
 
 ## 1. 当前状态
 
-**v1.3.0 已通过用户验收并定稿**（用户自行 git 上传）。当前**无进行中的开发任务**——
-等待用户给出使用过程中的体验问题清单，据此开 **v1.4.0**。
+**正在做 v1.3.0 热修（不属于 v1.4.0 开发范围）**，两件事：
+
+1. **【致命 bug】删除单个文档会误删整个后端工作目录** —— 已定位根因并修复，详见 §6。
+2. **文档清理**：项目已删除 `doc/阿里云模型/` 子文件夹（改为用时实时检索），需把项目文档里
+   对该子文件夹的描述一并清掉，保持文档与现状一致。
+
+热修完成验收后再进入 **v1.4.0**（等待用户给出使用体验问题清单）。
+
+> v1.3.0 本身已通过用户验收并定稿（用户自行 git 上传）。用户曾因本删除 bug 整个项目被毁，
+> 靠 GitHub 上的 v1.3.0 重新 clone 恢复，故本轮从 v1.3.0 起。
 
 - v1.3.0 做了什么、改了哪些文件、6 个验收问题如何处置 → 已全部沉淀到
   **`RELEASE_NOTES.md` 的 v1.3.0 段** + **`doc/项目当前情况.md`**（与代码一致的稳定快照）。
@@ -56,3 +64,38 @@
 - **git 由用户手动管理**，AI 不要 commit/push。
 - 跑后端脚本测试前必须停掉 uvicorn（Qdrant 单进程文件锁）。
 - LSP 插件诊断有滞后，Python 类型以 CLI `basedpyright` 为准。
+
+## 6. v1.3.0 热修改动记录（本轮，待用户验收）
+
+### 6.1 【致命 bug】删除单个文档误删整个后端工作目录
+
+- **现象**：在文件管理里删除一个文件，结果把后端全部源码等一起删了。
+- **根因**：`backend/app/api/documents.py` 的 `delete_document` 第 3 步原为
+  `p = Path(r["upload_path"]); shutil.rmtree(p.parent, ignore_errors=True)`。
+  文件夹绑定模式（课程 KB）的文档 `upload_path` 在 DB 里是**空串**（`folder_sync_service`
+  INSERT 时只写 `bound_file_path`，`upload_path` 取 DDL 默认 `''`）。于是 `Path("")` → `Path(".")`，
+  `p.parent` 也是 `.`（当前工作目录）。后端以 `cd backend && uv run uvicorn ...` 启动，CWD=`backend/`，
+  `shutil.rmtree(".", ignore_errors=True)` 递归删光 `backend/`（`ignore_errors=True` 还无视锁定文件硬删）。
+- **修复**（`documents.py`）：删除路径**全部由 `kb_id/doc_id` 显式拼接、限定在 `data/` 子目录内**，
+  不再从 `upload_path` 反推父目录。清理目标改为
+  `settings.upload_dir/{kb_id}/{doc_id}`、`settings.rag_output_dir/{doc_id}`、
+  `settings.mineru_zip_dir/{doc_id}`；**文件夹绑定模式下用户原始文件（`bound_file_path`）绝不删除**，
+  只清我们的派生数据。SELECT 同步精简（不再取 `upload_path`，仅用于存在性 404 判断）。
+  - 旁证：`kb.py` 的 KB 级联删除 `_delete_doc_data` 本就用 `settings.<dir>/doc_id` 显式拼接，无此 bug；
+    本次单文档删除对齐到同样的安全写法，并补齐了之前漏清的 `rag_output/{doc_id}`、`mineru_zips/{doc_id}`。
+- **回归测试**（`test_v120.py` 新增 `_test_delete_safety`，已挂入 `run_all_tests`）：
+  - 场景 A：绑定文档（`upload_path` 空）→ 删除后断言「CWD 哨兵目录存活、用户原始文件未删、DB 记录已移除」。
+  - 场景 B：上传文档（`upload_path` 非空）→ 删除后断言「该文档独立目录被清、uploads 根目录仍在」。
+  - 结果：`test_v120.py` **114/114 通过**（原 105 + 新增 9）；`basedpyright` standard **0 error**。
+
+### 6.2 文档清理：移除 `doc/阿里云模型/` 子文件夹描述
+
+项目已删除该子文件夹（阿里云百炼文档改为用时 exa/context7 实时检索）。同步清理三处陈旧描述：
+`CLAUDE.md`（文档清单）、`doc/文档导览.md`（MinerU 相关表）、`doc/项目当前情况.md`（§7 文档树），
+均改为「不在本地留存，用到时实时检索」的现状说明。
+
+### 6.3 待办（用户验收后再做）
+
+- 真机验证：浏览器里对**课程 KB 绑定文档**点删除，确认只删记录、本地原始文件与后端目录都安然无恙。
+- 沉淀稳定文档：`RELEASE_NOTES.md` 加一条 v1.3.0 热修条目；`doc/项目当前情况.md` 视情况在「已知限制」
+  注明此 bug 已修。**这些等用户验收通过再落**（git 由用户管理）。
