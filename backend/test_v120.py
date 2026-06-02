@@ -271,19 +271,81 @@ async def _test_delete_safety(c: httpx.AsyncClient) -> None:
             shutil.rmtree(sentinel, ignore_errors=True)
             await c.delete(f"/api/kb/{kb_id}")
 
-    # ── 场景 B：上传文档（upload_path 非空）正常清理其独立目录 ──
+    # ── 场景 B：上传文档 + 各存储层派生数据，删除后必须全部清零（无孤儿）──
+    from app.db.database import get_db
+    from app.db.qdrant_client import get_qdrant
+    from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+
     up_kb_id = (await c.post("/api/kb", json={
         "name": "删除安全-上传", "kb_type": "general",
     })).json()["kb_id"]
     files = {"file": ("note.md", io.BytesIO(b"# hi"), "text/markdown")}
     up_doc_id = (await c.post(f"/api/documents/{up_kb_id}/upload", files=files)).json()["doc_id"]
     doc_dir = settings.upload_dir / up_kb_id / up_doc_id
-    _record("上传文档独立目录已创建", doc_dir.exists())
-    r_del2 = await c.delete(f"/api/documents/{up_kb_id}/{up_doc_id}")
-    _record("DELETE 上传文档 → 200", r_del2.status_code == 200)
-    _record("上传文档独立目录已删除", not doc_dir.exists())
-    _record("uploads 根目录仍在（未被误删）", settings.upload_dir.exists())
-    await c.delete(f"/api/kb/{up_kb_id}")
+
+    async def _rows(table: str) -> int:
+        d = await get_db()
+        try:
+            cur = await d.execute(f"SELECT COUNT(*) FROM {table} WHERE doc_id=?", (up_doc_id,))
+            return (await cur.fetchone())[0]
+        finally:
+            await d.close()
+
+    qc = get_qdrant()
+
+    def _vecs() -> int:
+        pts, _ = qc.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=up_doc_id))]),
+            limit=16, with_payload=False, with_vectors=False,
+        )
+        return len(pts)
+
+    try:
+        # 模拟"已解析"产物：SQLite 四表 + Qdrant 向量点 + rag_output / mineru_zips 目录
+        pcid, ccid = f"pc-{up_doc_id}", f"cc-{up_doc_id}"
+        d = await get_db()
+        try:
+            await d.execute("INSERT INTO parent_chunks (parent_chunk_id, doc_id, section_id) VALUES (?,?,?)",
+                            (pcid, up_doc_id, "s0"))
+            await d.execute(
+                "INSERT INTO child_chunks (child_chunk_id, parent_chunk_id, doc_id, section_id, chunk_type, embedding_text) "
+                "VALUES (?,?,?,?,?,?)",
+                (ccid, pcid, up_doc_id, "s0", "paragraph", "播种切片文本"))
+            await d.execute("INSERT INTO assets (asset_id, doc_id, asset_type, path) VALUES (?,?,?,?)",
+                            (f"a-{up_doc_id}", up_doc_id, "image", "images/x.jpg"))
+            await d.execute("INSERT INTO tasks (task_id, doc_id, task_type) VALUES (?,?,?)",
+                            (f"t-{up_doc_id}", up_doc_id, "parse"))
+            await d.commit()
+        finally:
+            await d.close()
+        qc.upsert(collection_name=settings.qdrant_collection, points=[
+            PointStruct(id=str(uuid.uuid4()), vector=[0.0] * settings.embedding_dim,
+                        payload={"doc_id": up_doc_id})])
+        for sub in (settings.rag_output_dir / up_doc_id, settings.mineru_zip_dir / up_doc_id):
+            sub.mkdir(parents=True, exist_ok=True)
+            (sub / "marker.txt").write_text("x", encoding="utf-8")
+
+        _record("上传文档独立目录已创建", doc_dir.exists())
+        _record("播种：四表 + 向量 + 派生目录就位",
+                await _rows("parent_chunks") == 1 and await _rows("child_chunks") == 1
+                and await _rows("assets") == 1 and await _rows("tasks") == 1 and _vecs() == 1)
+
+        r_del2 = await c.delete(f"/api/documents/{up_kb_id}/{up_doc_id}")
+        _record("DELETE 上传文档 → 200", r_del2.status_code == 200)
+        # 本地文件：独立目录 + 派生目录清掉，uploads 根仍在
+        _record("上传文档独立目录已删除", not doc_dir.exists())
+        _record("rag_output/{doc_id} 已删除", not (settings.rag_output_dir / up_doc_id).exists())
+        _record("mineru_zips/{doc_id} 已删除", not (settings.mineru_zip_dir / up_doc_id).exists())
+        _record("uploads 根目录仍在（未被误删）", settings.upload_dir.exists())
+        # SQLite 各表 + Qdrant 向量全部清零（无孤儿）
+        _record("parent_chunks 已清零", await _rows("parent_chunks") == 0)
+        _record("child_chunks 已清零", await _rows("child_chunks") == 0)
+        _record("assets 已清零", await _rows("assets") == 0)
+        _record("tasks 已清零", await _rows("tasks") == 0)
+        _record("Qdrant 向量已清零", _vecs() == 0)
+    finally:
+        await c.delete(f"/api/kb/{up_kb_id}")  # 兜底：即便中途失败也清掉播种数据
 
 
 async def _test_conversations(c: httpx.AsyncClient, kb_id: str) -> None:

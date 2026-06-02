@@ -449,7 +449,7 @@ cd backend
 uv run python test_api.py        # 49 个测试
 
 # v1.2.0 新功能集成测试（不依赖外部 API，快速）
-uv run python test_v120.py       # 105 个测试（LLM mock，建议用临时数据路径隔离）
+uv run python test_v120.py       # 122 个测试（LLM mock，建议用临时数据路径隔离）
 # 注意：运行前需确保 uvicorn 服务未启动（Qdrant 文件锁限制单进程访问）
 
 # Stage 2: MinerU 解析与 IR 标准化（需要 MINERU_API_KEY）

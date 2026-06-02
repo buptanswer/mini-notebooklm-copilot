@@ -4,6 +4,38 @@
 
 ---
 
+## v1.3.0 热修补丁（hotfix · 2026-06-01）— 修复删除文档误删工作目录的致命 bug
+
+> 用户验收 v1.3.0 后，在课程 KB（文件夹绑定模式）用文件管理「删除」单个文档时，竟把整个后端
+> 工作目录（源码、测试…）一起删光。本补丁修复该致命 bug，并补齐删除清理完整性的回归测试。
+
+### 致命 bug：删除单个文档会 `rmtree` 当前工作目录
+- **根因**：`api/documents.py` 的 `delete_document` 第 3 步原为
+  `shutil.rmtree(Path(r["upload_path"]).parent, ignore_errors=True)`。文件夹绑定模式的文档
+  `upload_path` 在库中为**空串**（`folder_sync_service` 登记时只写 `bound_file_path`），于是
+  `Path("")` → `Path(".")`，`.parent` 仍是 `.`（当前工作目录）；后端以 `cd backend && uvicorn ...`
+  启动，CWD=`backend/`，`shutil.rmtree(".", ignore_errors=True)` 递归删光整个后端目录。
+- **修复**：删除路径改为**全部由 `kb_id/doc_id` 显式拼接、限定在 `data/` 子目录内**（`settings.*`
+  是绝对路径，与启动目录无关）：`uploads/{kb_id}/{doc_id}`、`rag_output/{doc_id}`、`mineru_zips/{doc_id}`。
+  **文件夹绑定模式下用户的原始文件（`bound_file_path`）绝不删除**，只清本系统派生数据；并补齐了
+  之前漏清的 `rag_output/{doc_id}`、`mineru_zips/{doc_id}`。
+
+### 删除完整性回归（`test_v120.py` 新增 `_test_delete_safety`）
+- 绑定文档删除：断言「CWD 哨兵目录存活、用户原始文件未删、DB 记录已移除」。
+- 上传文档删除：播种 parent/child chunk、asset、task 行 + Qdrant 向量点 + rag_output/mineru_zips
+  目录，删除后断言**四表清零 + 向量清零 + 派生目录删除 + uploads 根目录仍在**（确定性、不烧 API 配额）。
+- 真机佐证：对真实课程 KB 解析「通知」文档后删除，复查 SQLite 四表 0 行、Qdrant 0 点、
+  `rag_output`/`mineru_zips`/`uploads` 0 残留——无任何孤儿数据。
+
+### 文档维护
+- 删除 `doc/阿里云模型/` 子文件夹（阿里云百炼文档改为用 exa / context7 实时检索），同步清理
+  `CLAUDE.md`、`doc/文档导览.md`、`doc/项目当前情况.md` 中对该子文件夹的描述。
+
+### 验证
+- `test_v120.py` **122/122 通过**（原 105 + 删除安全 / 完整清理 17）；仓库根 `basedpyright` standard **0 error**。
+
+---
+
 ## v1.3.0（2026-05-31 开发 · 2026-06-01 验收定稿）— 统一对话架构 + 大厂级阅读器前端重构
 
 针对 v1.2.0 验收暴露的对话体系割裂与 UI 通用感问题，做前后端协同重构。**已通过用户验收。**
