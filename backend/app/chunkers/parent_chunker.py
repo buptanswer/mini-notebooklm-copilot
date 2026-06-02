@@ -52,13 +52,21 @@ def build_parent_chunks(
         if section.level == _SYNTHETIC_ROOT_LEVEL and section.synthetic:
             continue
 
-        parent_chunk_id = f"pc-{uuid.uuid4().hex[:12]}"
-
         # 收集块：按 order_in_doc 排序
         sec_blocks = sorted(
             [block_map[bid] for bid in section.block_ids if bid in block_map],
             key=lambda b: b.order_in_doc,
         )
+
+        # 跳过「纯标题容器」section：有子 section 且自身无正文内容块（只有标题）。
+        # 层级树重建后，中间章节节点（如「第一章」）常只含自己的标题块，正文都在子节点里。
+        # 单独为它出一个只含标题的父块是退化噪音；其标题已在后代的 header_path 中保留。
+        if section.child_section_ids and not any(
+            b.role not in _SKIP_ROLE and b.type != "title" for b in sec_blocks
+        ):
+            continue
+
+        parent_chunk_id = f"pc-{uuid.uuid4().hex[:12]}"
 
         # text_for_generation
         text_parts: list[str] = []

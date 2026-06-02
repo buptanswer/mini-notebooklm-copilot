@@ -22,13 +22,33 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.db.database import get_db
 from app.services.qa_service import stream_answer
 from app.services.rerank_service import rerank
 from app.services.retrieval_service import fetch_parent_chunks, hybrid_search
+from app.services.retrieval_trace import run_retrieval_pipeline
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+async def _docs_meta(doc_ids: list[str]) -> dict[str, dict]:
+    """批量取 doc_id → {filename, source_format}，供前端展示来源归属。"""
+    ids = [d for d in dict.fromkeys(doc_ids) if d]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            f"SELECT doc_id, filename, source_format FROM documents WHERE doc_id IN ({placeholders})",
+            ids,
+        )
+        rows = await cur.fetchall()
+    finally:
+        await db.close()
+    return {r[0]: {"filename": r[1], "source_format": r[2]} for r in rows}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -44,6 +64,11 @@ class ChatRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="检索查询")
     top_k: int = Field(default=5, ge=1, le=20, description="最终返回数量")
+
+
+class TraceRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000, description="用户问题")
+    top_k: int = Field(default=5, ge=1, le=20, description="最终保留数量")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -136,3 +161,29 @@ async def search_kb(kb_id: str, req: SearchRequest):
             for i, c in enumerate(reranked)
         ],
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# 检索透视端点（v1.4.0）：返回全链路 trace，不生成回答
+# ─────────────────────────────────────────────────────────────
+
+@router.post("/{kb_id}/retrieve-trace", summary="检索透视：查询规划→双路召回→RRF→重排 的全链路 trace")
+async def retrieve_trace(kb_id: str, req: TraceRequest):
+    """
+    跑完整检索链路并返回结构化 trace（**不调用问答 LLM**）：
+      LLM 查询规划(关键词+语义查询) → 关键词(BM25,OR)+向量 双路召回
+      → RRF 融合 → qwen3-rerank 重排 → top_k
+    供前端「检索透视」可视化与开发者评估检索效果。
+    """
+    result = await run_retrieval_pipeline(req.query, kb_id, top_k=req.top_k, build_trace=True)
+    trace = result.trace.to_dict() if result.trace else {}
+
+    # 汇总 trace 内涉及的所有 doc_id → 文件名，便于前端展示来源归属
+    doc_ids: list[str] = []
+    for section in ("vector_hits", "keyword_hits", "fusion", "reranked"):
+        for h in trace.get(section, []):
+            if h.get("doc_id"):
+                doc_ids.append(h["doc_id"])
+    docs = await _docs_meta(doc_ids)
+
+    return {"query": req.query, "kb_id": kb_id, "trace": trace, "docs": docs}

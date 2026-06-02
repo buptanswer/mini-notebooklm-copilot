@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS parent_chunks (
     page_span_start INTEGER DEFAULT 0,
     page_span_end   INTEGER DEFAULT 0,
     block_ids       TEXT DEFAULT '[]',               -- JSON array
-    text_preview    TEXT DEFAULT ''                   -- 前 200 字供预览
+    text_preview    TEXT DEFAULT '',                  -- 前 200 字供预览
+    text_full       TEXT DEFAULT ''                   -- 父块完整文本（Small-to-Big 上下文 / 解析透视）
 );
 
 -- ═══════════════ Child Chunk 索引 ═══════════════
@@ -99,7 +100,8 @@ CREATE TABLE IF NOT EXISTS child_chunks (
     bbox_norm1000   TEXT DEFAULT '[]',              -- JSON: [[x0,y0,x1,y1], ...]
     bbox_page       TEXT DEFAULT '[]',              -- JSON: [[x0,y0,x1,y1], ...]
     anchor_origin_pdf_path TEXT DEFAULT '',
-    qdrant_point_id TEXT DEFAULT ''                   -- Qdrant 点 ID
+    qdrant_point_id TEXT DEFAULT '',                  -- Qdrant 点 ID
+    asset_paths     TEXT DEFAULT '[]'                 -- 该子块图片资产本地路径 JSON（多模态问答传原图用）
 );
 
 -- ═══════════════ 资产索引 ═══════════════
@@ -283,6 +285,9 @@ async def init_db() -> None:
             "ALTER TABLE documents ADD COLUMN bound_file_path TEXT DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN folder_category TEXT DEFAULT ''",
             "ALTER TABLE course_info_cards ADD COLUMN deadlines_normalized TEXT DEFAULT '[]'",
+            # v1.4.0 新增列
+            "ALTER TABLE parent_chunks ADD COLUMN text_full TEXT DEFAULT ''",
+            "ALTER TABLE child_chunks ADD COLUMN asset_paths TEXT DEFAULT '[]'",
         ]:
             try:
                 await db.execute(sql)

@@ -4,6 +4,8 @@ import KBLayout from "@/components/KBLayout"
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage"
 import KBFilesPage from "@/pages/KBFilesPage"
 import ChatPage from "@/pages/ChatPage"
+import RetrievalXrayPage from "@/pages/RetrievalXrayPage"
+import ParseXrayPage from "@/pages/ParseXrayPage"
 import ReviewPage from "@/pages/ReviewPage"
 import CourseInfoPage from "@/pages/CourseInfoPage"
 import TasksPage from "@/pages/TasksPage"
@@ -20,6 +22,8 @@ function App() {
             <Route path="files" element={<KBFilesPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="chat/:conversationId" element={<ChatPage />} />
+            <Route path="xray" element={<RetrievalXrayPage />} />
+            <Route path="dissect" element={<ParseXrayPage />} />
             <Route path="review" element={<ReviewPage />} />
             <Route path="review/:conversationId" element={<ReviewPage />} />
             <Route path="info" element={<CourseInfoPage />} />

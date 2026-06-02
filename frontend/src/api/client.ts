@@ -5,9 +5,12 @@ import type {
   ConversationInfo,
   CourseInfoCard,
   DeadlineItem,
+  ChunksResponse,
   DocInfo,
+  IRResponse,
   KBInfo,
   KBType,
+  RetrievalTraceResponse,
   ReviewDateInfo,
   ReviewNote,
   ReviewSectionInfo,
@@ -125,6 +128,25 @@ export function getOriginPdfUrl(kbId: string, docId: string): string {
   return `${BASE}/documents/${kbId}/${docId}/origin-pdf`
 }
 
+// ── 解析透视检视（v1.4.0 Phase 3）─────────────────────────────
+
+/** 读文档 IR 投影：页尺寸 / section 树 / blocks(bbox/类型/文本/VLM描述) / 父块 bbox 并集。 */
+export async function getDocumentIR(kbId: string, docId: string): Promise<IRResponse> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/ir`)
+  return handleResponse<IRResponse>(res)
+}
+
+/** 读父/子切片全文（含 source_block_ids，给「块 ↔ 切片」映射）。 */
+export async function getDocumentChunks(kbId: string, docId: string): Promise<ChunksResponse> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/chunks`)
+  return handleResponse<ChunksResponse>(res)
+}
+
+/** 图片资产（裁剪图）的 URL，直接用作 <img src>。 */
+export function getAssetUrl(kbId: string, docId: string, assetId: string): string {
+  return `${BASE}/documents/${kbId}/${docId}/asset/${assetId}`
+}
+
 // ── 任务 ───────────────────────────────────────────────────
 
 export async function listAllTasks(limit = 50): Promise<TaskInfo[]> {
@@ -153,6 +175,23 @@ export async function searchDocuments(
   })
   const data = await handleResponse<{ results: SearchResultItem[] }>(res)
   return data.results
+}
+
+/**
+ * 检索透视（v1.4.0）：跑「查询规划→双路召回→RRF→重排」全链路，返回结构化 trace。
+ * 不生成答案，纯检索可视化 + 开发者评估算法用。
+ */
+export async function retrieveTrace(
+  kbId: string,
+  query: string,
+  topK = 5,
+): Promise<RetrievalTraceResponse> {
+  const res = await fetch(`${BASE}/chat/${kbId}/retrieve-trace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, top_k: topK }),
+  })
+  return handleResponse<RetrievalTraceResponse>(res)
 }
 
 // ════════════════════════════════════════════════════════════

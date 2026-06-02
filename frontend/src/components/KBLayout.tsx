@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import {
-  ArrowLeft, BookOpenText, ClipboardList, Clock, FolderClosed, MessagesSquare,
+  ArrowLeft, BookOpenText, ClipboardList, Clock, FileScan, FolderClosed, MessagesSquare, ScanSearch,
 } from "lucide-react"
 import { getKB, getUpcomingDeadlines } from "@/api/client"
 import type { DeadlineItem, KBInfo } from "@/api/types"
@@ -28,6 +28,8 @@ export default function KBLayout() {
   const navItems = [
     { path: "files", icon: FolderClosed, label: "文件" },
     { path: "chat", icon: MessagesSquare, label: "对话" },
+    { path: "dissect", icon: FileScan, label: "解析透视" },
+    { path: "xray", icon: ScanSearch, label: "检索透视" },
     ...(kb?.kb_type === "course"
       ? [
           { path: "review", icon: BookOpenText, label: "课后复习" },

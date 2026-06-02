@@ -66,7 +66,11 @@ def build_child_chunks(
         )
 
         for blk in parent_blocks:
-            if blk.type in _ATOMIC_TYPES or blk.type == "title":
+            if blk.type == "title":
+                # 标题不单列为可检索 child：它已作为 header_path 前缀拼进每个子块的
+                # embedding_text，单独成块价值低、还会污染检索结果。
+                continue
+            if blk.type in _ATOMIC_TYPES:
                 # 原子块：整体一个 Child
                 children = _make_atomic_child(
                     blk, parent, header_prefix, page_numbers_map

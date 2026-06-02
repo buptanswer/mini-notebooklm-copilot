@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
-  BookOpenText, Brain, ChevronRight, FileText, GitBranch, Loader2, Send, Sparkles,
+  BookOpenText, Brain, ChevronRight, FileScan, FileText, GitBranch, Loader2, Send, Sparkles,
 } from "lucide-react"
 import type { CitationItem } from "@/api/types"
 import type { ThreadMessage } from "@/hooks/useConversation"
@@ -58,11 +58,12 @@ function ThinkingPanel({
 }
 
 function Citations({
-  items, docName, onView,
+  items, docName, onView, onDissect,
 }: {
   items: CitationItem[]
   docName?: (docId: string) => string
   onView?: (c: CitationItem) => void
+  onDissect?: (c: CitationItem) => void
 }) {
   const [open, setOpen] = useState(false)
   if (!items.length) return null
@@ -97,9 +98,16 @@ function Citations({
                   </span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-ink-faint">{c.retrieval_text}</p>
-                {onView && c.anchor_origin_pdf_path && (
-                  <button onClick={() => onView(c)} className="mt-1 text-accent hover:underline">查看原文 →</button>
-                )}
+                <div className="mt-1.5 flex items-center gap-3">
+                  {onView && c.anchor_origin_pdf_path && (
+                    <button onClick={() => onView(c)} className="text-accent hover:underline">查看原文 →</button>
+                  )}
+                  {onDissect && (
+                    <button onClick={() => onDissect(c)} className="inline-flex items-center gap-1 text-ink-faint transition-colors hover:text-accent">
+                      <FileScan className="h-3 w-3" />解析透视
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </motion.ul>
@@ -129,13 +137,15 @@ export interface ChatThreadProps {
   onFork?: (messageId: string) => void
   docName?: (docId: string) => string
   onViewSource?: (c: CitationItem) => void
+  onDissectSource?: (c: CitationItem) => void
   emptyState?: React.ReactNode
   className?: string
 }
 
 /** 统一会话线程渲染：讲义 section（reader 卡片）/ 普通问答 / 用户消息，全在一条线程。 */
 export function ChatThread({
-  messages, streaming, onToggleThinking, onFork, docName, onViewSource, emptyState, className,
+  messages, streaming, onToggleThinking, onFork, docName, onViewSource, onDissectSource,
+  emptyState, className,
 }: ChatThreadProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -206,7 +216,7 @@ export function ChatThread({
                   </span>
                 ) : null}
 
-                <Citations items={m.citations} docName={docName} onView={onViewSource} />
+                <Citations items={m.citations} docName={docName} onView={onViewSource} onDissect={onDissectSource} />
 
                 {!isSection && !m.streaming && onFork && (
                   <div className="mt-2.5 flex items-center gap-3">

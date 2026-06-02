@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { motion } from "motion/react"
-import { History, MessagesSquare, Plus, Sparkles, X } from "lucide-react"
+import { History, MessagesSquare, Plus, ScanSearch, Sparkles, X } from "lucide-react"
 import { Document, Page, pdfjs } from "react-pdf"
 import {
   createConversation, forkConversation, getConversation, getOriginPdfUrl,
@@ -104,6 +104,17 @@ export default function ChatPage() {
     })
   }
 
+  // 演示打通：从来源跳「解析透视」并定位到该来源块；从对话跳「检索透视」透视本次检索
+  const openDissect = (c: CitationItem) => {
+    if (!kbId) return
+    navigate(`/kb/${kbId}/dissect?doc=${c.doc_id}&child=${encodeURIComponent(c.child_chunk_id)}`)
+  }
+  const lastUserQuestion = [...convo.messages].reverse().find((m) => m.role === "user")?.content ?? ""
+  const openRetrievalXray = () => {
+    if (!kbId || !lastUserQuestion) return
+    navigate(`/kb/${kbId}/xray?q=${encodeURIComponent(lastUserQuestion)}`)
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* 顶栏 */}
@@ -113,6 +124,16 @@ export default function ChatPage() {
           对话问答
         </h1>
         <div className="flex items-center gap-2">
+          {lastUserQuestion && (
+            <button
+              onClick={openRetrievalXray}
+              title="把刚才这个问题的检索全过程透视一遍"
+              className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:text-accent"
+            >
+              <ScanSearch className="h-3.5 w-3.5" />
+              透视检索
+            </button>
+          )}
           <button
             onClick={() => { convo.reset([], null); navigate(`/kb/${kbId}/chat`) }}
             className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:text-accent"
@@ -165,6 +186,7 @@ export default function ChatPage() {
             onToggleThinking={convo.toggleThinking}
             onFork={handleFork}
             onViewSource={openPreview}
+            onDissectSource={openDissect}
             emptyState={
               <motion.div
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}

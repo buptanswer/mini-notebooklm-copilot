@@ -422,15 +422,14 @@ def _extract_content(
                 text_parts = [caption_text] if caption_text else []
             text = "\n".join(text_parts)
         else:
-            # 普通 image：caption + 可选 VLM OCR 提取文本
+            # 普通 image：可检索文本基底**只取 caption**，**弃用 MinerU 的图片 OCR**
+            # (content["content"])——它对纯图形为空、且仅是 OCR 文字而非对图片的"理解"。
+            # 图片的语义文本改由我们自己的 VLM 描述生成（enricher 阶段），并回流到 blk.text；
+            # 这样命中检索时拿到的是"看懂了图"的描述，而非 MinerU 的逐字 OCR。
+            # （MinerU 原始 content 仍留在 content_list_v2.json 中，需要时可回溯。）
             caption_segs = content.get("image_caption", []) if isinstance(content, dict) else []
             caption_text, _ = _flatten_text_segments(caption_segs)
-            # content["content"] 是新版 MinerU 对图片内容的 VLM 识别结果
-            ocr_text = content.get("content", "") if isinstance(content, dict) else ""
-            if isinstance(ocr_text, str) and ocr_text:
-                text = f"{caption_text}\n{ocr_text}".strip() if caption_text else ocr_text
-            else:
-                text = caption_text
+            text = caption_text
 
         segments = [TextSegment(type="text", content=text)] if text else []
         if img_src:

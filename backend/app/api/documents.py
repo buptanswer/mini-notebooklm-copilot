@@ -382,3 +382,84 @@ async def get_raw_text(kb_id: str, doc_id: str):
 
     text = Path(path_str).read_text(encoding="utf-8", errors="replace")
     return {"doc_id": doc_id, "text": text, "path": path_str}
+
+
+# ── 解析透视检视接口（v1.4.0 Phase 2，只读）──────────────────
+
+@router.get("/{kb_id}/{doc_id}/ir", summary="解析透视：IR 投影（blocks/sections/bbox/VLM描述）")
+async def get_document_ir(kb_id: str, doc_id: str):
+    """
+    返回文档 IR 的可视化投影：页尺寸、section 树、blocks（含 bbox/类型/文本/图片 VLM 描述）、
+    父切片按页 bbox 并集。优先 enriched IR（含 VLM 描述），兜底 basic IR。
+    """
+    from app.services import inspection_service
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT COALESCE(ir_enriched_path,'') AS e, COALESCE(ir_path,'') AS b "
+            "FROM documents WHERE doc_id=? AND kb_id=?",
+            (doc_id, kb_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+    finally:
+        await db.close()
+
+    proj = inspection_service.load_ir_projection(r["e"], r["b"])
+    if proj is None:
+        raise HTTPException(status_code=404, detail="IR 尚未生成（请先完成文档解析）")
+    return {"doc_id": doc_id, "kb_id": kb_id, **proj}
+
+
+@router.get("/{kb_id}/{doc_id}/chunks", summary="解析透视：父/子切片全文（含 source_block_ids）")
+async def get_document_chunks(kb_id: str, doc_id: str):
+    """返回 parent_chunks.jsonl + child_chunks.jsonl 全字段，给前端「块 ↔ 切片」映射。"""
+    from app.services import inspection_service
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT COALESCE(parent_chunks_path,'') AS p, COALESCE(child_chunks_path,'') AS c "
+            "FROM documents WHERE doc_id=? AND kb_id=?",
+            (doc_id, kb_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+    finally:
+        await db.close()
+
+    data = inspection_service.load_chunks(r["p"], r["c"])
+    if data is None:
+        raise HTTPException(status_code=404, detail="切片文件尚未生成（请先完成文档解析）")
+    return {"doc_id": doc_id, "kb_id": kb_id, **data}
+
+
+@router.get("/{kb_id}/{doc_id}/asset/{asset_id}", summary="解析透视：服务图片资产（裁剪图）")
+async def get_document_asset(kb_id: str, doc_id: str, asset_id: str):
+    """按 asset_id 返回图片文件（VLM 描述见 /ir）。路径限定在 DATA_ROOT 内防穿越。"""
+    from app.services.inspection_service import path_within_data_root
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT path, COALESCE(mime,'') AS mime FROM assets WHERE asset_id=? AND doc_id=?",
+            (asset_id, doc_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="资产不存在")
+        r = dict(row)
+    finally:
+        await db.close()
+
+    safe = path_within_data_root(r["path"])
+    if not safe:
+        raise HTTPException(status_code=404, detail="资产文件不存在")
+
+    media_type = r["mime"] or "image/jpeg"
+    return FileResponse(path=str(safe), media_type=media_type, headers={"Content-Disposition": "inline"})

@@ -71,6 +71,7 @@ from app.chunkers.parent_chunker import build_parent_chunks
 from app.config import DATA_ROOT, settings
 from app.db.database import get_db
 from app.enrichers import enrich_blocks
+from app.services.doc_tree_service import assign_title_levels
 from app.services.embedding_service import embed_texts
 from app.services.index_service import index_chunks
 from app.services.mineru_client import (
@@ -271,8 +272,12 @@ async def _run_parse_pipeline_impl(
         )
         await _update_task(task_id, "running", 0.75)
 
-        # ── [G] DOM 重建 ──────────────────────────────────────
-        logger.info("[pipeline] [G] DOM 重建 → sections + header_path")
+        # ── [G] 文档树重建（LLM 层级推断 + DOM）──────────────
+        # MinerU 永远返回 title_level=1 → 直接 build_dom 会得到扁平树。
+        # 先让 LLM 推断标题层级写回 metadata.title_level（失败回退启发式，绝不阻断），
+        # 再 build_dom 即可建出真正的层级树。
+        logger.info("[pipeline] [G] 文档树重建（LLM 层级推断 + DOM）")
+        blocks = await assign_title_levels(blocks)
         blocks, sections = build_dom(blocks)
 
         # ── [H] 脚注关联 ──────────────────────────────────────

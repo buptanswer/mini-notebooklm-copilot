@@ -4,6 +4,73 @@
 
 ---
 
+## v1.4.0（2026-06-02 开发，待用户验收）— 技术难点可视化 +「隐藏链路」打通 + 检索/解析正确性修复
+
+> v1.3.0 把解析/检索/切片这些**技术难点全藏在了"实用简洁"前端背后**，演示时容易让人误以为"就调了个 API"。
+> v1.4.0 在「研读室」体系内，把真正的技术难点做成**惊艳、可交互的可视化**（检索透视 + 解析透视），并把它们
+> **打通进真实问答**（一个问题揭示整条隐藏链路）；同时**修正了一批此前只验过"能跑"、没验过实现的偏差**。
+
+### 检索正确性与可观测（后端）
+- **LLM 查询规划**（`services/query_planner.py` + `prompts/query_plan_system.md`）：检索不再直接拿用户问题原文，
+  先由 LLM 析出 **关键词（给 BM25）** + **改写的陈述句/假设答案（HyDE 式，给向量，语义最贴目标段落）**；鲁棒 JSON
+  解析（剥 ```json 围栏），失败回退朴素分词，**绝不阻断检索**。已接进真实问答（`conversation_service`）。
+- **检索 trace**（`services/retrieval_trace.py`）：把"规划→关键词+向量双路→RRF→qwen3-rerank 重排"全链路产出结构化
+  trace；新端点 `POST /api/chat/{kb}/retrieve-trace`（纯检索透视，不生成答案）。
+- **Small-to-Big**：命中 child → 喂 **parent 全文**作上下文（此前只用 child retrieval_text）。`parent_chunks` 加
+  `text_full` 列（DDL + 懒迁移 + 写入 + 回退读 jsonl）。
+- **多模态最终问答**：`config` 加 `QA_ENABLE_MULTIMODAL` / `QA_MULTIMODAL_MODEL`(默认 `qwen-vl-max`)；命中图片切片时把
+  **原图 base64** 作为 image part 拼进 QA 消息；`child_chunks` 加 `asset_paths`。
+- **图片可检索文本基底修正**：`normalizer` 弃用 MinerU 图片 OCR 当文本基底，改为 **caption + 我们自己的 VLM 描述**
+  （`enricher` 提示词改为"描述 + 转写图中文字"）；需重解析生效。
+
+### 后端数据层（驱动解析透视）
+- **LLM 文档树重建**（`services/doc_tree_service.py` + `prompts/doc_tree_system.md`）：MinerU 永远返回
+  `title_level=1` → `dom_builder` 建出**扁平树**。改为把全部标题喂 LLM 推断层级，写回 `metadata.title_level` 再
+  `build_dom`。LLM 输出用**索引回填** `{"items":[{"i","level"}]}` 抗漂移（按 i 取、缺口用数字前缀启发式补、覆盖率
+  <0.6 才整体回退）；接入 pipeline 步骤 `[G]` 之前。**真机：03课 PDF 从 `{L1:60}` 扁平变 `{L1:12,L2:32,L3:16}` 层级。**
+- **父/子切片改造**：纯标题容器 section 不单独出 ParentChunk；`title` 块不单列 child（已在 header_path 前缀里）。
+  **真机：孤儿块 0、纯标题 child 0。**
+- **解析检视只读接口**（`api/documents.py` + `services/inspection_service.py`）：`GET …/{doc}/ir`（页尺寸 / section 树 /
+  blocks(bbox/类型/文本/VLM 描述) / 父切片按页 bbox 并集）、`…/chunks`（父子全字段含 source_block_ids）、
+  `…/asset/{asset_id}`（图片，路径限 `DATA_ROOT` 防穿越）。
+- **重解析幂等修复**：`index_service.index_chunks` 用新 uuid `INSERT OR REPLACE`，重解析时旧 uuid 的 chunk/向量不会
+  被覆盖 → 新旧并存重复命中。加 `_purge_doc(doc_id)` 写入前按 doc_id 清 SQLite(child/parent/assets) + Qdrant 点。
+
+### 前端：两个透视页（研读室体系内）
+- **检索透视**（`/kb/:kbId/xray`，`pages/RetrievalXrayPage.tsx` + `components/xray/`）：演示态脊柱式六阶段动画
+  （查询规划→关键词扫描→语义空间近邻→RRF→重排→终选，含向量空间 SVG + 重排交叉连线 SVG）/ 开发态密集数据表。
+- **解析透视**（`/kb/:kbId/dissect`，`pages/ParseXrayPage.tsx` + `components/dissect/`）：左=LLM 重建文档树 outline，
+  中=PDF 版面 **bbox 画布**（每块按类型层位色精确框出 + 父块并集虚线大框 + 图层开关；Office/无坐标文档降级为
+  结构化块流），右=解析检视（块类型/坐标/原文、所属父切片、命中它的子切片、图片→原图 + 我们的 VLM 描述）。
+  左右侧栏可收起进聚焦模式。
+
+### 前端：演示模式 —— 一个问题揭示整条隐藏链路
+- 对话页加「**透视检索**」→ 跳检索透视并自动透视刚才这个问题（`xray?q=`）。
+- 每条来源加「**解析透视**」→ 跳解析透视并自动定位到答案出处的那个版面块（`dissect?doc=&child=`，child 解析到首个
+  source_block 高亮）。`ChatThread`/`Citations` 加可选 `onDissectSource`，对 Review/CourseInfo 等不传该 prop 的页面零影响。
+
+### 顺带修的 bug
+- `retrieval_trace.matched_keywords` 原用整短语 substring 检查，对 LLM 复合关键词（"for 循环"）几乎永不命中 → 关键词
+  高亮形同虚设。改为 **token 粒度命中**（对齐 FTS5 分词），新增 `matched_tokens`（按词边界高亮，ASCII 用 `\b`）。
+- 前端 `pdfjs-dist` 被 `^5.4.296` 升到 5.7.284，与 react-pdf@10.4.1 内部 5.4.296 的 pdf.js worker/API 不匹配 → PDF 不
+  渲染（**连对话页引用 PDF 预览也坏，潜伏已久**）。已钉死 `pdfjs-dist@5.4.296`。
+- 向量脉冲环动 SVG `r` 属性触发 motion 报错 → 改 `scale` 变换；重排三列 grid / 向量近邻列表 1fr 轨道缺 `min-w-0`
+  导致横向溢出 → 已补。
+
+### 验证
+- 后端 `test_v140.py` **49/49 通过**（query_planner / trace / 多模态助手 / Small-to-Big / matched_tokens / doc_tree
+  启发式+LLM mock+部分覆盖兜底 / chunker 层级树无退化父块·无孤儿·标题不单列）；仓库根 `basedpyright` standard **0 error**。
+- 前端 `tsc -p tsconfig.app.json` / `eslint` / `build` 全过；playwright 真机：六阶段检索透视、解析透视 PDF bbox 画布 +
+  Office(docx/pptx/xlsx) 块流 + 图片 /asset + VLM 描述、演示模式全链路深链闭环，**0 控制台报错 0 横向溢出**。
+- 真机重解析小批（03课 PDF + 通知文件夹 docx/pptx/xlsx）走新流水线验证层级树、切片、purge 幂等。
+
+> **演示环境注意**：若本机装了 **IDM（Internet Download Manager）**，其系统托盘程序对浏览器开启"下载接管"后会按
+> `application/pdf` 捕获，劫持页面内 PDF 请求（弹窗 + 渲染失败，浏览器侧 fetch 中断成 204）。这一接管在 IDM 程序层
+> 监控浏览器进程、不依赖扩展，故对 Firefox/Chrome 都生效。演示前在系统托盘 IDM 设置里关掉对所用浏览器的下载接管即可；
+> 老师机一般无此问题。
+
+---
+
 ## v1.3.0 热修补丁（hotfix · 2026-06-01）— 修复删除文档误删工作目录的致命 bug
 
 > 用户验收 v1.3.0 后，在课程 KB（文件夹绑定模式）用文件管理「删除」单个文档时，竟把整个后端

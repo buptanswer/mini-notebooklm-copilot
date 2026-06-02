@@ -13,6 +13,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
+from app.config import settings
 from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -313,11 +314,13 @@ async def stream_turn(
 
     # 2. 可选 RAG 检索
     citations: list | None = None
-    inject_chunks: list | None = None
+    sources: list | None = None
+    image_paths: list | None = None
     if rag_mode:
-        citations, inject_chunks = await _fetch_rag_context(
+        citations, sources, image_paths = await _fetch_rag_context(
             user_content, conv["kb_id"], top_k
         )
+    use_multimodal = bool(image_paths) and settings.qa_enable_multimodal
 
     # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
     msgs = await list_messages(conversation_id)
@@ -328,12 +331,15 @@ async def stream_turn(
         if m["role"] in ("system", "user", "assistant"):
             openai_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # 4. RAG 注入到最后一条 user message
-    if inject_chunks:
+    # 4. RAG 注入到最后一条 user message（Small-to-Big 父块上下文；命中图片则组装多模态 content）
+    if sources:
+        from app.services.qa_service import build_multimodal_user_content
         for i in range(len(openai_msgs) - 1, -1, -1):
             if openai_msgs[i]["role"] == "user":
-                openai_msgs[i]["content"] = _build_rag_content(
-                    openai_msgs[i]["content"], inject_chunks
+                rag_text = _build_rag_content(openai_msgs[i]["content"], sources)
+                openai_msgs[i]["content"] = (
+                    build_multimodal_user_content(rag_text, image_paths or [])
+                    if use_multimodal else rag_text
                 )
                 break
 
@@ -349,7 +355,9 @@ async def stream_turn(
     acc_content: list[str] = []
     acc_thinking: list[str] = []
     use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
-    async for evt in stream_llm_completion(openai_msgs, enable_thinking=use_thinking):
+    async for evt in stream_llm_completion(
+        openai_msgs, enable_thinking=use_thinking, multimodal=use_multimodal,
+    ):
         if evt["type"] == "thinking":
             acc_thinking.append(evt["content"])
             yield sse_line({"type": "thinking", "content": evt["content"]})
@@ -371,52 +379,81 @@ async def stream_turn(
     yield sse_line({"type": "message_end", "message_id": asst_msg_id})
 
 
+_PARENT_CONTEXT_CAP = 2000   # 单条父块上下文注入上限（字符），避免极长小节撑爆上下文窗口
+
+
 async def _fetch_rag_context(
     query: str, kb_id: str, top_k: int
-) -> tuple[list | None, list | None]:
-    """混合检索 + 重排，返回 (citations, inject_chunks)；失败降级 (None, None)。"""
+) -> tuple[list | None, list | None, list | None]:
+    """
+    全链路检索（query_planner 规划 → 双路 → RRF → 重排，见 retrieval_trace）。
+    返回 (citations, sources, image_paths)；失败降级 (None, None, None)。
+      - citations：每个命中子块的元数据（UI 来源面板 + bbox 高亮，截断展示）。
+      - sources：**Small-to-Big** 注入上下文——每条 = 命中子块所在**父块全文**（回退 preview/子块），
+        与 citations 一一对应，保持 [来源N] 编号对齐。
+      - image_paths：命中图片类切片的原图本地路径（多模态问答传图用，已限量去重）。
+    """
     try:
-        from app.services.rerank_service import rerank
-        from app.services.retrieval_service import fetch_parent_chunks, hybrid_search
+        from app.services.qa_service import collect_image_paths
+        from app.services.retrieval_trace import run_retrieval_pipeline
 
-        hybrid_results = await hybrid_search(
-            query, kb_id, vector_limit=20, keyword_limit=20, top_k=15
-        )
-        if not hybrid_results:
-            return None, None
+        result = await run_retrieval_pipeline(query, kb_id, top_k=top_k, build_trace=False)
+        reranked = result.chunks
+        parent_map = result.parent_map
+        if not reranked:
+            return None, None, None
 
-        reranked = await rerank(query, hybrid_results, top_n=top_k)
-        parent_ids = list({c.parent_chunk_id for c in reranked})
-        parent_map = await fetch_parent_chunks(parent_ids)
-
-        citations = []
+        citations: list[dict] = []
+        sources: list[dict] = []
         for i, c in enumerate(reranked, 1):
             parent = parent_map.get(c.parent_chunk_id, {})
             hp = parent.get("header_path") or c.header_path or []
+            ps = parent.get("page_span_start", c.page_span_start)
+            pe = parent.get("page_span_end", c.page_span_end)
             citations.append({
                 "index": i,
                 "child_chunk_id": c.child_chunk_id,
                 "parent_chunk_id": c.parent_chunk_id,
                 "doc_id": c.doc_id,
                 "header_path": hp,
-                "page_span_start": parent.get("page_span_start", c.page_span_start),
-                "page_span_end": parent.get("page_span_end", c.page_span_end),
+                "page_span_start": ps,
+                "page_span_end": pe,
                 "bbox_norm1000": c.bbox_norm1000,
                 "bbox_page": c.bbox_page,
                 "anchor_origin_pdf_path": c.anchor_origin_pdf_path,
                 "retrieval_text": (c.retrieval_text or "")[:300],
                 "score": round(c.score, 4),
             })
-        return citations, citations
+            # Small-to-Big：命中子块 → 喂其所在父块全文
+            parent_text = (
+                (parent.get("text_full") or "").strip()
+                or (parent.get("text_preview") or "").strip()
+                or (c.retrieval_text or "")
+            )[:_PARENT_CONTEXT_CAP]
+            sources.append({
+                "header_path": hp,
+                "page_span_start": ps,
+                "page_span_end": pe,
+                "text": parent_text,
+            })
+        image_paths = (
+            collect_image_paths(reranked, settings.qa_multimodal_max_images)
+            if settings.qa_enable_multimodal else []
+        )
+        return citations, sources, image_paths
     except Exception:
         logger.warning("RAG 检索失败，降级为纯对话模式", exc_info=True)
-        return None, None
+        return None, None, None
 
 
-def _build_rag_content(user_content: str, chunks: list) -> str:
-    lines = ["以下是相关参考资料：\n"]
-    for i, c in enumerate(chunks, 1):
-        text = c.get("retrieval_text") or c.get("content") or ""
-        lines.append(f"[来源{i}]\n{text}\n")
-    lines.append(f"\n【问题】\n{user_content}")
+def _build_rag_content(user_content: str, sources: list) -> str:
+    """把 Small-to-Big 的父块上下文拼成提示词（格式与 qa_service 一致，[来源N] 与引用对齐）。"""
+    lines = ["以下是从知识库检索、并扩展到命中内容所在小节的参考资料：\n"]
+    for i, s in enumerate(sources, 1):
+        hp = " > ".join(s.get("header_path") or []) or "（无标题）"
+        ps = s.get("page_span_start", 0)
+        pe = s.get("page_span_end", 0)
+        page_info = f"第{ps + 1}页" if ps == pe else f"第{ps + 1}-{pe + 1}页"
+        lines.append(f"[来源{i}] {page_info} · {hp}\n{s.get('text', '')}\n")
+    lines.append(f"\n【我的问题】\n{user_content}")
     return "\n".join(lines)

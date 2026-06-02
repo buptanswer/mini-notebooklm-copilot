@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # 是否开启思维链（仅对 qwen3/deepseek-reasoner 等支持该功能的模型有效）
     qa_enable_thinking: bool = Field(default=False, validation_alias="QA_ENABLE_THINKING")
 
+    # ── 多模态最终问答（v1.4.0）─────────────────────────────
+    # 命中图片类切片时，把原图 base64 一并传给多模态模型作答（而非只用文字描述）。
+    # 多模态模型走 DashScope（与 QA Provider 解耦）；qa_enable_multimodal=False 则回退纯文本。
+    qa_enable_multimodal: bool = Field(default=True, validation_alias="QA_ENABLE_MULTIMODAL")
+    qa_multimodal_model: str = Field(default="qwen-vl-max", validation_alias="QA_MULTIMODAL_MODEL")
+    qa_multimodal_max_images: int = Field(default=3, validation_alias="QA_MULTIMODAL_MAX_IMAGES")
+
     # ── 数据路径 ──────────────────────────────────────────
     upload_dir: Path = DATA_ROOT / "uploads"
     mineru_zip_dir: Path = DATA_ROOT / "mineru_zips"

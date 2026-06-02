@@ -19,9 +19,11 @@ enable_thinking 说明：
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import httpx
 
@@ -29,6 +31,55 @@ from app.config import settings
 from app.services.retrieval_service import RetrievedChunk
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────
+# 多模态图片附件（命中图片类切片时把原图传给视觉模型）
+# ─────────────────────────────────────────────────────────────
+
+_IMAGE_MIME = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "webp": "image/webp", "gif": "image/gif", "bmp": "image/bmp",
+}
+_MAX_IMAGE_BYTES = 4_000_000   # 单图上限，过大跳过避免请求体爆掉
+
+
+def image_to_data_url(path: str) -> str | None:
+    """读取本地图片 → base64 data URL；不存在/过大/异常返回 None。"""
+    try:
+        p = Path(path)
+        if not p.is_file() or p.stat().st_size > _MAX_IMAGE_BYTES:
+            return None
+        data = base64.b64encode(p.read_bytes()).decode("ascii")
+        mime = _IMAGE_MIME.get(p.suffix.lower().lstrip("."), "image/jpeg")
+        return f"data:{mime};base64,{data}"
+    except Exception:
+        return None
+
+
+def collect_image_paths(chunks: list[RetrievedChunk], limit: int) -> list[str]:
+    """从命中切片收集去重、存在于磁盘的图片本地路径（限量；limit<=0 表示不取图）。"""
+    if limit <= 0:
+        return []
+    out: list[str] = []
+    for c in chunks:
+        for p in c.asset_paths:
+            if p and p not in out and Path(p).is_file():
+                out.append(p)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def build_multimodal_user_content(text: str, image_paths: list[str]) -> list[dict]:
+    """把「文本 + 若干图片」组装成多模态 user message 的 content 数组。"""
+    parts: list[dict] = [{"type": "text", "text": text}]
+    for i, p in enumerate(image_paths, 1):
+        url = image_to_data_url(p)
+        if url:
+            parts.append({"type": "text", "text": f"（下图为命中内容中的图片 {i}）"})
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts
 
 
 # ─────────────────────────────────────────────────────────────
@@ -95,8 +146,13 @@ def _build_context_text(
             page_info = f"第{page_start + 1}-{page_end + 1}页"
 
         path_str = " > ".join(hp) if hp else "（无标题）"
-        # retrieval_text 包含 header_path 前缀（如"第一章 > 1.2 方法\n正文..."）
-        text = c.retrieval_text or "（内容为空）"
+        # Small-to-Big：命中子块 → 优先喂其所在父块全文（回退 preview / 子块文本）
+        text = (
+            (parent.get("text_full") or "").strip()
+            or (parent.get("text_preview") or "").strip()
+            or c.retrieval_text
+            or "（内容为空）"
+        )[:2000]
 
         parts.append(f"[来源{i}] {page_info} · {path_str}\n{text}")
 
@@ -149,10 +205,20 @@ async def stream_answer(
     # ── 2. 构建消息列表（系统提示 + 用户消息）───────────────────
     context_text = _build_context_text(chunks, parent_map)
     source_count = len(chunks)
-    user_content = (
+    user_text = (
         f"以下是从知识库中检索到的 {source_count} 条相关文档片段，请基于这些内容回答我的问题。\n\n"
         f"【参考资料】\n{context_text}\n\n"
         f"【我的问题】\n{query}"
+    )
+
+    # 命中图片类切片时，把原图一并传给视觉模型（多模态问答）
+    image_paths = (
+        collect_image_paths(chunks, settings.qa_multimodal_max_images)
+        if settings.qa_enable_multimodal else []
+    )
+    use_multimodal = bool(image_paths)
+    user_content: object = (
+        build_multimodal_user_content(user_text, image_paths) if use_multimodal else user_text
     )
 
     messages = [
@@ -160,8 +226,10 @@ async def stream_answer(
         {"role": "user", "content": user_content},
     ]
 
-    # ── 3. 调用 QA 模型（SSE 流式，支持多 Provider）──────────
-    async for evt in stream_llm_completion(messages, enable_thinking=enable_thinking):
+    # ── 3. 调用 QA 模型（SSE 流式；命中图片走多模态视觉模型）──────────
+    async for evt in stream_llm_completion(
+        messages, enable_thinking=enable_thinking, multimodal=use_multimodal,
+    ):
         if evt["type"] == "thinking":
             yield f"data: {json.dumps({'type': 'thinking', 'content': evt['content']}, ensure_ascii=False)}\n\n"
         elif evt["type"] == "delta":
@@ -182,6 +250,7 @@ async def stream_llm_completion(
     *,
     enable_thinking: bool = False,
     model: str | None = None,
+    multimodal: bool = False,
 ) -> AsyncIterator[dict]:
     """
     底层流式 LLM 调用。yield 标准化 dict 事件（无 SSE 包装）：
@@ -190,9 +259,23 @@ async def stream_llm_completion(
       {"type": "error",    "message": "..."}
       {"type": "end"}
     conversation_service 与 stream_answer 共用此函数。
+
+    multimodal=True：消息含图片（content 为多模态数组），强制走 DashScope 的视觉模型
+      （qa_multimodal_model，默认 qwen-vl-max），与可切换的文本 QA Provider 解耦；
+      视觉模型不返回 reasoning_content，故关闭 thinking。
     """
+    if multimodal:
+        use_model = model or settings.qa_multimodal_model
+        base_url = settings.dashscope_base_url.rstrip("/")
+        api_key = settings.dashscope_api_key
+        enable_thinking = False
+    else:
+        use_model = model or settings.qa_model
+        base_url = settings.effective_qa_base_url
+        api_key = settings.effective_qa_api_key
+
     payload: dict = {
-        "model": model or settings.qa_model,
+        "model": use_model,
         "messages": messages,
         "stream": True,
     }
@@ -200,11 +283,11 @@ async def stream_llm_completion(
         payload["enable_thinking"] = True
 
     headers = {
-        "Authorization": f"Bearer {settings.effective_qa_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
     }
-    url = f"{settings.effective_qa_base_url}/chat/completions"
+    url = f"{base_url}/chat/completions"
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:

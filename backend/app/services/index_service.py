@@ -21,7 +21,13 @@ import json
 import logging
 import uuid
 
-from qdrant_client.models import PointStruct
+from qdrant_client.models import (
+    FieldCondition,
+    Filter,
+    FilterSelector,
+    MatchValue,
+    PointStruct,
+)
 
 from app.db.database import get_db
 from app.db.qdrant_client import get_qdrant
@@ -55,11 +61,17 @@ async def index_chunks(
             f"child_chunks ({len(child_chunks)}) 与 vectors ({len(vectors)}) 数量不匹配"
         )
 
+    # 重解析幂等：先清掉该文档旧的 chunk/asset/向量，避免新旧 uuid 并存产生重复命中
+    await _purge_doc(doc_id)
+
     # 生成 Qdrant point_id（UUID 字符串）
     point_ids = [str(uuid.uuid4()) for _ in child_chunks]
 
-    await _upsert_qdrant(child_chunks, vectors, point_ids)
-    await _write_sqlite(parent_chunks, child_chunks, point_ids, blocks, doc_id)
+    # child_chunk_id → 图片资产本地路径（多模态问答命中图片时传原图用）
+    asset_paths_map = _build_asset_paths_map(child_chunks, blocks)
+
+    await _upsert_qdrant(child_chunks, vectors, point_ids, asset_paths_map)
+    await _write_sqlite(parent_chunks, child_chunks, point_ids, blocks, doc_id, asset_paths_map)
 
     logger.info(
         "index_chunks 完成: %d parent, %d child → doc_id=%s",
@@ -68,13 +80,70 @@ async def index_chunks(
 
 
 # ─────────────────────────────────────────────────────────────
+# 重解析清理（幂等）
+# ─────────────────────────────────────────────────────────────
+
+async def _purge_doc(doc_id: str) -> None:
+    """
+    清掉文档旧的 chunk/asset（SQLite）与向量（Qdrant）。
+
+    index_chunks 用新 uuid INSERT OR REPLACE，重解析时旧 uuid 的行/点不会被覆盖，
+    会与新数据并存导致同一文档重复命中。重解析前先按 doc_id 清空，保证幂等。
+    （child_chunks 删除由 FTS 触发器同步 child_chunks_fts。）
+    """
+    from app.config import settings
+
+    try:
+        client = get_qdrant()
+        client.delete(
+            collection_name=settings.qdrant_collection,
+            points_selector=FilterSelector(
+                filter=Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))])
+            ),
+        )
+    except Exception as exc:
+        logger.warning("清理旧向量失败（继续）: %s", exc)
+
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM child_chunks WHERE doc_id=?", (doc_id,))
+        await db.execute("DELETE FROM parent_chunks WHERE doc_id=?", (doc_id,))
+        await db.execute("DELETE FROM assets WHERE doc_id=?", (doc_id,))
+        await db.commit()
+    finally:
+        await db.close()
+
+
+# ─────────────────────────────────────────────────────────────
 # Qdrant
 # ─────────────────────────────────────────────────────────────
+
+def _build_asset_paths_map(
+    child_chunks: list[ChildChunk],
+    blocks: list[IRBlock],
+) -> dict[str, list[str]]:
+    """child_chunk_id → 其来源块的图片资产本地路径列表（image / chart_image）。"""
+    img_by_block: dict[str, list[str]] = {}
+    for blk in blocks:
+        paths = [a.path for a in blk.assets if a.asset_type in ("image", "chart_image") and a.path]
+        if paths:
+            img_by_block[blk.block_id] = paths
+
+    out: dict[str, list[str]] = {}
+    for cc in child_chunks:
+        paths: list[str] = []
+        for bid in cc.source_block_ids:
+            paths.extend(img_by_block.get(bid, []))
+        if paths:
+            out[cc.child_chunk_id] = paths
+    return out
+
 
 async def _upsert_qdrant(
     child_chunks: list[ChildChunk],
     vectors: list[list[float]],
     point_ids: list[str],
+    asset_paths_map: dict[str, list[str]],
 ) -> None:
     """批量 upsert 到 Qdrant。"""
     from app.config import settings
@@ -101,6 +170,7 @@ async def _upsert_qdrant(
                 "bbox_norm1000": cc.bbox_norm1000,
                 "bbox_page": cc.bbox_page,
                 "anchor_origin_pdf_path": cc.anchor_origin_pdf_path,
+                "asset_paths": asset_paths_map.get(cc.child_chunk_id, []),
             },
         ))
 
@@ -123,6 +193,7 @@ async def _write_sqlite(
     point_ids: list[str],
     blocks: list[IRBlock],
     doc_id: str,
+    asset_paths_map: dict[str, list[str]],
 ) -> None:
     """写入 parent_chunks / child_chunks / assets 表（INSERT OR REPLACE）。"""
     db = await get_db()
@@ -139,14 +210,15 @@ async def _write_sqlite(
                 pc.page_span[-1] if pc.page_span else 0,
                 json.dumps(pc.block_ids, ensure_ascii=False),
                 pc.text_for_generation[:200],  # preview
+                pc.text_for_generation,         # full（Small-to-Big 上下文 / 解析透视）
             )
             for pc in parent_chunks
         ]
         await db.executemany(
             """INSERT OR REPLACE INTO parent_chunks
                (parent_chunk_id, doc_id, section_id, header_path, title,
-                page_span_start, page_span_end, block_ids, text_preview)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                page_span_start, page_span_end, block_ids, text_preview, text_full)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             parent_rows,
         )
 
@@ -167,6 +239,7 @@ async def _write_sqlite(
                 json.dumps(cc.bbox_page, ensure_ascii=False),
                 cc.anchor_origin_pdf_path,
                 pid,
+                json.dumps(asset_paths_map.get(cc.child_chunk_id, []), ensure_ascii=False),
             )
             for cc, pid in zip(child_chunks, point_ids)
         ]
@@ -176,8 +249,8 @@ async def _write_sqlite(
                 header_path, embedding_text, retrieval_text,
                 page_span_start, page_span_end,
                 bbox_norm1000, bbox_page, anchor_origin_pdf_path,
-                qdrant_point_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                qdrant_point_id, asset_paths)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             child_rows,
         )
 

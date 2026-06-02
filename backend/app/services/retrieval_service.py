@@ -55,6 +55,7 @@ class RetrievedChunk:
     bbox_norm1000: list[list[float]] = field(default_factory=list)
     bbox_page: list[list[float]] = field(default_factory=list)
     anchor_origin_pdf_path: str = ""
+    asset_paths: list[str] = field(default_factory=list)   # 图片资产本地路径（多模态问答传原图）
     qdrant_point_id: str = ""
     score: float = 0.0
     source: str = "unknown"   # "vector" | "keyword" | "hybrid"
@@ -131,6 +132,7 @@ async def vector_search(
             bbox_norm1000=_to_bbox_list(p.get("bbox_norm1000")),
             bbox_page=_to_bbox_list(p.get("bbox_page")),
             anchor_origin_pdf_path=str(p.get("anchor_origin_pdf_path") or ""),
+            asset_paths=_to_str_list(p.get("asset_paths")),
             qdrant_point_id=str(h.id),
             score=float(h.score),
             source="vector",
@@ -144,24 +146,32 @@ async def vector_search(
 # 关键词召回（FTS5）
 # ─────────────────────────────────────────────────────────────
 
-def _build_fts_query(text: str) -> str:
-    """将用户查询转为 FTS5 安全的 MATCH 字符串。"""
+def _build_fts_query(text: str, mode: str = "and") -> str:
+    """将用户查询转为 FTS5 安全的 MATCH 字符串。
+
+    mode="and"：各 token 隐式 AND（要求全部命中，精确）。
+    mode="or" ：各 token 以 OR 连接（命中任一即可，召回更高）——
+      适合「LLM 抽取的多个关键词」检索（query_planner 场景）。
+    """
     # 去除 FTS5 特殊字符
     cleaned = re.sub(r'["""()^:*\-]', " ", text)
     tokens = [t for t in cleaned.split() if len(t) >= 1][:_FTS_MAX_TOKENS]
     if not tokens:
         return '""'
-    # 每个 token 加引号，隐式 AND
-    return " ".join(f'"{t}"' for t in tokens)
+    joiner = " OR " if mode == "or" else " "
+    return joiner.join(f'"{t}"' for t in tokens)
 
 
 async def keyword_search(
     query_text: str,
     kb_id: str,
     limit: int = 20,
+    match_mode: str = "and",
 ) -> list[RetrievedChunk]:
     """
     FTS5 关键词召回（BM25 排序）。
+
+    match_mode: "and"（默认，全部命中）| "or"（命中任一，召回更高）。
 
     Returns:
         RetrievedChunk 列表，按 BM25 分数降序
@@ -170,7 +180,7 @@ async def keyword_search(
     if not doc_ids:
         return []
 
-    fts_query = _build_fts_query(query_text)
+    fts_query = _build_fts_query(query_text, mode=match_mode)
     placeholders = ",".join("?" * len(doc_ids))
 
     sql = f"""
@@ -178,7 +188,7 @@ async def keyword_search(
                c.chunk_type, c.retrieval_text, c.embedding_text, c.header_path,
              c.page_span_start, c.page_span_end,
              c.bbox_norm1000, c.bbox_page, c.anchor_origin_pdf_path,
-             c.qdrant_point_id,
+             c.qdrant_point_id, c.asset_paths,
                bm25(child_chunks_fts) AS bm25_score
         FROM child_chunks_fts
         JOIN child_chunks c ON c.rowid = child_chunks_fts.rowid
@@ -224,6 +234,7 @@ async def keyword_search(
             bbox_norm1000=_to_bbox_list(r.get("bbox_norm1000")),
             bbox_page=_to_bbox_list(r.get("bbox_page")),
             anchor_origin_pdf_path=str(r.get("anchor_origin_pdf_path") or ""),
+            asset_paths=_to_str_list(r.get("asset_paths")),
             qdrant_point_id=r.get("qdrant_point_id", ""),
             score=score,
             source="keyword",
@@ -329,7 +340,8 @@ async def fetch_parent_chunks(
     try:
         cur = await db.execute(
             f"""SELECT parent_chunk_id, title, header_path,
-                       text_preview, page_span_start, page_span_end, doc_id
+                       text_preview, COALESCE(text_full, '') AS text_full,
+                       page_span_start, page_span_end, doc_id
                 FROM parent_chunks WHERE parent_chunk_id IN ({placeholders})""",
             parent_chunk_ids,
         )
@@ -346,6 +358,21 @@ async def fetch_parent_chunks(
             r["header_path"] = []
         result[r["parent_chunk_id"]] = r
     return result
+
+
+def _to_str_list(value: object) -> list[str]:
+    """兼容 Qdrant payload（list）/ SQLite JSON 字段（str），统一转为字符串列表。"""
+    if not value:
+        return []
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(x) for x in parsed if x]
 
 
 def _to_bbox_list(value: object) -> list[list[float]]:

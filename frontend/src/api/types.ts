@@ -201,3 +201,195 @@ export interface SearchResultItem {
   score: number
   source: string
 }
+
+// ── 检索透视 Retrieval X-Ray（v1.4.0）──────────────────────
+// 对应后端 POST /api/chat/{kb_id}/retrieve-trace 的返回，结构来自
+// retrieval_trace.RetrievalTrace.to_dict()。把隐藏的检索链路全揭开：
+// LLM 查询规划 → 关键词(BM25)+向量 双路 → RRF 融合 → qwen3-rerank 重排。
+
+export interface QueryPlan {
+  original_question: string
+  rewritten_question: string
+  keywords: string[]
+  semantic_query: string
+  source: "llm" | "fallback"
+}
+
+/** 双路召回的单条命中（vector_hits / keyword_hits 共用；matched_* 仅关键词路有）。 */
+export interface XrayHit {
+  rank: number
+  child_chunk_id: string
+  parent_chunk_id?: string
+  doc_id: string
+  chunk_type?: string
+  header_path: string[]
+  text: string
+  score: number
+  matched_keywords?: string[]   // 含 ≥1 命中 token 的规划关键词（点亮 chip）
+  matched_tokens?: string[]     // 实际命中的 token（按词边界高亮片段）
+}
+
+/** RRF 融合表的一行：两路 rank/score 汇成 rrf_score。 */
+export interface XrayFusionRow {
+  rank: number
+  child_chunk_id: string
+  doc_id: string
+  header_path: string[]
+  text: string
+  vec_rank: number | null
+  vec_score: number | null
+  kw_rank: number | null
+  kw_score: number | null
+  rrf_score: number
+}
+
+/** 重排后的一行：prev_rank/delta 记录相对融合序的位次变化。 */
+export interface XrayRerankRow {
+  rank: number
+  prev_rank: number | null
+  delta: number | null
+  child_chunk_id: string
+  parent_chunk_id: string
+  doc_id: string
+  chunk_type: string
+  header_path: string[]
+  text: string
+  rerank_score: number
+}
+
+export interface RetrievalTrace {
+  plan: QueryPlan
+  vector_hits: XrayHit[]
+  keyword_hits: XrayHit[]
+  fusion: XrayFusionRow[]
+  reranked: XrayRerankRow[]
+  counts: { vector: number; keyword: number; fused: number; final: number }
+  timings_ms: { plan: number; recall: number; fuse: number; rerank: number; total: number }
+  rerank_degraded: boolean
+}
+
+export interface DocMeta {
+  filename: string
+  source_format: string
+}
+
+export interface RetrievalTraceResponse {
+  query: string
+  kb_id: string
+  trace: RetrievalTrace
+  docs: Record<string, DocMeta>
+}
+
+// ── 解析透视 Parse X-Ray（v1.4.0 Phase 3）─────────────────────
+// 对应后端只读检视接口 GET /api/documents/{kb}/{doc}/ir、/chunks、/asset。
+// 把 MinerU JSON 解析 → 结构感知 → LLM 文档树重建 → 坐标锚定 →
+// 父子结构感知切片 → 图片 VLM 多模态适配，整条隐藏流水线揭开成可视化。
+
+/** IR 块类型（与后端 models_ir.BlockType 对齐）。 */
+export type IRBlockType =
+  | "title" | "paragraph" | "list" | "code" | "table" | "image" | "equation"
+
+/** IR 投影里的单个版面块（坐标已归一到 0~1000）。 */
+export interface IRBlock {
+  block_id: string
+  page_idx: number          // 0-based
+  order_in_doc: number
+  order_in_page: number
+  section_id: string
+  header_path: string[]
+  type: IRBlockType | string
+  role: string              // main / header / footer / caption …
+  text: string
+  bbox_norm1000: number[]   // [x0,y0,x1,y1]，非 PDF 文档可能全 0
+  bbox_page: number[]
+  assets: string[]          // asset_id 列表
+  title_level: number | null
+  table_html: string | null
+  vlm_description: string    // 我们自己 VLM 生成的图片描述（enriched 才有）
+}
+
+/** LLM 重建后的 section 节点（文档树）。 */
+export interface IRSection {
+  section_id: string
+  parent_section_id: string | null
+  level: number
+  title: string
+  header_path: string[]
+  synthetic: boolean
+  page_span: number[]
+  child_section_ids: string[]
+  block_ids: string[]
+}
+
+export interface IRPage {
+  page_idx: number
+  width: number | null
+  height: number | null
+}
+
+export interface IRDocumentMeta {
+  title: string
+  language: string
+  page_count: number
+  source_format: string
+  origin_pdf_path: string
+  has_multimodal: boolean
+  has_table: boolean
+  has_code: boolean
+  has_equation: boolean
+}
+
+/** 父切片按 section × page 的 bbox 并集（左栏父块大框）。 */
+export interface SectionBboxEntry {
+  page_idx: number
+  bbox_norm1000: number[]
+}
+
+export interface IRResponse {
+  doc_id: string
+  kb_id: string
+  document: IRDocumentMeta
+  enriched: boolean
+  pages: IRPage[]
+  sections: IRSection[]
+  blocks: IRBlock[]
+  section_bbox: Record<string, SectionBboxEntry[]>
+}
+
+/** 父切片（以 section 为边界，回答阶段补全大上下文）。 */
+export interface ParentChunkRow {
+  parent_chunk_id: string
+  doc_id: string
+  section_id: string
+  header_path: string[]
+  title: string
+  page_span: number[]
+  block_ids: string[]
+  text_for_generation: string
+  assets: string[]
+}
+
+/** 子切片（面向向量检索的小粒度块）。 */
+export interface ChildChunkRow {
+  child_chunk_id: string
+  parent_chunk_id: string
+  doc_id: string
+  section_id: string
+  header_path: string[]
+  chunk_type: string
+  page_span: number[]
+  source_block_ids: string[]
+  bbox_norm1000: number[][]
+  bbox_page: number[][]
+  retrieval_text: string
+  embedding_text: string
+  assets: string[]
+}
+
+export interface ChunksResponse {
+  doc_id: string
+  kb_id: string
+  parents: ParentChunkRow[]
+  children: ChildChunkRow[]
+  counts: { parents: number; children: number }
+}
