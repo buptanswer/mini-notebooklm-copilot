@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { NavLink, Outlet } from "react-router-dom"
+import { NavLink, Outlet, useLocation } from "react-router-dom"
 import { Library, ListTodo, PanelLeft, PanelLeftClose, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import ThemeSwitch from "./ThemeSwitch"
@@ -11,7 +11,13 @@ const navItems = [
 ]
 
 export default function Layout() {
-  const [collapsed, setCollapsed] = useState(false)
+  const location = useLocation()
+  // 解析透视页信息密度大，自动收起主菜单让出空间（知识库二级菜单不收起）；用户仍可手动展开。
+  // 从路由派生默认收起态；手动开合的意图只在当前路由上下文内有效，切走后回到该页默认（无需 effect）。
+  const isDissect = location.pathname.endsWith("/dissect")
+  const routeKey = isDissect ? "dissect" : "default"
+  const [override, setOverride] = useState<{ key: string; value: boolean } | null>(null)
+  const collapsed = override?.key === routeKey ? override.value : isDissect
 
   return (
     <div className="flex h-screen bg-bg text-ink">
@@ -66,7 +72,7 @@ export default function Layout() {
             </div>
           )}
           <button
-            onClick={() => setCollapsed((v) => !v)}
+            onClick={() => setOverride({ key: routeKey, value: !collapsed })}
             className="flex h-8 w-full items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink-soft"
             title={collapsed ? "展开" : "收起"}
           >

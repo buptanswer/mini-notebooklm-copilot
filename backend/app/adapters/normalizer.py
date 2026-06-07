@@ -115,6 +115,28 @@ _KNOWN_LIST_ITEM_KEYS    = frozenset({
 _KNOWN_IMAGE_SOURCE_KEYS = frozenset({"path"})
 
 
+def _is_empty_visual_block(block: IRBlock) -> bool:
+    """跨页续表/续图「幽灵块」判定。
+
+    MinerU 的 content_list_v2 严格按页分组、**不合并**跨页拆分的块：一个跨页表格在首页
+    给出完整 html+图，在次页会再 emit 一个**空可视块**（html=""、image_source.path
+    只有目录无文件名、caption 空）。若放任不管，它会变成一个 retrieval_text="[表格]" 的
+    垃圾子块污染检索（实测某 34 页设计文档产生 10 个）。这里识别并在归一化阶段直接丢弃：
+    可视/原子类型(image/table/equation) 且 无文本、无 table_html、无 math、无真实资产文件。
+    （真实图/表至少有其一；判空安全，不会误删有内容的块。）
+    """
+    if block.type not in ("image", "table", "equation"):
+        return False
+    if block.text.strip():
+        return False
+    if (block.metadata.table_html or "").strip():
+        return False
+    if (block.metadata.math_content or "").strip():
+        return False
+    # assets 已在 _get_image_source_path 过滤掉「目录无文件名」的伪路径，故非空=有真实文件
+    return not block.assets
+
+
 def _warn_extra_keys(
     d: dict,
     known: frozenset,
@@ -212,6 +234,16 @@ def normalize(
             )
 
             degraded.extend(block_degraded)
+
+            # 跨页续表/续图幽灵空块：内容已在前页的完整块里，这里的空块直接丢弃，
+            # 不进 IR、不占 section、不出 chunk/asset。**不写 degraded**——这是
+            # 已知且已处理的正常情况，写入会让含跨页表格的文档被误标 needs_review。
+            if _is_empty_visual_block(block):
+                logger.debug(
+                    "跳过空可视块(跨页续表/续图幽灵) page=%d order_in_page=%d type=%s",
+                    page_idx, order_in_page, block.type,
+                )
+                continue
 
             # 辅助块写入页面 auxiliary，主块进入 block 列表
             btype: BlockType = block.type
@@ -548,6 +580,11 @@ def _get_image_source_path(content: Any, images_dir: str | None) -> str | None:
     _warn_extra_keys(img_source, _KNOWN_IMAGE_SOURCE_KEYS, "image_source")
     rel_path: str = img_source.get("path", "")
     if not rel_path:
+        return None
+    # 跨页续表/续图「幽灵块」：MinerU 在次页 emit 的空可视块只带目录而无文件名
+    # （实测 path="images/"），不是真实资产。识别为「无后缀文件名」直接丢弃，
+    # 避免生成一个指向 images 目录的伪 asset。
+    if not Path(rel_path).suffix:
         return None
     if images_dir:
         abs_path = Path(images_dir).parent / rel_path

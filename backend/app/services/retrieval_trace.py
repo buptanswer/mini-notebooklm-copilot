@@ -189,12 +189,34 @@ def _keyword_token(tok: str) -> re.Pattern[str] | None:
     return re.compile(re.escape(tok))        # CJK：无词边界概念，直接子串
 
 
+def _kw_tokens_of(keyword: str) -> list[str]:
+    """关键词 → 高亮/命中判断用的 token：ASCII 词（去单字母）+ jieba 中文子词（去单字）。
+
+    与召回侧对齐：检索用 jieba 子词 OR 召回（"需求分析"→需求/分析/需求分析），
+    高亮也按 jieba 子词判断，中文命中才能在检索透视里点亮（否则整词子串几乎不命中）。
+    """
+    from app.services.cn_tokenizer import segment_tokens
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in list(_TOKEN_RE.findall(keyword or "")) + segment_tokens(keyword or ""):
+        if re.fullmatch(r"[A-Za-z]", tok):      # 单字母 ASCII 噪音
+            continue
+        if re.fullmatch(r"[一-鿿]", tok):        # 单字中文噪音
+            continue
+        low = tok.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        out.append(tok)
+    return out
+
+
 def _kw_token_patterns(keywords: list[str]) -> list[tuple[str, re.Pattern[str]]]:
     """规划关键词 → [(token, 正则)]，去重、过滤噪音。"""
     out: list[tuple[str, re.Pattern[str]]] = []
     seen: set[str] = set()
     for k in keywords:
-        for tok in _TOKEN_RE.findall(k or ""):
+        for tok in _kw_tokens_of(k):
             low = tok.lower()
             if low in seen:
                 continue
@@ -213,6 +235,7 @@ def _hit_brief(c: RetrievedChunk, rank: int, score: float) -> dict:
         "parent_chunk_id": c.parent_chunk_id,
         "doc_id": c.doc_id,
         "chunk_type": c.chunk_type,
+        "index_kind": c.index_kind,   # 非空=命中父块自定义索引（检索透视标注来源）
         "header_path": c.header_path,
         "text": _snip(c.retrieval_text or c.embedding_text),
         "score": round(float(score), 4),
@@ -235,8 +258,8 @@ def _build_trace(
 ) -> RetrievalTrace:
     keywords = plan.keywords
     token_patterns = _kw_token_patterns(keywords)
-    # 每个规划关键词 → 它包含的 token（小写），用于判断"该关键词是否命中"
-    kw_tokens = {k: {t.lower() for t in _TOKEN_RE.findall(k or "")} for k in keywords}
+    # 每个规划关键词 → 它包含的 token（小写，含 jieba 中文子词），用于判断"该关键词是否命中"
+    kw_tokens = {k: {t.lower() for t in _kw_tokens_of(k)} for k in keywords}
 
     # 向量路
     vector_hits = [_hit_brief(c, i, c.score) for i, c in enumerate(vec_results)]
@@ -269,6 +292,7 @@ def _build_trace(
             "rank": fused_order.get(cid, -1),
             "child_chunk_id": cid,
             "doc_id": c.doc_id,
+            "index_kind": c.index_kind,
             "header_path": c.header_path,
             "text": _snip(c.retrieval_text or c.embedding_text),
             "vec_rank": vr[0] if vr else None,
@@ -290,6 +314,7 @@ def _build_trace(
             "parent_chunk_id": c.parent_chunk_id,
             "doc_id": c.doc_id,
             "chunk_type": c.chunk_type,
+            "index_kind": c.index_kind,
             "header_path": c.header_path,
             "text": _snip(c.retrieval_text or c.embedding_text),
             "rerank_score": round(float(c.score), 4),

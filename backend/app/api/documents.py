@@ -34,6 +34,7 @@ class DocInfo(BaseModel):
     origin_pdf_path: str = ""  # 用于 PDF 预览
     folder_category: str = ""  # recording / slides / homework / notice / review_note / ''
     bound_file_path: str = ""  # 绑定文件夹模式下的文件绝对路径
+    parent_heading_level: int = 0  # 父块粒度（几级标题=1父块）；0=全局默认
     created_at: str
     updated_at: str
 
@@ -54,6 +55,7 @@ _DOC_SELECT = """
            COALESCE(origin_pdf_path,'') AS origin_pdf_path,
            COALESCE(folder_category,'') AS folder_category,
            COALESCE(bound_file_path,'') AS bound_file_path,
+           COALESCE(parent_heading_level,0) AS parent_heading_level,
            created_at, updated_at
     FROM documents
 """
@@ -463,3 +465,196 @@ async def get_document_asset(kb_id: str, doc_id: str, asset_id: str):
 
     media_type = r["mime"] or "image/jpeg"
     return FileResponse(path=str(safe), media_type=media_type, headers={"Content-Disposition": "inline"})
+
+
+# ── 父块自定义索引（v1.5.0）──────────────────────────────────
+# 摘要 / 推测问题(可预答,默认关) / 图片描述 / 表格描述 / 自定义；可生成·开关·编辑·删除，
+# 启用即物化为虚拟子块接入混合检索（详见 services/index_builder_service）。
+
+class GenerateIndexBody(BaseModel):
+    parent_chunk_id: str
+    kind: str                       # summary / hypo_question / custom
+    custom_text: str | None = None  # 仅 custom 需要
+    title: str | None = None
+    with_answer: bool = False       # 仅 hypo_question：是否一并预答（更耗 API）
+    enable: bool = False            # 生成后是否立即启用并参与检索
+
+
+class ReindexBody(BaseModel):
+    parent_level: int               # 几级标题=1 父块（≥1）
+
+
+class UpdateIndexBody(BaseModel):
+    index_text: str | None = None
+    title: str | None = None
+
+
+class ToggleIndexBody(BaseModel):
+    enabled: bool
+
+
+class RegenerateIndexBody(BaseModel):
+    with_answer: bool = False
+
+
+async def _assert_doc(kb_id: str, doc_id: str) -> None:
+    """校验文档存在且属于该知识库。"""
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT 1 FROM documents WHERE doc_id=? AND kb_id=?", (doc_id, kb_id)
+        )
+        if not await cur.fetchone():
+            raise HTTPException(status_code=404, detail="文档不存在")
+    finally:
+        await db.close()
+
+
+@router.get("/{kb_id}/{doc_id}/indexes", summary="列出文档的父块自定义索引")
+async def list_doc_indexes(kb_id: str, doc_id: str):
+    """返回该文档全部自定义索引（按父块聚合，供解析透视父块面板展示）。"""
+    from app.services import index_builder_service
+
+    await _assert_doc(kb_id, doc_id)
+    items = await index_builder_service.list_doc_indexes(doc_id)
+    # 按 parent_chunk_id 聚合，便于前端直接挂到父块
+    by_parent: dict[str, list[dict]] = {}
+    for it in items:
+        by_parent.setdefault(it["parent_chunk_id"], []).append(it)
+    return {"doc_id": doc_id, "kb_id": kb_id, "items": items, "by_parent": by_parent}
+
+
+@router.post("/{kb_id}/{doc_id}/indexes", summary="生成一条父块自定义索引")
+async def create_doc_index(kb_id: str, doc_id: str, body: GenerateIndexBody):
+    """生成（custom 为手填）一条父块索引；enable=true 时立即物化参与检索。"""
+    from app.services import index_builder_service
+    from app.services.index_builder_service import IndexBuildError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        row = await index_builder_service.generate_index(
+            doc_id, body.parent_chunk_id, body.kind,
+            custom_text=body.custom_text, title=body.title,
+            with_answer=body.with_answer, enable=body.enable,
+        )
+    except IndexBuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
+
+
+@router.patch("/{kb_id}/{doc_id}/indexes/{index_id}", summary="编辑父块索引文本/标题")
+async def patch_doc_index(kb_id: str, doc_id: str, index_id: str, body: UpdateIndexBody):
+    from app.services import index_builder_service
+    from app.services.index_builder_service import IndexBuildError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        row = await index_builder_service.update_index(
+            index_id, index_text=body.index_text, title=body.title,
+        )
+    except IndexBuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
+
+
+@router.post("/{kb_id}/{doc_id}/indexes/{index_id}/toggle", summary="启用/停用父块索引")
+async def toggle_doc_index(kb_id: str, doc_id: str, index_id: str, body: ToggleIndexBody):
+    from app.services import index_builder_service
+    from app.services.index_builder_service import IndexBuildError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        row = await index_builder_service.set_index_enabled(index_id, body.enabled)
+    except IndexBuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
+
+
+@router.post("/{kb_id}/{doc_id}/indexes/{index_id}/regenerate", summary="重新生成父块索引（auto 类）")
+async def regenerate_doc_index(kb_id: str, doc_id: str, index_id: str, body: RegenerateIndexBody):
+    from app.services import index_builder_service
+    from app.services.index_builder_service import IndexBuildError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        row = await index_builder_service.regenerate_index(index_id, with_answer=body.with_answer)
+    except IndexBuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
+
+
+@router.delete("/{kb_id}/{doc_id}/indexes/{index_id}", summary="删除父块索引")
+async def delete_doc_index(kb_id: str, doc_id: str, index_id: str):
+    from app.services import index_builder_service
+    from app.services.index_builder_service import IndexBuildError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        await index_builder_service.delete_index(index_id)
+    except IndexBuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"detail": "已删除", "index_id": index_id}
+
+
+# ── 父块粒度重切片 / 重解析（v1.5.0）─────────────────────────
+
+@router.post("/{kb_id}/{doc_id}/reindex", summary="按新父块粒度重切片+重索引（不重新解析 MinerU）")
+async def reindex_document(kb_id: str, doc_id: str, body: ReindexBody):
+    """复用已持久化的 enriched IR，按「几级标题=1父块」重切片、重嵌入、重入库（省 MinerU/VLM 开销）。
+
+    注意：父块边界变化会清掉该文档已建的自定义索引（需重建）。
+    """
+    from app.services import reindex_service
+    from app.services.reindex_service import ReindexError
+
+    await _assert_doc(kb_id, doc_id)
+    try:
+        result = await reindex_service.rechunk_and_reindex(doc_id, body.parent_level)
+    except ReindexError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"detail": "重切片完成", **result}
+
+
+@router.post("/{kb_id}/{doc_id}/reparse", summary="重置状态并重新解析（已索引文档取坐标/更新格式）")
+async def reparse_document(kb_id: str, doc_id: str, bg: BackgroundTasks):
+    """对**已索引**文档重新走完整解析流水线（MinerU→IR→Chunk→Embed→Index）。
+
+    用途：①已索引的 Office 文档取版面坐标（is_ocr 重解析）；②MinerU 格式更新后刷新。
+    会消耗 MinerU / VLM API。沿用当前 per-doc 父块粒度设置。
+    """
+    from app.services.pipeline_service import run_parse_pipeline
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, kb_id, filename, source_format, upload_path, bound_file_path, status "
+            "FROM documents WHERE doc_id=? AND kb_id=?",
+            (doc_id, kb_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+        if r["source_format"] in ("txt", "md"):
+            raise HTTPException(status_code=400, detail="txt/md 文件无需解析")
+        effective_path_str = r["upload_path"] or r["bound_file_path"] or ""
+        if not effective_path_str or not Path(effective_path_str).exists():
+            raise HTTPException(status_code=400, detail="原始文件不存在，无法重新解析")
+        # 重置为 uploaded，让流水线重新走（run_parse_pipeline 内部 _purge_doc 幂等清旧数据）
+        await db.execute(
+            "UPDATE documents SET status='uploaded', updated_at=datetime('now') WHERE doc_id=?",
+            (doc_id,),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    bg.add_task(
+        run_parse_pipeline,
+        doc_id=r["doc_id"],
+        kb_id=r["kb_id"],
+        upload_path=Path(effective_path_str),
+        filename=r["filename"],
+        source_format=r["source_format"],
+    )
+    return {"detail": "重新解析任务已启动", "doc_id": doc_id}

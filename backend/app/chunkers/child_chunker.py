@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 
 from app.config import settings
 from app.models.models_chunk import ChildChunk, ChildChunkMetadata, ParentChunk
@@ -30,6 +31,14 @@ from app.models.models_ir import IRBlock, IRPage
 
 # 原子块类型：不拆分
 _ATOMIC_TYPES = frozenset({"list", "code", "image", "table", "equation"})
+
+# 纯占位 retrieval_text：无任何实质内容的可视块兜底产物
+_PLACEHOLDER_TEXTS = frozenset({"[表格]", "[图片]", "[公式]"})
+
+
+def _has_real_asset_file(blk: IRBlock) -> bool:
+    """块是否带有真实图片/资产文件（path 有文件名后缀，而非指向目录的伪路径）。"""
+    return any(a.path and Path(a.path).suffix for a in blk.assets)
 
 # 句子分割正则（中英文标点均支持）
 _SENT_SPLIT = re.compile(r'(?<=[。！？!?\.…])\s*')
@@ -57,8 +66,6 @@ def build_child_chunks(
     result: list[ChildChunk] = []
 
     for parent in parent_chunks:
-        header_prefix = " > ".join(parent.header_path) if parent.header_path else ""
-
         # 按 order_in_doc 排好顺序的块
         parent_blocks = sorted(
             [block_map[bid] for bid in parent.block_ids if bid in block_map],
@@ -66,6 +73,11 @@ def build_child_chunks(
         )
 
         for blk in parent_blocks:
+            # header 前缀用「块自身的 header_path」而非父块的：父块按粒度聚合后可能跨多级标题，
+            # 用块自身路径能保留子块所在子标题的上下文(检索更准)，不被父块的粗粒度路径冲淡。
+            header_prefix = " > ".join(blk.header_path) if blk.header_path else (
+                " > ".join(parent.header_path) if parent.header_path else ""
+            )
             if blk.type == "title":
                 # 标题不单列为可检索 child：它已作为 header_path 前缀拼进每个子块的
                 # embedding_text，单独成块价值低、还会污染检索结果。
@@ -100,6 +112,10 @@ def _make_atomic_child(
     """整块作为一个 Child，不切分。"""
     retrieval_text = _build_retrieval_text(blk)
     if not retrieval_text:
+        return []
+    # 跨页续表/续图幽灵空块兜底：纯占位文本且无真实资产文件 → 不出子块，避免污染检索。
+    # （新解析已在 normalizer 丢弃这类块；此处覆盖「从旧盘上 IR 重切片(reindex)」的场景。）
+    if retrieval_text in _PLACEHOLDER_TEXTS and not _has_real_asset_file(blk):
         return []
 
     embedding_text = f"{header_prefix}\n{retrieval_text}" if header_prefix else retrieval_text
@@ -158,7 +174,7 @@ def _slice_paragraph(
             parent_chunk_id=parent.parent_chunk_id,
             doc_id=parent.doc_id,
             section_id=parent.section_id,
-            header_path=list(parent.header_path),
+            header_path=list(blk.header_path or parent.header_path),
             chunk_type="paragraph",
             page_span=[blk.page_idx, blk.page_idx],
             source_block_ids=[blk.block_id],
@@ -187,7 +203,7 @@ def _slice_paragraph(
             parent_chunk_id=parent.parent_chunk_id,
             doc_id=parent.doc_id,
             section_id=parent.section_id,
-            header_path=list(parent.header_path),
+            header_path=list(blk.header_path or parent.header_path),
             chunk_type="paragraph",
             page_span=[blk.page_idx, blk.page_idx],
             source_block_ids=[blk.block_id],

@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS documents (
     warnings        TEXT DEFAULT '',                 -- 解析警告信息（MinerU 异常字段等）
     bound_file_path TEXT DEFAULT '',                 -- 文件夹绑定模式下的真实文件绝对路径
     folder_category TEXT DEFAULT '',                 -- 目录分类：recording/slides/homework/notice/review_note/''
+    parent_heading_level INTEGER DEFAULT 0,          -- 父块粒度：N 级标题=1父块；0=用全局默认 settings.parent_chunk_heading_level
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -101,7 +102,9 @@ CREATE TABLE IF NOT EXISTS child_chunks (
     bbox_page       TEXT DEFAULT '[]',              -- JSON: [[x0,y0,x1,y1], ...]
     anchor_origin_pdf_path TEXT DEFAULT '',
     qdrant_point_id TEXT DEFAULT '',                  -- Qdrant 点 ID
-    asset_paths     TEXT DEFAULT '[]'                 -- 该子块图片资产本地路径 JSON（多模态问答传原图用）
+    asset_paths     TEXT DEFAULT '[]',                -- 该子块图片资产本地路径 JSON（多模态问答传原图用）
+    index_kind      TEXT DEFAULT '',                  -- ''=常规子块；非空=父块自定义索引物化的虚拟子块(summary/hypo_question/custom)
+    fts_text        TEXT DEFAULT ''                   -- embedding_text 经 jieba 分词后空格连接，供 FTS5 中文检索（见 cn_tokenizer）
 );
 
 -- ═══════════════ 资产索引 ═══════════════
@@ -116,10 +119,12 @@ CREATE TABLE IF NOT EXISTS assets (
 );
 
 -- ═══════════════ FTS5 全文索引 ═══════════════
+-- 索引列改为 fts_text（= embedding_text 经 jieba 分词后空格连接），让 unicode61 据空格
+-- 切出中文词 token，修复中文 BM25 关键词检索零召回。见 services/cn_tokenizer.py。
 CREATE VIRTUAL TABLE IF NOT EXISTS child_chunks_fts USING fts5(
     child_chunk_id,
     doc_id,
-    embedding_text,
+    fts_text,
     content=child_chunks,
     content_rowid=rowid,
     tokenize='unicode61'
@@ -127,15 +132,37 @@ CREATE VIRTUAL TABLE IF NOT EXISTS child_chunks_fts USING fts5(
 
 -- 触发器：child_chunks 插入时自动更新 FTS
 CREATE TRIGGER IF NOT EXISTS child_chunks_ai AFTER INSERT ON child_chunks BEGIN
-    INSERT INTO child_chunks_fts(rowid, child_chunk_id, doc_id, embedding_text)
-    VALUES (new.rowid, new.child_chunk_id, new.doc_id, new.embedding_text);
+    INSERT INTO child_chunks_fts(rowid, child_chunk_id, doc_id, fts_text)
+    VALUES (new.rowid, new.child_chunk_id, new.doc_id, new.fts_text);
 END;
 
 -- 触发器：child_chunks 删除时自动更新 FTS
 CREATE TRIGGER IF NOT EXISTS child_chunks_ad AFTER DELETE ON child_chunks BEGIN
-    INSERT INTO child_chunks_fts(child_chunks_fts, rowid, child_chunk_id, doc_id, embedding_text)
-    VALUES ('delete', old.rowid, old.child_chunk_id, old.doc_id, old.embedding_text);
+    INSERT INTO child_chunks_fts(child_chunks_fts, rowid, child_chunk_id, doc_id, fts_text)
+    VALUES ('delete', old.rowid, old.child_chunk_id, old.doc_id, old.fts_text);
 END;
+
+-- ═══════════════ 父块自定义索引（v1.5.0）═══════════════
+-- 每个父块除常规子块索引外，可挂额外索引：摘要 / 推测问题(可预答) / 图片描述 / 表格描述 / 自定义。
+-- 本表是「管理层 + source of truth」：定义、开关、可编辑文本、预答 payload。
+-- enabled 时把 index_text「物化」成 child_chunks 里一行虚拟子块(index_kind=kind)，
+-- 复用同一 embedding/FTS/Qdrant/RRF/重排/Small-to-Big 管线参与检索；disabled 时移除该虚拟行。
+CREATE TABLE IF NOT EXISTS parent_extra_indexes (
+    index_id        TEXT PRIMARY KEY,
+    doc_id          TEXT NOT NULL REFERENCES documents(doc_id),
+    parent_chunk_id TEXT NOT NULL,
+    section_id      TEXT DEFAULT '',
+    kind            TEXT NOT NULL,                   -- summary/hypo_question/image_desc/table_desc/custom
+    title           TEXT DEFAULT '',                 -- 展示名（如「摘要索引」或自定义索引标题）
+    index_text      TEXT DEFAULT '',                 -- 被检索的索引文本（用户可编辑）
+    payload         TEXT DEFAULT '{}',               -- JSON：附加数据（如推测问题预答 {answer}）
+    enabled         INTEGER DEFAULT 0,               -- 0/1：是否启用并参与检索（推测问题默认 0，耗 API）
+    source          TEXT DEFAULT 'auto',             -- auto（生成）/ user（手填）
+    child_chunk_id  TEXT DEFAULT '',                 -- 物化到 child_chunks 的虚拟行 id（disabled 时为空）
+    qdrant_point_id TEXT DEFAULT '',                 -- 物化的 Qdrant 点 id
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- ═══════════════ 场景层：复习笔记（模块七）═══════════════
 -- 课后复盘生成的结构化笔记，写回知识库，供后续检索与备考复用
@@ -253,6 +280,8 @@ CREATE INDEX IF NOT EXISTS idx_conversations_kb ON conversations(kb_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_scenario ON conversations(kb_id, scenario);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, sequence_num);
+CREATE INDEX IF NOT EXISTS idx_pei_doc ON parent_extra_indexes(doc_id);
+CREATE INDEX IF NOT EXISTS idx_pei_parent ON parent_extra_indexes(parent_chunk_id);
 """
 
 
@@ -288,12 +317,72 @@ async def init_db() -> None:
             # v1.4.0 新增列
             "ALTER TABLE parent_chunks ADD COLUMN text_full TEXT DEFAULT ''",
             "ALTER TABLE child_chunks ADD COLUMN asset_paths TEXT DEFAULT '[]'",
+            # v1.5.0 新增列：父块自定义索引物化的虚拟子块标记（''=常规子块）
+            "ALTER TABLE child_chunks ADD COLUMN index_kind TEXT DEFAULT ''",
+            # v1.5.0 中文 BM25：FTS 索引列（embedding_text 经 jieba 分词后空格连接）
+            "ALTER TABLE child_chunks ADD COLUMN fts_text TEXT DEFAULT ''",
+            # v1.5.0 per-doc 父块粒度（0=用全局默认）
+            "ALTER TABLE documents ADD COLUMN parent_heading_level INTEGER DEFAULT 0",
         ]:
             try:
                 await db.execute(sql)
             except Exception:
                 pass  # 列已存在，忽略
         await db.commit()
+        await _migrate_fts_jieba(db)
         logger.info("SQLite 数据库初始化完成: {}", settings.sqlite_path)
     finally:
         await db.close()
+
+
+async def _migrate_fts_jieba(db) -> None:
+    """把旧 FTS（索引 embedding_text、不分中文词）迁移到新 FTS（索引 jieba 分词后的 fts_text）。
+
+    检测：若 child_chunks_fts 的建表 SQL 仍含 'embedding_text'（旧 schema），则
+      ① 删旧 FTS + 触发器 → ② 按新 schema 重建（_DDL 已含，但 IF NOT EXISTS 对已存在旧表是跳过的，
+      故这里显式重建）→ ③ 对存量 child_chunks 用 jieba 回填 fts_text → ④ rebuild FTS 索引。
+    纯本地操作（jieba CPU 分词），不触网、不重嵌入。幂等：迁移后建表 SQL 含 'fts_text'，再次启动跳过。
+    """
+    cur = await db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='child_chunks_fts'")
+    row = await cur.fetchone()
+    schema_sql = (row[0] if row else "") or ""
+    if not schema_sql or "fts_text" in schema_sql:
+        return  # 新库（_DDL 已建新 FTS）或已迁移过 → 无需处理
+
+    logger.info("[FTS migrate] 检测到旧 FTS（embedding_text），迁移到 jieba 分词的 fts_text…")
+    from app.services.cn_tokenizer import segment
+
+    await db.executescript(
+        """
+        DROP TRIGGER IF EXISTS child_chunks_ai;
+        DROP TRIGGER IF EXISTS child_chunks_ad;
+        DROP TABLE IF EXISTS child_chunks_fts;
+        CREATE VIRTUAL TABLE child_chunks_fts USING fts5(
+            child_chunk_id, doc_id, fts_text,
+            content=child_chunks, content_rowid=rowid, tokenize='unicode61'
+        );
+        CREATE TRIGGER child_chunks_ai AFTER INSERT ON child_chunks BEGIN
+            INSERT INTO child_chunks_fts(rowid, child_chunk_id, doc_id, fts_text)
+            VALUES (new.rowid, new.child_chunk_id, new.doc_id, new.fts_text);
+        END;
+        CREATE TRIGGER child_chunks_ad AFTER DELETE ON child_chunks BEGIN
+            INSERT INTO child_chunks_fts(child_chunks_fts, rowid, child_chunk_id, doc_id, fts_text)
+            VALUES ('delete', old.rowid, old.child_chunk_id, old.doc_id, old.fts_text);
+        END;
+        """
+    )
+
+    # 回填存量 fts_text（jieba 分词 embedding_text）
+    cur = await db.execute("SELECT rowid, embedding_text FROM child_chunks")
+    rows = await cur.fetchall()
+    n = 0
+    for r in rows:
+        await db.execute(
+            "UPDATE child_chunks SET fts_text=? WHERE rowid=?",
+            (segment(r[1] or ""), r[0]),
+        )
+        n += 1
+    # 从 content 表重建 FTS 索引（读 child_chunks.fts_text）
+    await db.execute("INSERT INTO child_chunks_fts(child_chunks_fts) VALUES('rebuild')")
+    await db.commit()
+    logger.info("[FTS migrate] 完成：回填 {} 行 fts_text 并重建 FTS 索引", n)

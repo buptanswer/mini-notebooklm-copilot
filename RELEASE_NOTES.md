@@ -4,6 +4,64 @@
 
 ---
 
+## v1.5.0（2026-06-06 开发，待用户验收）— 解析/检索透视深化 + 检索质量与正确性
+
+> 在 v1.4.0「把隐藏链路做成可视化」的基础上，v1.5.0 把**解析透视**做成可操作的检视/管理台（父块自定义索引、
+> 文档级父块粒度），并补齐两处真正影响检索质量的后端正确性：**中文 BM25 零召回**与**QA 上下文的位置/多模态注入**；
+> 同时核查并修复了 **MinerU 跨页拆分块**带来的检索污染。
+
+### 解析透视·检视层（前端，研读室体系内）
+- **父块视图 + 检索索引管理台**（`components/dissect/Inspector.tsx` 重写）：点中间「父块大框」进入父块视图——头部
+  徽章/页跨/标题面包屑 + 成员块/子切片/字数三连 Stat，主区是 **`IndexManager`**：常规子块（始终参与、不可关）+ 各类
+  附加索引卡片。每张卡可**开关**（启用＝物化为虚拟子块并入混合检索，亮「检索中」徽章）、**行内编辑**、**重生成**、
+  **两步确认删除**；折叠区展示父块全文 / 父块资产（图片缩略图标「→多模态原图」/ 表 / 码）/ 成员 MinerU 块 / 常规子切片。
+- **附加索引类型**：`summary`（LLM 摘要）/ `hypo_question`（LLM 推测问题，可预答，**默认关闭**——会耗 API）/ `custom`
+  （自定义文本）。**图/表描述不在此单列**：基础切片管线已让每张图/表各成独立子块按 VLM 描述索引，再造「合并描述索引」
+  反而稀释召回，故 v1.5.0 移除了曾经设想的 `image_desc`/`table_desc`。
+- **文档级父块粒度**（`components/dissect/GranularityControl.tsx`）：解析透视头部可选「几级标题=1 父块」（一/二/三级），
+  「应用」即**重切片+重索引**（不重新解析 MinerU），两步确认提示会清除该文档已建的自定义索引；另有「重新解析」入口
+  （已索引文档重新跑 MinerU 取 Office 版面坐标 / 适配格式更新，两步确认提示耗 API）。
+
+### 父块自定义索引（后端·物化虚拟子块架构）
+- `parent_extra_indexes` 表为「管理层/source of truth」（定义/开关/可编辑文本/payload）；启用即把索引文本**物化**成
+  `child_chunks` 一行虚拟子块（`index_kind=kind`）+ 嵌入 + Qdrant 单点，**复用同一 embedding/FTS/RRF/重排/Small-to-Big
+  管线**参与检索；关闭即移除该虚拟行。检索侧零并行管线，命中后经 `parent_chunk_id` 天然回父块。
+- 端点：`GET/POST /api/documents/{kb}/{doc}/indexes`、`PATCH/POST …/{index_id}`（开关/重生成）、`DELETE …/{index_id}`。
+- 检索 trace 全段带 `index_kind` 标注 → 检索透视可标「命中来自摘要/推测问题/自定义索引」。
+
+### 文档级父块粒度 + 不重新解析的重切片（后端）
+- `chunkers/parent_chunker.py`：`build_parent_chunks(..., parent_level=N)`——按 N 级标题切组根，更深内容上卷到最近
+  ≤N 祖先；出父块判据改为「组内有无正文块」，**天然修复 heading-less 文档（无标题）0 父块 0 子块的旧 bug**。
+- `services/reindex_service.py`（新）：`rechunk_and_reindex(doc_id, parent_level)`——**不触 MinerU**，直接读盘上 enriched
+  IR、replay reflow（图/表描述回写块文本）→ 重切片 → 重嵌入 → 幂等重索引（先 `_purge_doc`）→ 落库并持久化
+  `documents.parent_heading_level`。`pipeline_service` 首次解析也遵循 per-doc 粒度。
+- 端点：`POST …/{doc}/reindex`（`{parent_level}`→`{parents, children}`）、`POST …/{doc}/reparse`（重置状态后台重解析）。
+  **真机验证**：34 页设计文档 L1=25 / L2=61 / L3=111 父块（子块恒 216，子块粒度与父块独立）。
+
+### 检索质量与正确性（后端）
+- **中文 BM25 零召回修复**（`services/cn_tokenizer.py` 新 + `db/database.py`）：FTS5 `unicode61` 对中文不分词（整段 CJK
+  当作 1 个 token）→ 关键词路对中文几乎零召回。引入 **jieba 预分词**：新增 `fts_text` 列存分词结果，FTS5 改索引该列
+  （CREATE + 两触发器同改）；检索查询用同一分词器构造；带**存量数据迁移**（检测旧 FTS → 重建 → jieba 回填 → rebuild）。
+  **真机：3 个纯中文 query 的 keyword 召回 0 → 20。**
+- **QA 上下文位置 / 多模态注入**（`services/qa_context.py` 新）：回答时把命中父块按 `block_ids`(阅读序) 还原——
+  纯文本路 图→`[图片: VLM 描述]`、表→**MinerU 表格 HTML**，**均替换在原位**；多模态路把**原图**按块序插到描述的位置
+  （text→image→text 交错），让模型知道图夹在哪两段文字之间。**真实数据验证**：13 张原图按位入消息、表格 HTML 注入。
+- **MinerU 跨页拆分块核查 + 修复**：实证 MinerU SaaS 的 `content_list_v2` **严格按页、不合并**跨页拆分块、也无显式
+  `cross_page` 标记，但**在干净的句/项边界断开**（扫 107 个页边界 0 中途断句）→ 我们的 section 切片（父块按阅读序拼接、
+  子块按句界）**天然缝合**，无需做跨页合并。**但发现并修复一个真 bug**：跨页表格在次页会 emit 一个**空 table 幽灵块**
+  （`html=""`、`image_source.path="images/"` 只有目录），会变成 `retrieval_text="[表格]"` 的垃圾子块污染检索（34 页文档
+  实测 10 个）+ 指向目录的伪 asset。`normalizer` 源头丢弃这类空块（**不写 degraded**，否则会误标 needs_review），
+  `child_chunker` 兜底跳过纯占位且无真实资产的原子块（覆盖 reindex 旧 IR）。**真机：reindex 后垃圾块 10 → 0。**
+
+### 验证
+- `basedpyright` 0 错；`test_v140.py` **86/86**（较 v1.4.0 +jieba 分词 6 / QA 上下文 10 / 跨页幽灵块 7，−已移除的 asset_desc）。
+- 前端 `tsc -p tsconfig.app.json` 0 错、`eslint` 新增文件 0 error/0 warning、`build` 通过。
+- 真机：reindex 三级粒度 + UI 全链路（0 控制台报错）；跨页幽灵块 reindex 后清零；中文 BM25 / QA 位置注入（见上）。
+- **`/reparse` 端点已注册并就绪，但实际重解析会消耗 MinerU/VLM API，未擅自触发**（Office 取坐标的解析能力本身在
+  v1.4.0 Phase 2 已真机验证）。
+
+---
+
 ## v1.4.0（2026-06-02 开发，待用户验收）— 技术难点可视化 +「隐藏链路」打通 + 检索/解析正确性修复
 
 > v1.3.0 把解析/检索/切片这些**技术难点全藏在了"实用简洁"前端背后**，演示时容易让人误以为"就调了个 API"。

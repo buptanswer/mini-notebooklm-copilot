@@ -169,15 +169,20 @@ export function StageKeyword({ trace, docs, state, current }: StageProps) {
 
         {/* 扫描面板 */}
         <div className="relative overflow-hidden rounded-lg border border-border bg-bg/60">
-          {/* 扫描光束 */}
+          {/* 扫描光束（连续扫盘 + 高亮前沿线） */}
           {state === "active" && (
             <motion.div
               aria-hidden
-              initial={{ y: "-40%" }}
-              animate={{ y: "160%" }}
-              transition={{ duration: 1.5, ease: "easeInOut", repeat: 1 }}
-              className="pointer-events-none absolute inset-x-0 z-10 h-1/3 bg-gradient-to-b from-transparent via-accent/10 to-transparent"
-            />
+              initial={{ y: "-55%" }}
+              animate={{ y: "175%" }}
+              transition={{ duration: 2.2, ease: "easeInOut", repeat: Infinity, repeatDelay: 0.5 }}
+              className="pointer-events-none absolute inset-x-0 z-10 h-1/3 bg-gradient-to-b from-transparent via-accent/12 to-transparent"
+            >
+              <span
+                className="absolute inset-x-0 bottom-0 h-px"
+                style={{ background: "linear-gradient(90deg, transparent, var(--c-accent), transparent)" }}
+              />
+            </motion.div>
           )}
           {keyword_hits.length ? (
             <ul className="divide-y divide-border">
@@ -258,17 +263,31 @@ export function StageVector({ trace, docs, state, current }: StageProps) {
         {/* 语义空间投影 */}
         <div className="mx-auto">
           <svg width={W} height={H} className="overflow-visible">
-            {/* 同心参考圈 */}
-            {[44, 90, 132].map((r) => (
-              <circle
-                key={r}
-                cx={CX} cy={CY} r={r}
-                fill="none"
-                stroke="var(--c-border)"
-                strokeWidth={1}
-                strokeDasharray="3 5"
-              />
-            ))}
+            <defs>
+              <radialGradient id="xray-vglow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="var(--c-accent)" stopOpacity="0.26" />
+                <stop offset="100%" stopColor="var(--c-accent)" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+            {/* 语义场光晕 */}
+            <circle cx={CX} cy={CY} r={72} fill="url(#xray-vglow)" />
+            {/* 同心参考圈（缓慢旋转，营造语义空间纵深） */}
+            <motion.g
+              style={{ transformOrigin: `${CX}px ${CY}px` }}
+              animate={state === "active" ? { rotate: 360 } : {}}
+              transition={{ duration: 64, repeat: Infinity, ease: "linear" }}
+            >
+              {[44, 90, 132].map((r) => (
+                <circle
+                  key={r}
+                  cx={CX} cy={CY} r={r}
+                  fill="none"
+                  stroke="var(--c-border)"
+                  strokeWidth={1}
+                  strokeDasharray="3 5"
+                />
+              ))}
+            </motion.g>
             {/* 中心→节点连线 */}
             {layout.map(({ h, x, y, norm }, i) => (
               <motion.line
@@ -279,6 +298,24 @@ export function StageVector({ trace, docs, state, current }: StageProps) {
                 initial={{ pathLength: 0, opacity: 0 }}
                 animate={state === "active" ? { pathLength: 1, opacity: 0.25 + norm * 0.5 } : {}}
                 transition={{ delay: 0.3 + i * 0.07, duration: 0.5 }}
+              />
+            ))}
+            {/* 沿连线流动的"语义信号"粒子（中心→近邻） */}
+            {layout.slice(0, 6).map(({ h, x, y }, i) => (
+              <motion.circle
+                key={`c-${h.child_chunk_id}`}
+                cx={CX} cy={CY} r={2.4}
+                fill="var(--c-accent)"
+                initial={{ x: 0, y: 0, opacity: 0 }}
+                animate={
+                  state === "active"
+                    ? { x: [0, x - CX], y: [0, y - CY], opacity: [0, 0.95, 0] }
+                    : { opacity: 0 }
+                }
+                transition={{
+                  duration: 1.5, delay: 0.6 + i * 0.18,
+                  repeat: Infinity, repeatDelay: 1.5, ease: "easeInOut",
+                }}
               />
             ))}
             {/* 候选节点 */}
@@ -489,17 +526,35 @@ export function StageRerank({ trace, docs, state, current }: StageProps) {
               const y0 = li * ROW_H + ROW_H / 2
               const y1 = j * ROW_H + ROW_H / 2
               const moved = (r.delta ?? 0) !== 0
+              const d = `M 0 ${y0} C ${CONN_W * 0.5} ${y0}, ${CONN_W * 0.5} ${y1}, ${CONN_W} ${y1}`
               return (
-                <motion.path
-                  key={r.child_chunk_id}
-                  d={`M 0 ${y0} C ${CONN_W * 0.5} ${y0}, ${CONN_W * 0.5} ${y1}, ${CONN_W} ${y1}`}
-                  fill="none"
-                  stroke={moved ? "var(--c-accent)" : "var(--c-border-strong)"}
-                  strokeWidth={moved ? 1.75 : 1}
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={state === "active" ? { pathLength: 1, opacity: moved ? 0.85 : 0.4 } : {}}
-                  transition={{ delay: 0.2 + j * 0.1, duration: 0.6 }}
-                />
+                <g key={r.child_chunk_id}>
+                  <motion.path
+                    d={d}
+                    fill="none"
+                    stroke={moved ? "var(--c-accent)" : "var(--c-border-strong)"}
+                    strokeWidth={moved ? 1.75 : 1}
+                    initial={{ pathLength: 0, opacity: 0 }}
+                    animate={state === "active" ? { pathLength: 1, opacity: moved ? 0.7 : 0.4 } : {}}
+                    transition={{ delay: 0.2 + j * 0.1, duration: 0.6 }}
+                  />
+                  {/* 位次变化的连线：叠加流光（流动虚线），表现语义能量流向 */}
+                  {moved && (
+                    <motion.path
+                      d={d}
+                      fill="none"
+                      stroke="var(--c-accent)"
+                      strokeWidth={1.75}
+                      strokeDasharray="3 11"
+                      initial={{ opacity: 0 }}
+                      animate={state === "active" ? { opacity: 0.9, strokeDashoffset: [0, -28] } : { opacity: 0 }}
+                      transition={{
+                        opacity: { delay: 0.6 + j * 0.1, duration: 0.4 },
+                        strokeDashoffset: { duration: 1.1, repeat: Infinity, ease: "linear" },
+                      }}
+                    />
+                  )}
+                </g>
               )
             })}
           </svg>

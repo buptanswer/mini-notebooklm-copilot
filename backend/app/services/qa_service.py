@@ -72,13 +72,46 @@ def collect_image_paths(chunks: list[RetrievedChunk], limit: int) -> list[str]:
 
 
 def build_multimodal_user_content(text: str, image_paths: list[str]) -> list[dict]:
-    """把「文本 + 若干图片」组装成多模态 user message 的 content 数组。"""
+    """把「文本 + 若干图片」组装成多模态 user message 的 content 数组（图片统一追加在文本后）。
+
+    用于不带位置信息的简单场景（旧 /chat 直答端点）。主对话用
+    build_multimodal_content_from_sources（图片插到父块原位）。
+    """
     parts: list[dict] = [{"type": "text", "text": text}]
     for i, p in enumerate(image_paths, 1):
         url = image_to_data_url(p)
         if url:
             parts.append({"type": "text", "text": f"（下图为命中内容中的图片 {i}）"})
             parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts
+
+
+def build_multimodal_content_from_sources(
+    intro: str, sources: list[dict], question: str
+) -> list[dict]:
+    """从 render_qa_sources 的 sources 构建多模态 user content：**图片插到其在父块中的原位**。
+
+    每条来源：先 [来源N] 头，再按 segments 顺序输出 text / image 片段（text→image→text 交错），
+    模型即可知道图片夹在哪两段文字之间；无 segments（回退）则注入该来源纯文本。
+    """
+    parts: list[dict] = [{"type": "text", "text": intro}]
+    for i, s in enumerate(sources, 1):
+        hp = " > ".join(s.get("header_path") or []) or "（无标题）"
+        ps, pe = s.get("page_span_start", 0), s.get("page_span_end", 0)
+        page = f"第{ps + 1}页" if ps == pe else f"第{ps + 1}-{pe + 1}页"
+        parts.append({"type": "text", "text": f"\n[来源{i}] {page} · {hp}"})
+        segs = s.get("segments")
+        if segs:
+            for seg in segs:
+                if seg.get("type") == "text" and (seg.get("text") or "").strip():
+                    parts.append({"type": "text", "text": seg["text"]})
+                elif seg.get("type") == "image":
+                    url = image_to_data_url(seg.get("path", ""))
+                    if url:
+                        parts.append({"type": "image_url", "image_url": {"url": url}})
+        else:
+            parts.append({"type": "text", "text": s.get("text", "")})
+    parts.append({"type": "text", "text": f"\n【我的问题】\n{question}"})
     return parts
 
 

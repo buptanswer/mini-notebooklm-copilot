@@ -60,6 +60,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from app.adapters.bundle_parser import extract_zip, parse_bundle_manifest
 from app.adapters.dom_builder import build_dom
@@ -88,6 +89,14 @@ logger = logging.getLogger(__name__)
 
 # 全局解析并发上限：批量重解析时避免 N 路 pipeline 并发打爆 MinerU/OSS/DashScope 连接
 _PARSE_SEMAPHORE = asyncio.Semaphore(settings.max_concurrent_parses)
+
+# Office 文档扩展名：这些默认走 MinerU office backend（无坐标），需 is_ocr 强制转 PDF 取版面
+_OFFICE_EXTS = (".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx")
+
+
+def _is_office_file(filename: str) -> bool:
+    """是否为 Office 文档（doc/ppt/xls 系列）—— 这类需 is_ocr 才能拿到 PDF 版面与 bbox。"""
+    return Path(filename).suffix.lower() in _OFFICE_EXTS
 
 
 # ─────────────────────────────────────────────────────────────
@@ -197,9 +206,13 @@ async def _run_parse_pipeline_impl(
 
         # ── [A] 申请预签名上传 URL ─────────────────────────────
         logger.info("[pipeline] [A] 申请预签名 URL")
-        file_info = [{"name": filename, "data_id": doc_id}]
+        file_entry: dict[str, Any] = {"name": filename, "data_id": doc_id}
+        # Office 文档加 is_ocr=true：强制走版面识别(转 PDF + bbox)，否则落到 office backend(无坐标)。
+        if settings.mineru_office_use_ocr and _is_office_file(filename):
+            file_entry["is_ocr"] = True
+            logger.info("[pipeline] [A] Office 文档 → is_ocr=true（取版面坐标）")
         batch_id, file_urls = await request_batch_upload_urls(
-            files_info=file_info,
+            files_info=[file_entry],
             model_version=settings.mineru_model_version,
         )
         await _update_task(task_id, "running", 0.1)
@@ -346,9 +359,14 @@ async def _run_parse_pipeline_impl(
 
         await _update_task(task_id, "running", 0.90)
 
-        # ── [L] Parent Chunk 构建 ─────────────────────────────
-        logger.info("[pipeline] [L] 构建 ParentChunk")
-        parent_chunks = build_parent_chunks(sections, blocks, pages, doc_id)
+        # ── [L] Parent Chunk 构建（粒度：per-doc 设置优先，0→全局默认）─────
+        from app.services.reindex_service import get_effective_parent_level
+        parent_level = await get_effective_parent_level(doc_id)
+        logger.info("[pipeline] [L] 构建 ParentChunk（parent_level=%d）", parent_level)
+        parent_chunks = build_parent_chunks(
+            sections, blocks, pages, doc_id,
+            parent_level=parent_level,
+        )
         logger.info("[pipeline] 共 %d 个 ParentChunk", len(parent_chunks))
 
         # ── [M] Child Chunk 构建 ──────────────────────────────

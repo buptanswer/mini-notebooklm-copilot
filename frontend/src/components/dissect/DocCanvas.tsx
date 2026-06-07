@@ -8,9 +8,9 @@ import { motion } from "motion/react"
 import {
   Boxes, ChevronLeft, ChevronRight, Layers, Loader2, Palette,
 } from "lucide-react"
-import type { IRBlock, SectionBboxEntry } from "@/api/types"
+import type { IRBlock } from "@/api/types"
 import { cn } from "@/lib/utils"
-import { normBox, typeMeta, type Box } from "./helpers"
+import { normBox, typeMeta, type Box, type ParentBoxEntry } from "./helpers"
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -20,22 +20,23 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 export interface CanvasLayers { blocks: boolean; parents: boolean; color: boolean }
 
 export function DocCanvas({
-  pdfUrl, pageIdx, pageCount, blocks, sectionBbox,
-  selectedBlockId, hoveredBlockId, activeSectionId, selectedSectionId,
-  layers, onLayers, onSelectBlock, onHoverBlock, onPageChange,
+  pdfUrl, pageIdx, pageCount, blocks, parentBoxes,
+  selectedBlockId, hoveredBlockId, activeSectionId, selectedParentId,
+  layers, onLayers, onSelectBlock, onSelectParent, onHoverBlock, onPageChange,
 }: {
   pdfUrl: string
   pageIdx: number               // 0-based
   pageCount: number
   blocks: IRBlock[]             // 当前页的块
-  sectionBbox: Record<string, SectionBboxEntry[]>
+  parentBoxes: Map<string, ParentBoxEntry[]>  // 父块大框（parent 粒度，跨多 section 聚合）
   selectedBlockId: string | null
   hoveredBlockId: string | null
   activeSectionId: string | null
-  selectedSectionId: string | null
+  selectedParentId: string | null
   layers: CanvasLayers
   onLayers: (l: CanvasLayers) => void
   onSelectBlock: (id: string) => void
+  onSelectParent: (id: string) => void
   onHoverBlock: (id: string | null) => void
   onPageChange: (pageIdx: number) => void
 }) {
@@ -57,14 +58,13 @@ export function DocCanvas({
 
   useEffect(() => { setRendered(false) }, [pageIdx, pdfUrl])
 
-  // 当前页的父块并集框（selected section 突出，其余作结构带）
-  const parentBoxes: Array<{ sid: string; box: Box; selected: boolean }> = []
+  // 当前页的父块并集大框（selected 父块突出，其余作结构带）
+  const pageParentBoxes: Array<{ pid: string; box: Box; selected: boolean }> = []
   if (layers.parents) {
-    for (const [sid, entries] of Object.entries(sectionBbox)) {
+    for (const [pid, entries] of parentBoxes) {
       for (const e of entries) {
         if (e.page_idx !== pageIdx) continue
-        const box = normBox(e.bbox_norm1000)
-        if (box) parentBoxes.push({ sid, box, selected: sid === selectedSectionId })
+        pageParentBoxes.push({ pid, box: e.box, selected: pid === selectedParentId })
       }
     }
   }
@@ -110,11 +110,15 @@ export function DocCanvas({
               />
             </Document>
 
-            {/* 父块并集大框（虚线，在块框之下） */}
-            {rendered && parentBoxes.map(({ sid, box, selected }, i) => (
-              <div
-                key={`p-${sid}-${i}`}
-                className="pointer-events-none absolute rounded-[3px]"
+            {/* 父块并集大框（虚线，在块框之下；点击空白区→选父块）。
+                块框 z-index 更高且在其上，故点块仍选块、点父块空白区才选父块。 */}
+            {rendered && pageParentBoxes.map(({ pid, box, selected }, i) => (
+              <button
+                key={`p-${pid}-${i}`}
+                type="button"
+                onClick={() => onSelectParent(pid)}
+                title="父块（点击查看父块信息：含哪些块/子块/资产/索引）"
+                className="group absolute cursor-pointer rounded-[3px] focus:outline-none"
                 style={{
                   left: `${box.left}%`, top: `${box.top}%`,
                   width: `${box.width}%`, height: `${box.height}%`,
@@ -122,7 +126,26 @@ export function DocCanvas({
                   background: selected ? "color-mix(in srgb, var(--c-accent) 7%, transparent)" : "transparent",
                   zIndex: selected ? 5 : 1,
                 }}
-              />
+              >
+                {/* hover 时整框透出淡 accent 提示可点 */}
+                <span
+                  className={cn(
+                    "pointer-events-none absolute inset-0 rounded-[2px] transition-opacity",
+                    selected ? "opacity-0" : "opacity-0 group-hover:opacity-100",
+                  )}
+                  style={{ background: "color-mix(in srgb, var(--c-accent) 6%, transparent)" }}
+                />
+                {/* 父块标签 */}
+                <span
+                  className={cn(
+                    "pointer-events-none absolute -top-[15px] left-0 whitespace-nowrap rounded px-1 py-px font-mono text-[9px] font-semibold leading-none text-white transition-opacity",
+                    selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  )}
+                  style={{ background: "var(--c-accent)" }}
+                >
+                  父块
+                </span>
+              </button>
             ))}
 
             {/* 块 bbox 框 */}

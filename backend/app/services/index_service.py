@@ -33,6 +33,7 @@ from app.db.database import get_db
 from app.db.qdrant_client import get_qdrant
 from app.models.models_chunk import ChildChunk, ParentChunk
 from app.models.models_ir import IRBlock
+from app.services.cn_tokenizer import segment as _cn_segment
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,9 @@ async def _purge_doc(doc_id: str) -> None:
         await db.execute("DELETE FROM child_chunks WHERE doc_id=?", (doc_id,))
         await db.execute("DELETE FROM parent_chunks WHERE doc_id=?", (doc_id,))
         await db.execute("DELETE FROM assets WHERE doc_id=?", (doc_id,))
+        # 父块自定义索引随文档重建：清定义行（其物化虚拟子块已随 child_chunks DELETE 移除，
+        # 对应 Qdrant 点已由上面按 doc_id 的 FilterSelector 一并删除）。
+        await db.execute("DELETE FROM parent_extra_indexes WHERE doc_id=?", (doc_id,))
         await db.commit()
     finally:
         await db.close()
@@ -171,6 +175,7 @@ async def _upsert_qdrant(
                 "bbox_page": cc.bbox_page,
                 "anchor_origin_pdf_path": cc.anchor_origin_pdf_path,
                 "asset_paths": asset_paths_map.get(cc.child_chunk_id, []),
+                "index_kind": cc.index_kind,
             },
         ))
 
@@ -240,6 +245,8 @@ async def _write_sqlite(
                 cc.anchor_origin_pdf_path,
                 pid,
                 json.dumps(asset_paths_map.get(cc.child_chunk_id, []), ensure_ascii=False),
+                cc.index_kind,
+                _cn_segment(cc.embedding_text),   # fts_text：jieba 分词供中文 BM25
             )
             for cc, pid in zip(child_chunks, point_ids)
         ]
@@ -249,8 +256,8 @@ async def _write_sqlite(
                 header_path, embedding_text, retrieval_text,
                 page_span_start, page_span_end,
                 bbox_norm1000, bbox_page, anchor_origin_pdf_path,
-                qdrant_point_id, asset_paths)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                qdrant_point_id, asset_paths, index_kind, fts_text)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             child_rows,
         )
 

@@ -96,4 +96,5 @@ class ChildChunk(BaseModel):
     embedding_text: str = ""
     retrieval_text: str = ""
     assets: list[str] = Field(default_factory=list)  # asset_id 列表
+    index_kind: str = ""  # ''=常规子块；非空=父块自定义索引物化的虚拟子块(summary/hypo_question/image_desc/table_desc/custom)
     metadata: ChildChunkMetadata = Field(default_factory=ChildChunkMetadata)

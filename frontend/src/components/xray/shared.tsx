@@ -127,20 +127,34 @@ export function StageShell({
     <div className="relative flex gap-4 sm:gap-5">
       {/* 脊柱 + 站点 */}
       <div className="relative flex w-9 shrink-0 flex-col items-center">
-        <motion.div
-          animate={{
-            scale: current ? [1, 1.12, 1] : 1,
-          }}
-          transition={{ duration: 1.6, repeat: current ? Infinity : 0, ease: "easeInOut" }}
-          className={cn(
-            "z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 font-mono text-xs font-semibold transition-colors",
-            active
-              ? "border-accent bg-accent text-accent-ink shadow-raised"
-              : "border-border-strong bg-surface text-ink-faint",
+        <div className="relative z-10">
+          {/* 当前阶段：呼吸光晕 */}
+          {current && (
+            <motion.span
+              aria-hidden
+              className="absolute -inset-2 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(closest-side, color-mix(in srgb, var(--c-accent) 42%, transparent), transparent)",
+              }}
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: [0.45, 0.8, 0.45], scale: [0.85, 1.18, 0.85] }}
+              transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
+            />
           )}
-        >
-          {active ? <Icon className="h-4 w-4" /> : index}
-        </motion.div>
+          <motion.div
+            animate={{ scale: current ? [1, 1.1, 1] : 1 }}
+            transition={{ duration: 1.9, repeat: current ? Infinity : 0, ease: "easeInOut" }}
+            className={cn(
+              "relative flex h-9 w-9 items-center justify-center rounded-full border-2 font-mono text-xs font-semibold transition-colors",
+              active
+                ? "border-accent bg-accent text-accent-ink shadow-raised"
+                : "border-border-strong bg-surface text-ink-faint",
+            )}
+          >
+            {active ? <Icon className="h-4 w-4" /> : index}
+          </motion.div>
+        </div>
         {!isLast && (
           <div
             className={cn(
@@ -180,14 +194,28 @@ export function StageShell({
 
         {active && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, y: 16, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 210, damping: 24, mass: 0.7 }}
             className={cn(
-              "rounded-lg border bg-surface p-4 transition-shadow",
+              "relative rounded-lg border bg-surface p-4 transition-shadow",
               current ? "border-accent/30 shadow-raised" : "border-border shadow-card",
             )}
           >
+            {/* 当前阶段：顶部 accent 流光指示 */}
+            {current && (
+              <motion.span
+                aria-hidden
+                className="pointer-events-none absolute -top-px left-1/2 h-[2px] -translate-x-1/2 rounded-full"
+                style={{
+                  background:
+                    "linear-gradient(90deg, transparent, var(--c-accent), transparent)",
+                }}
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: ["20%", "66%", "20%"], opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              />
+            )}
             {children}
           </motion.div>
         )}

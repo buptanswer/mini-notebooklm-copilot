@@ -108,6 +108,9 @@ export function sectionLabel(s: IRSection): string {
 
 // ── 派生映射（页面 useMemo 一次算好）────────────────────────
 
+/** 父块在某一页上的成员块 bbox 并集（真正的「父块大框」，跨多 section 聚合）。 */
+export interface ParentBoxEntry { page_idx: number; box: Box }
+
 export interface DerivedMaps {
   blockById: Map<string, IRBlock>
   sectionById: Map<string, IRSection>
@@ -122,7 +125,38 @@ export interface DerivedMaps {
   blocksByPage: Map<number, IRBlock[]>
   /** section_id → 其成员块（按 order_in_doc）。 */
   blocksBySection: Map<string, IRBlock[]>
+  /** parent_chunk_id → 各页的成员块 bbox 并集（父块大框，L1 聚合后跨多 section/页）。 */
+  parentBoxes: Map<string, ParentBoxEntry[]>
   usedTypes: Set<string>
+}
+
+/** 用父块成员块坐标按页求并集 → 真正的父块大框（替代旧的 section 级框）。 */
+function computeParentBoxes(
+  parents: ParentChunkRow[],
+  blockById: Map<string, IRBlock>,
+): Map<string, ParentBoxEntry[]> {
+  const out = new Map<string, ParentBoxEntry[]>()
+  for (const p of parents) {
+    const acc = new Map<number, [number, number, number, number]>()
+    for (const bid of p.block_ids || []) {
+      const b = blockById.get(bid)
+      const c = b?.bbox_norm1000
+      if (!b || !c || c.length < 4) continue
+      const cur = acc.get(b.page_idx)
+      if (!cur) acc.set(b.page_idx, [c[0], c[1], c[2], c[3]])
+      else {
+        cur[0] = Math.min(cur[0], c[0]); cur[1] = Math.min(cur[1], c[1])
+        cur[2] = Math.max(cur[2], c[2]); cur[3] = Math.max(cur[3], c[3])
+      }
+    }
+    const entries: ParentBoxEntry[] = []
+    for (const [pg, coords] of [...acc.entries()].sort((a, b) => a[0] - b[0])) {
+      const box = normBox(coords)
+      if (box) entries.push({ page_idx: pg, box })
+    }
+    if (entries.length) out.set(p.parent_chunk_id, entries)
+  }
+  return out
 }
 
 export function buildMaps(ir: IRResponse, chunks: ChunksResponse | null): DerivedMaps {
@@ -168,9 +202,11 @@ export function buildMaps(ir: IRResponse, chunks: ChunksResponse | null): Derive
     }
   }
 
+  const parentBoxes = computeParentBoxes(chunks?.parents ?? [], blockById)
+
   return {
     blockById, sectionById, parentById, childrenByBlock, parentByBlock,
-    childrenByParent, blocksByPage, blocksBySection, usedTypes,
+    childrenByParent, blocksByPage, blocksBySection, parentBoxes, usedTypes,
   }
 }
 

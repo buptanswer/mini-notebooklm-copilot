@@ -8,7 +8,170 @@
 
 ---
 
-## 1. 当前状态：v1.4.0 开发中 —— 技术难点可视化（"唬人"演示版）
+## 0. v1.5.0 本轮（进行中）—— 解析/检索透视深化 + 实现修正
+
+**触发**：v1.4.0 实机验收反馈。审定计划见 `~/.claude/plans/inherited-forging-prism.md`（已批准）。
+**关键实验结论（纠正 v1.4.0 误判）**：MinerU 解析请求**按文件加 `is_ocr=true`** → Office 不再走 office backend，被转成 PDF 并产出 bbox。
+实测（docx 15KB）：`vlm+is_ocr`→`_backend=hybrid`/40 bbox/含 origin.pdf；`pipeline+is_ocr`→`pipeline`/40 bbox/含 PDF。
+→ **Office 可像 PDF 一样坐标渲染，无需 LibreOffice 自转**。
+**决策（用户拍板）**：①自定义索引做真功能（生成/存储/开关/编辑 + 接入检索召回）；②父块粒度文档级可设置+重索引（默认 L1）；
+③Office 加 `is_ocr` 重解析取坐标；④先解析透视重构 + 演示打磨，再后端正确性/检索质量。
+**索引/QA 语义基准**：图/表索引文本=大模型描述；多模态命中图传原图；纯文本路 图→VLM描述、表→MinerU HTML 替换进父块。
+
+**【v1.5.0 中途澄清 + 用户拍板（2026-06-06，关键修正）】**：
+- **image_desc/table_desc extra 索引 → 移除（用户拍板）**。原因：**基础管线已实现**用户真实意图——`enricher` 给图块 `embedding_text=caption+VLM描述`、`pipeline_service` 回写 `blk.text`，故 child_chunker 让**每张图/表各成 1 个独立子块**，retrieval_text=`[图片: VLM描述]`/`[表格: VLM摘要]`（实测 `cc-aadd51c94848 | [图片: 这是一张示意图…]`），且 `text_for_generation` 把图/表描述**inline 在原位**。Phase 3-② 的 `_gen_asset_desc`（把父块全部图描述**连成1条→1向量**）是误解，重复且更差（多图被平均稀释，实测特定单图 query 进不了 top20）。→ 删前端 KIND_META/AUTO_KINDS 的这两类 + 后端 `_gen_asset_desc`/`_doc_paths`/相关分支 + 对应测试；ParentView 改为明示「图/表描述已在常规子块/资产中自动索引」。**保留 summary/hypo_question/custom**（真正新增召回角度）。
+- **QA 上下文 → 位置 interleave 完全版（用户拍板）**：纯文本路 表 `[表格:caption]`→注入 MinerU HTML（在原位）；多模态路当前 `build_multimodal_user_content` 把图**统一追加在全文之后**（非位置），要改成**按命中父块块序把原图插到 `[图片:desc]` 的位置**（text→image→text 交错），让模型知道图夹在哪两段文字之间。归 Phase 5。
+
+**阶段进度**：
+- [x] Phase 1 演示打磨（纯前端：检索透视演示态 视角跟随/节奏可调/动效升级）✅ 真机验证通过
+- [x] Phase 2 解析透视·结构层（Office `is_ocr` 取坐标 / 父块大框可点击 / 主菜单按路由收起）✅ 真机验证通过
+- [x] Phase 3 后端数据层 —— ①父块粒度 + heading-less 修复 ✅；②自定义索引真功能 ✅（真机端到端通过）
+- [x] Phase 4 解析透视·检视层 —— ①Inspector 父块视图 + 索引管理 UI **✅ 真机验证通过**；①b 移除 image_desc/table_desc 冗余索引 **✅ 真机验证通过**；②父块粒度 UI + 重索引/重解析入口 **✅ 前端接线完成，待真机验证**
+- [x] Phase 5 后端正确性 —— ①jieba 中文 BM25 **✅ 真机验证通过（keyword 0→20）**；②QA 上下文位置注入 **✅ 真实数据验证（表→HTML、图→原位/原图 text→image→text）**；③跨页核查 **✅ 实证结论 + 修复跨页幽灵空块（真实数据验证 + 回归测试）**
+
+### Phase 5-① jieba 中文 BM25（已完成，真机 keyword 0→20）
+- `uv add jieba`；新 `services/cn_tokenizer.py`（`segment`/`segment_tokens`，jieba `cut_for_search` + 去标点；中英混合通用）。
+- `db/database.py`：FTS5 索引列 `embedding_text`→`fts_text`（CREATE + 两触发器同改）；`child_chunks` 加 `fts_text` 列（CREATE TABLE + 懒迁移 ALTER）；新增 `_migrate_fts_jieba(db)`：检测旧 FTS（schema 含 embedding_text）→ 删旧 FTS/触发器→按新 schema 重建→对存量 child_chunks 用 jieba 回填 fts_text→`INSERT ... VALUES('rebuild')` 重建索引。纯本地、不触网。**真机：迁移回填 1147 行**。
+- `services/index_service.py` `_write_sqlite`：child_chunks INSERT 加 `fts_text=_cn_segment(embedding_text)`。
+- `services/index_builder_service.py` `_materialize`：虚拟子块 INSERT 加 `fts_text=_cn_segment(index_text)`（自定义索引也支持中文关键词召回）。
+- `services/retrieval_service.py`：`_build_fts_query` 改用 `segment_tokens`（与索引同分词器），`_FTS_MAX_TOKENS` 10→24。
+- `services/retrieval_trace.py`：`_kw_tokens_of`（关键词也 jieba 切子词）对齐高亮，`_kw_token_patterns`/`kw_tokens` 共用 → 检索透视中文命中能点亮。
+- **真机验证**：3 个中文 query（纯中文）`/retrieve-trace` 的 `keyword` 召回从 **0 → 20**；单元 `test_cn_tokenizer` 6 条。
+
+### Phase 5-② QA 上下文位置注入（已完成，真实数据验证）
+- 新 `services/qa_context.py`：`render_qa_sources(chunks, parent_map, *, multimodal)` 读 enriched IR 投影（按 doc_id 缓存）+ assets 表（asset_id→原图路径），按 `parent.block_ids`(order_in_doc) 还原父块：
+  - 纯文本 `text`：图→`[图片: VLM描述]`、表→**MinerU HTML**、其余→块文本，**均在原位**；无 block_ids/IR 时回退父块 `text_full`。
+  - 多模态 `segments`：文本累积成 text 段，遇有原图的图/表→收尾文本段+发 image 段 → `text→image→text` 交错（图夹在原位）。`sources_have_images` 判定是否走多模态。
+- `services/qa_service.py`：新 `build_multimodal_content_from_sources(intro, sources, question)`（按 segments 把图片 `image_url` 插到原位）；保留旧 `build_multimodal_user_content`（旧 /chat 直答端点用）。
+- `services/retrieval_service.py` `fetch_parent_chunks`：SELECT 加 `block_ids`（QA 还原父块需要）。
+- `services/conversation_service.py`：`_fetch_rag_context` 改用 `render_qa_sources`（返回 (citations, sources, has_image)，sources 带 segments）；`stream_turn` 多模态走 `build_multimodal_content_from_sources(_RAG_INTRO, sources, user_q)`、纯文本走 `_build_rag_content`（现表格已是 HTML）；删除已死的 `_PARENT_CONTEXT_CAP`、`collect_image_paths` 调用。
+- **真实数据验证**（03课 PDF pc-d9a6d4346226，27块/12图1表）：纯文本路含 `<table` HTML + `[图片:描述]`；多模态路 segments = `text,image,×13...` 完美交错、13 原图入消息。单元 `test_qa_context_render` 10 条。**注**：旧 `qa_service.stream_answer`(chat.py /chat 直答端点，主聊天 UI 不走) 未改造，仍用简单拼接。
+- 基线：`basedpyright` 0；`test_v140.py` **79/79**（+jieba6 +qa_context10，-asset_desc）。
+
+### Phase 5-③ 跨页核查（已完成：实证结论 + 修复跨页幽灵空块）
+**用户的问题**：MinerU 自动合并被跨页拆分的块吗？JSON 里看得到吗？我们处理得当吗？
+**实证结论（扫了盘上全部已解析文档，34 页设计文档为主样本）**：
+1. **MinerU SaaS 的 `content_list_v2.json` 不合并跨页拆分块**，且**没有 `cross_page`/`continued` 之类显式标记**——它严格按页分组。一个跨页编号列表实测为：首页出 `list` 块(项1、2)，次页续接的项3、4变成两个独立 `paragraph` 块（**未并回 list**）。（历史上携带跨页 `lines` 信息的 `middle.json` **不在 SaaS 输出**里，我们只有 content_list_v2 + layout。）
+2. **但它在干净的句/项边界断开**：扫 107 个页边界，**0 个**「段落末尾无终止标点 + 次页接段落」的中途断句案例 → 从不把一句话从中间劈开。
+3. **我们的 section 切片天然缝合**：父块(Small-to-Big)按 `order_in_doc` 把同 section 跨页块顺序拼接 → LLM 永远看到连续上下文；子块虽按块切窗，但因断点在句界，每个子块仍是完整句 → 检索不受损；逐块 bbox/page 保留 → 溯源高亮正常。**故无需做跨页合并启发式（对 0/107 的问题强行合并反而有误并风险）**。
+**但实证中发现一个真 bug（已修）——跨页续表「幽灵空块」**：
+- 现象：跨页**表格**在首页给出完整 `html`+表图，次页会再 emit 一个**空 table 块**（`html=""`、`image_source.path="images/"` 只有目录无文件名、caption 空）。
+- 危害：这空块经管线→ `retrieval_text="[表格]"` 的**垃圾子块污染检索**（34 页设计文档实测产生 **10 个** `[表格]` 占位子块）+ 一个**指向 images 目录的伪 asset**。
+- 修复（双层，源头 + 兜底）：
+  - `adapters/normalizer.py`：①`_get_image_source_path` 对「无文件名后缀」的 path（如 `images/`）返回 None（不造伪 asset）；②新 `_is_empty_visual_block`——image/table/equation 且无文本/无 html/无 math/无真实资产 → 在归一化阶段**直接丢弃**（不进 IR/section/chunk/asset）。**关键：不写 `degraded`**（`pipeline_service` 用 `degraded` 非空判 needs_review，写了会让所有含跨页表格的文档被误标）。
+  - `chunkers/child_chunker.py`：`_make_atomic_child` 兜底——`retrieval_text` 为纯占位(`[表格]/[图片]/[公式]`)且无真实资产文件 → 不出子块。覆盖「从旧盘上 IR 重切片(reindex)」场景（旧 IR 仍含幽灵块）。
+- **真实数据验证**：对 808c0828 跑新 normalizer → 空表块 10→0、伪 asset 0、`degraded` 干净。回归测试 `test_cross_page_empty_block`（7 条）。
+- 基线：`basedpyright` 0；`test_v140.py` **86/86**（+跨页7）。
+
+### Phase 6 测试/类型/文档/收尾（已完成）
+- **静态检查全过**：`basedpyright` 0/0/0；`test_v140.py` **86/86**；前端 `tsc -p tsconfig.app.json` 0、`eslint`（新增文件 0 error/0 warning，剩 14 个既有 set-state-in-effect warning）、`npm run build` 通过。
+- **真机验证（uvicorn :8000 + 前端 :5173 + playwright）**：
+  - **Phase 4-② reindex**：34 页设计文档（doc `808c0828`，KB `52842b97`）API reindex → **L1=25 / L2=61 / L3=111 父块**（子块恒 216，子块粒度独立于父块），plvl 持久化、回 L1 复原。
+  - **Phase 5c 幽灵块**（同上 reindex 验证 child_chunker 兜底）：reindex 后**垃圾占位子块 10→0**、children 226→216。
+  - **GranularityControl UI 全链路**：解析透视头部渲染（粒度下拉 + 应用 + 重新解析）；点「应用」弹两步确认（清自定义索引提示）；UI 触发 reindex → 页面重载（reloadKey 生效）、**0 控制台报错**。
+  - `/reparse`、`/reindex` 端点经 OpenAPI 确认已注册；**`/reparse` 未擅自触发**（耗 MinerU/VLM API）。
+- **文档沉淀**：`RELEASE_NOTES.md` 加 v1.5.0 完整条目；`README.md` 功能表 +4 行；`doc/项目当前情况.md` 头部/完成状态/质量基线更新；`doc/在线API输出文件格式（SaaS推断版）.md` §9.8 记跨页拆分块行为 + 幽灵块处理；记忆 [[project-current-status]] 更新为 v1.5.0 待验收。
+- **progress.md 暂不精简**——按约定待用户验收后再收口。
+
+**v1.5.0 全部交付（Phase 1~6），待用户验收。**
+
+**【接手断点定位（新会话已确认）】**：上一个 AI 在 **Phase 4 起手处**中断。Phase 1/2/3（含 3-①②后端）实体完成且
+`basedpyright` 0 / `test_v140.py` 65/65 通过。断点证据：`Inspector.tsx` 已 staged Phase 4 的 import（`ExtraIndex`/
+`createDocIndex` 等 14 个）但**全未使用** → tsc 报 14 错；`ParseXrayPage.tsx` 已配线传 `selectedParentId`/
+`indexesByParent`/`onSelectParent`/`onRefreshIndexes` 给 `<Inspector>`，但 Inspector 不接这些 prop → 类型错。
+即：types.ts/client.ts 的索引 API（`ExtraIndex*` 类型 + `listDocIndexes/createDocIndex/patch/toggle/regenerate/
+deleteDocIndex`）与 ParseXrayPage 配线**都已完成**，唯独 **Inspector 的实 UI 没写**。本会话补完 Inspector。
+
+**改动记录（v1.5.0，开工后逐条补）**：
+
+### Phase 1 演示打磨（已完成，真机验证通过）
+- `pages/RetrievalXrayPage.tsx`：①节奏可调——新增 `SPEED_MS{slow:3400,normal:2300,fast:1300}` + `speed` state + 工具条"慢/中/快"选择器(Gauge 图标)，自动播放 timeout 改用 `SPEED_MS[speed]`(默认 normal 2300ms，原为固定 1150ms)；②视角自动跟随——每阶段容器挂 `stageRefs`，`revealed` 变化 effect 把当前 StageShell `scrollIntoView({behavior:smooth,block:center})`(仿流式输出视角跟随)；wrap 每个 Stage 加 `scroll-mt-24`。
+- `components/xray/shared.tsx` StageShell：①当前阶段站点加呼吸光晕(radial-gradient accent，opacity/scale 循环)；②内容卡进入改 spring(stiffness210/damping24)+scale；③当前卡顶部 accent 流光指示条(width/opacity 循环)。
+- `components/xray/DemoStages.tsx`：①StageVector——加 `xray-vglow` 径向渐变光晕、同心圈缓慢旋转(64s/圈)营造纵深、沿连线流动"语义信号"粒子(前6条，x/y transform 安全动画，不碰 SVG r 属性)；②StageRerank——位次变化连线叠加流光(strokeDashoffset 流动虚线)；③StageKeyword——扫描光束改连续扫盘+高亮前沿线。
+- **真机验证**：playwright 真实中文 query → scrollTop 随阶段单调推进(s1≈83→s6≈2724，视角跟随确证)；节奏~2.4s/阶段；控制台 0 报错 0 警告；向量阶段截图渲染正常(光晕/旋转圈/连线/分数列)。tsc -p tsconfig.app.json 0 错、eslint 0 error(1 既有 warning 非本次)、build 通过。
+- **顺带印证**：`/retrieve-trace` 真机 vector=20/keyword=**0**/fused=15/final=5 —— 中文 BM25 keyword 路确为 0，印证 Phase 5 待修。
+
+### Phase 2 解析透视·结构层（已完成，真机验证通过）
+- **Office 取坐标（核心）**：`config.py` 加 `mineru_office_use_ocr: bool=True`；`pipeline_service.py` 加 `_OFFICE_EXTS`/`_is_office_file()`，[A] 步给 Office 文件的 `files[]` 加 `is_ocr=True`(PDF/图片不变)。
+  - **原理（实测+官方确认）**：Office 默认走 MinerU `office` backend(无 bbox、不转 PDF)；加 `is_ocr=true` → 强制转 PDF + 版面识别。`is_ocr` 是 **file 级**参数(放 `files[]` 里)，`model_version`/`enable_table` 是顶层；都"仅 pipeline/vlm 有效"。
+  - **真机验证**：上传态 docx(选题思路) 经 `/parse` 重解析 → `_backend=hybrid`、产出 `*_origin.pdf`、blocks 有真实 bbox(`[144,102,848,376]`)、`/ir.origin_pdf_path` 非空 → 前端 `canRenderPdf=true`，浏览器里 **canvas 渲染 PDF + bbox 框**(playwright canvasCount=1)。结构与真 PDF 同构，走同一渲染代码。
+  - **注**：已索引 Office 要取坐标须"重新解析"，但 `/parse` 拦截 indexed 状态(409) → 需"重置状态再解析"入口，放 Phase 4。
+- **父块大框可点击**：`components/dissect/DocCanvas.tsx` 父块框 `div(pointer-events-none)`→可点击 `button`，加 `onSelectSection` prop，点空白区→选父块(块框 z 更高仍优先选块)，hover 透出淡 accent+「父块」标签；`ParseXrayPage.tsx` 传 `onSelectSection={selectSection}`。真机：点父块框右栏切到小节/父块检视。
+- **主菜单按路由收起**：`components/Layout.tsx` 用 `useLocation`，`/dissect` 默认收起(`collapsed` 从路由派生 + 仅当前路由有效的手动覆盖 override，无 effect 避免 set-state-in-effect 告警)；KB 二级菜单不动。真机：dissect 页主菜单宽度=68px(收起)。
+- **静态检查**：tsc -p tsconfig.app.json 0、eslint 0 error(剩 DocCanvas:59/ParseXrayPage:73 为既有 effect 告警)、控制台 0 报错。
+
+### ⚠️ Phase 2 顺带发现的真 bug（留 Phase 3 修）
+- **heading-less 文档 0 父块 0 子块**：无任何标题的文档 → IR 只有 1 个 synthetic 根节点(无子节点、直含正文块)，但 `chunkers/parent_chunker.py` 用 `if section.level==0 and section.synthetic: continue` **无条件跳过 synthetic 根** → 正文不进任何父块 → 0 chunk → 标记 indexed 但**内容完全不可检索**(实测 选题思路.docx parents=0/children=0)。
+  - **修法(Phase 3)**：synthetic 根仅当"有子节点(纯容器)"时才跳过；若它是唯一节点/叶子且含正文块，应照常出父块。Phase 3 重写 parent_chunker(加 N 级标题粒度)时一并修 + 重解析验证。
+  - 影响面：仅"零标题"文档(短笔记)；带标题的报告/PPT/PDF 不受影响(已验证 03课 PDF 58 父/281 子)。
+
+### Phase 3-① 父块粒度 + heading-less 修复（已完成，单元测试 9/9 通过）
+- `config.py`：加 `parent_chunk_heading_level: int = 1`（N 级标题=1 父块，默认 L1，可按文档覆盖）。
+- `chunkers/parent_chunker.py`（重写 `build_parent_chunks`，加 `parent_level` 参数）：
+  - **粒度算法**：按 `parent_level` 在 section 树切一刀——级别 ≤ N 的 section 各成"组根"，级别 > N 的内容上卷到最近 ≤ N 祖先(`group_root_id`)；每个组根聚合自身+全部后代正文块为 1 父块。
+  - **出父块判据改为"组内有无正文块"**（替代旧的 synthetic-root/纯标题容器特判）：组内含 ≥1 个 `role!=auxiliary 且 type!=title` 才出父块。
+  - **天然修复 heading-less bug**：有标题文档的 synthetic 根/纯标题章节无正文→跳过；无标题文档的根直含正文→出父块。
+- `chunkers/child_chunker.py`：header 前缀 + `ChildChunk.header_path` 字段都改用**块自身的 `blk.header_path`**（父块按粒度聚合变粗后，子块仍保留其所在子标题的上下文，检索更准）。
+- `pipeline_service.py`：`build_parent_chunks(..., parent_level=settings.parent_chunk_heading_level)`。
+- 测试 `test_v140.py::test_chunker_hierarchy` 改写：L1 粒度=一级标题各 1 父块且聚合子节正文 / L2 粒度=叶子小节各成父块 / 子块保留自身子标题路径 / heading-less 出 1 父块(回归)。`basedpyright` 0。
+- **注**：原测试"容器章节不出父块/叶子出父块 len==3"的预期已随新默认(L1 聚合)更新为新断言。
+- **集成验证（已通过）**：重启后端(加载新代码)后重解析概要设计 docx → 143 sections(L1=30/L2=46/L3=66) → **25 父块**(L1 聚合生效，旧行为会 100+)/226 子块/origin_pdf=True。父块标题=顶层节(系统概述/总体结构/模块设计/数据库/接口/其他)。
+  - **坑**：uvicorn 无 `--reload` 时改了后端代码必须**手动重启**才生效(否则用旧代码，曾误得 20 父块)。
+- **待**：per-doc 粒度设置 UI + 重索引入口 → Phase 4。
+
+### Phase 3-② 自定义索引真功能（已完成，真机端到端 + 离线单元 65/65 通过）
+**架构定稿：物化虚拟子块**——`parent_extra_indexes` 表是「管理层/source of truth」（定义/开关/可编辑文本/payload）；
+enabled 时把 `index_text` **物化**成 `child_chunks` 一行虚拟子块（`index_kind=kind`）+ embed + Qdrant 单点，
+复用同一 embedding/FTS/Qdrant/RRF/重排/Small-to-Big 管线参与检索；disabled 时移除该虚拟行。**检索侧零并行管线**，
+命中后经 `parent_chunk_id` 天然回父块（Small-to-Big）。检索结果里只剩 enabled 的，**无需过滤逻辑**。
+
+改动文件：
+- `db/database.py`：新增 `parent_extra_indexes` 表（index_id/doc_id/parent_chunk_id/section_id/kind/title/index_text/payload/enabled/source/child_chunk_id/qdrant_point_id/时间戳）+ 2 索引；`child_chunks` 加列 `index_kind`（懒迁移，''=常规子块）。
+- `models/models_chunk.py`：`ChildChunk` 加 `index_kind: str=""`。
+- `services/index_service.py`：`_upsert_qdrant` payload + `_write_sqlite` 写 `index_kind`；`_purge_doc` 加 `DELETE FROM parent_extra_indexes`（重解析时索引随文档重建——父块边界会因粒度变化而变，强行保留映射会错乱）。
+- `services/retrieval_service.py`：`RetrievedChunk` 加 `index_kind`；向量路读 payload、关键词路 SELECT `c.index_kind`。
+- `services/retrieval_trace.py`：`_hit_brief`/fusion/reranked 带 `index_kind` → 检索透视可标注「命中来自摘要/推测问题索引」。
+- `services/index_builder_service.py`（**新**）：5 类索引生成（summary/hypo_question(可预答,默认关)/image_desc/table_desc(复用 enrichment,不额外触网)/custom）+ `_materialize`/`_dematerialize`（虚拟子块↔child_chunks+Qdrant+FTS）+ `generate/set_enabled/update/regenerate/delete/list_doc_indexes`。
+- `prompts/index_summary_system.md` + `index_hypo_question_system.md`（**新**）。
+- `api/documents.py`：5 个端点（`GET/POST /{kb}/{doc}/indexes`、`PATCH/POST .../{index_id}`(toggle/regenerate)、`DELETE .../{index_id}`），`IndexBuildError`→400。
+- 测试 `test_v140.py::test_extra_index_builder`（mock，13 条）：围栏剥离/JSON 解析/资产描述提取/`_row_to_public` 转换。
+- **真机端到端验证（临时脚本，已删）**：custom 物化→`vector/hybrid_search` 命中 `index_kind=custom`(hybrid 排第一)→toggle off 虚拟行消失、检索不再命中；summary/hypo_question LLM 生成(6 问)；image_desc 从 VLM 富化提取成功。`basedpyright` 0 错。
+- **坑**：①LSP 对新建文件索引滞后（CLI 权威 0 错，插件误报 import unresolved，忽略）；②qdrant local 模式进程退出时 `QdrantClient.__del__` 良性告警（数据已 commit，无害）。
+- **待 Phase 4**：前端父块面板接这些 API（生成/开关/编辑/删除可视化）；per-doc 父块粒度 UI + 重解析已索引入口。
+
+### Phase 4-① 解析透视·检视层 —— Inspector 父块视图 + 索引管理 UI（本会话，已写完，待真机验证）
+- 先调 `frontend-design` 技能定美学方向（研读室体系内：父块=「标本解剖」；各索引种别=「检索 lens 卡」，启用即 accent 左条+「检索中」徽章=并入混合检索；hypo 默认关+「耗 API」警示）。
+- `components/dissect/Inspector.tsx`（重写，补完上一个 AI staged 的 import）：
+  - Inspector 由三态→**四态**：`selectedBlock?BlockView : selectedSection?SectionView : selectedParent?ParentView : OverviewView`（block/section 选中时 selectedParentId 也被设但 block/section 优先；只设 parent=点中间父块大框→ParentView）。
+  - **新增 `ParentView`（父块视图）**：头部(父块徽章/id/页跨/标题/header_path 面包屑可跳 section + 成员块/子切片/字数三连 Stat) + **`IndexManager`(主角)** + 折叠区(父块全文 / 父块资产 / 成员 MinerU 块 / 常规子切片)。
+  - **`IndexManager`**：常规子块行(始终参与不可关) + 4 类 auto 索引(summary/hypo_question/image_desc/table_desc)各为 `IndexCard`(已生成)或 `GenerateRow`(未生成，image/table 无对应块则禁用) + 多条 `custom` `IndexCard` + `AddCustomRow`。顶部「N 路在用」。
+  - **`IndexCard`**：`Toggle`(role=switch，启用=物化进检索) + 文本预览(可展开)/编辑(textarea inline) + hypo 显示 Q/A 列表 + 操作(编辑[非hypo]/重生成[非custom，hypo 重生成保持是否预答]/删除[两步确认])；接 `toggle/patch/regenerate/deleteDocIndex`，每次操作后 `onRefreshIndexes()`，per-card busy/err。
+  - **`GenerateRow`**：`createDocIndex`(hypo 可勾「附预答」=with_answer)；**`AddCustomRow`**：custom_text 手填。
+  - 复用件：`Collapsible`(motion 高度过渡)、`Toggle`、`ActionBtn`、`Stat`、`AssetList`(图片缩略图+「→多模态原图」标注/表/码/式图标)。BlockView/SectionView 的「父切片」卡改为点击 `onSelectParent` 跳父块视图。
+  - 仅用设计 token(含新用 `warn`/`success`)；`motion/react` 动效(开关弹簧、折叠高度)；信息密度大→默认折叠、索引区默认展开。
+- **静态检查全过**：`tsc -p tsconfig.app.json` 0 错；`eslint Inspector.tsx` 0 problem（ParseXrayPage:78 setState-in-effect 为既有 warning，非本次）；`npm run build` 通过。
+- **真机 playwright 验证（全通过，0 控制台报错）**：03课 PDF(b1c79e9e) 文档树点 L1「开发实战:发票提取工具」→SectionView→点「父块视图」卡→ParentView 正常（头部三连 Stat、检索索引面板、父块全文折叠、父块资产13 含图片缩略图+「→多模态原图」+VLM 描述、成员块/子切片）。索引操作：生成 image_desc(无 LLM，12 图描述)→IndexCard、开关 on→「检索中」徽章+「N 路在用」+1、添加自定义索引、生成摘要(LLM 真出一段)、两步确认删除→回到生成行。物化正确(DB: enabled=1 有 child+qdrant_point；disabled 无)，删除幂等(0 孤儿虚拟子块)。
+  - **检索接入实证**：`/retrieve-trace` 对匹配 custom 索引文本的 query → 命中 `index_kind=custom`（vector/fusion/reranked 全段带标注，检索透视可标「命中来自自定义索引」）。
+  - **顺带发现（报告用户，非本次 bug，归 Phase 5 索引质量）**：`index_builder_service._gen_asset_desc` 把父块内全部图片描述**连成 1 条 index_text → 1 个向量**，多图时该向量被"平均"稀释，特定单图 query 难命中（focused 的 custom 索引则干净命中作对照）。若要 image_desc 真正可召回，应改为**每图 1 条虚拟子块**（架构取舍：N 个 Qdrant 点 vs 1 个；需用户拍板，未擅改）。
+- **待**：Phase 4-② 父块粒度 UI + 重索引/重解析入口（**需先补后端**：per-doc 粒度存储 + reindex/reparse 端点，目前 `parent_chunker` 已支持 `parent_level` 参数但 pipeline 只读全局 `settings.parent_chunk_heading_level`，无 per-doc、无重切片端点）。
+
+### Phase 4-② 父块粒度 UI + 重索引/重解析入口（已完成前端接线，待真机验证）
+**后端（新增 per-doc 粒度存储 + 不重新解析的重切片端点）：**
+- `db/database.py`：`documents` 表加 `parent_heading_level INTEGER DEFAULT 0`（0=全局默认）+ 懒迁移 ALTER。
+- `services/reindex_service.py`（**新**）：`rechunk_and_reindex(doc_id, parent_level)`——不触 MinerU，直接读盘上 enriched IR（`DocumentIREnriched.model_validate`），`_reapply_reflow(blocks)`（把 `enrichment.image/table.embedding_text` 回写 `block.text`，与 pipeline 步骤 [E+→L 之间] 同构）→ `build_parent_chunks(..., parent_level=parent_level)` → `build_child_chunks` → `embed_texts` → `index_chunks`（幂等，内部 `_purge_doc` 清旧 chunk/向量/extra_indexes）→ `write_chunks` → 更新 `documents.parent_chunks_path/child_chunks_path/parent_heading_level`。`get_effective_parent_level(doc_id)`：per-doc>0 取之，否则取 `settings.parent_chunk_heading_level`。`ReindexError`。用 `cast("list[IRBlock]", blocks)` 规避 list 不变性。
+- `services/pipeline_service.py` 步骤 [L]：`parent_level = await get_effective_parent_level(doc_id)` 后 `build_parent_chunks(..., parent_level=parent_level)`（首次解析也遵守 per-doc 设置）。
+- `api/documents.py`：`DocInfo` + `_DOC_SELECT` 加 `parent_heading_level`（COALESCE 0）；`ReindexBody(parent_level)`；`POST /{kb}/{doc}/reindex`（调 `rechunk_and_reindex`，`ReindexError`→400，返回 `{parent_level, parents, children}`）；`POST /{kb}/{doc}/reparse`（重置 status→'uploaded' 后台触发 `run_parse_pipeline`，允许已索引文档重解析取坐标/格式更新）。
+**前端：**
+- `api/types.ts`：`DocInfo` 加 `parent_heading_level: number`。
+- `api/client.ts`：`reindexDocument(kbId, docId, parentLevel)`、`reparseDocument(kbId, docId)`。
+- `components/dissect/GranularityControl.tsx`（**新**）：父块粒度 select（一/二/三级标题）+「应用」（二步确认，提示重切片清除自定义索引）+「重新解析」（二步确认，提示耗 MinerU/VLM API）；成功后 `onReindexed()`。
+- `pages/ParseXrayPage.tsx`：加 `reloadKey` state（IR/chunks/indexes 三个 effect 都依赖它）+ `selectedDoc` 派生 + 元数据条右侧 `ml-auto` 挂 `<GranularityControl key={docId} currentLevel={selectedDoc?.parent_heading_level ?? 0} onReindexed={()=>setReloadKey(k=>k+1)} />`。
+- **静态检查**：前端 `tsc -p tsconfig.app.json` 0 错、`eslint` 我的文件 0 error/0 warning（剩余 14 warning 均为既有 set-state-in-effect）；后端 `basedpyright` 0（上轮已验，本次仅前端接线）。
+- **待真机验证**：切粒度→重切片父块数变化 + IR/chunks 重载；重新解析已索引 Office 取坐标。
+
+---
+
+## 1. 上一轮：v1.4.0 —— 技术难点可视化（"唬人"演示版）
 
 **目标**：项目是课程设计，靠 PPT+现场演示答辩。当前前端把解析/检索/切片这些**技术难点全藏起来了**，
 演示时老师以为"就调了个 API"。v1.4.0 把真正的难点做成**惊艳、唬人的可视化前端**（在现有"研读室"

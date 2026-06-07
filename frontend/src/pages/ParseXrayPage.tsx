@@ -2,14 +2,16 @@
 // 把 MinerU 解析 → 结构感知 → LLM 文档树重建 → 坐标锚定 → 父子切片 → 图片 VLM
 // 这条隐藏流水线揭开成可视化：左=文档树，中=版面 bbox 画布（PDF）/块流（Office），右=解析检视。
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
 import {
   AlertCircle, Boxes, FileScan, FileText, Image as ImageIcon, Layers,
   ListTree, Loader2, PanelLeftOpen, PanelRightOpen, ScanLine, Sparkles,
 } from "lucide-react"
-import { getDocumentChunks, getDocumentIR, getOriginPdfUrl, listDocuments } from "@/api/client"
-import type { ChunksResponse, DocInfo, IRResponse } from "@/api/types"
+import {
+  getDocumentChunks, getDocumentIR, getOriginPdfUrl, listDocIndexes, listDocuments,
+} from "@/api/client"
+import type { ChunksResponse, DocInfo, ExtraIndex, IRResponse } from "@/api/types"
 import { cn } from "@/lib/utils"
 import {
   buildMaps, buildSectionTree, hasGeometry,
@@ -19,6 +21,7 @@ import { DocTree } from "@/components/dissect/DocTree"
 import { DocCanvas, type CanvasLayers } from "@/components/dissect/DocCanvas"
 import { BlockStream } from "@/components/dissect/BlockStream"
 import { Inspector } from "@/components/dissect/Inspector"
+import { GranularityControl } from "@/components/dissect/GranularityControl"
 
 const ELIGIBLE_STATUS = new Set(["indexed", "needs_review"])
 const isEligible = (d: DocInfo) =>
@@ -45,11 +48,16 @@ export default function ParseXrayPage() {
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
+  const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null)
   const [pageIdx, setPageIdx] = useState(0)
   const [layers, setLayers] = useState<CanvasLayers>({ blocks: true, parents: true, color: true })
   const [treeOpen, setTreeOpen] = useState(true)
   const [inspectorOpen, setInspectorOpen] = useState(true)
+  // 父块自定义索引：parent_chunk_id → 该父块索引列表
+  const [indexesByParent, setIndexesByParent] = useState<Record<string, ExtraIndex[]>>({})
+  // 重切片后自增，触发 IR / chunks / indexes 全量重载
+  const [reloadKey, setReloadKey] = useState(0)
   const reqRef = useRef(0)
 
   // 文档列表
@@ -76,6 +84,7 @@ export default function ParseXrayPage() {
     setChunks(null)
     setSelectedBlockId(null)
     setSelectedSectionId(null)
+    setSelectedParentId(null)
     setPageIdx(0)
     Promise.all([
       getDocumentIR(kbId, docId),
@@ -93,8 +102,24 @@ export default function ParseXrayPage() {
       .finally(() => {
         if (seq === reqRef.current) setLoading(false)
       })
+  }, [kbId, docId, reloadKey])
+
+  // Load extra indexes when docId changes（重切片后随 reloadKey 重载）
+  useEffect(() => {
+    if (!kbId || !docId) return
+    listDocIndexes(kbId, docId)
+      .then((r) => setIndexesByParent(r.by_parent))
+      .catch(() => setIndexesByParent({}))
+  }, [kbId, docId, reloadKey])
+
+  const refreshIndexes = useCallback(() => {
+    if (!kbId || !docId) return
+    listDocIndexes(kbId, docId)
+      .then((r) => setIndexesByParent(r.by_parent))
+      .catch(() => {})
   }, [kbId, docId])
 
+  const selectedDoc = useMemo(() => docs.find((d) => d.doc_id === docId) ?? null, [docs, docId])
   const maps = useMemo(() => (ir ? buildMaps(ir, chunks) : null), [ir, chunks])
   const tree = useMemo(() => (ir ? buildSectionTree(ir.sections) : []), [ir])
   const canRenderPdf = useMemo(
@@ -111,13 +136,25 @@ export default function ParseXrayPage() {
     setSelectedSectionId(null)
     const b = maps?.blockById.get(id)
     if (b && canRenderPdf) setPageIdx(b.page_idx)
+    const p = maps?.parentByBlock.get(id)
+    setSelectedParentId(p?.parent_chunk_id ?? null)
   }
   const selectSection = (id: string) => {
     setSelectedSectionId(id)
     setSelectedBlockId(null)
+    const p = maps ? [...maps.parentById.values()].find((pp) => pp.section_id === id) : null
+    setSelectedParentId(p?.parent_chunk_id ?? null)
     const s = maps?.sectionById.get(id)
     if (s && canRenderPdf && s.page_span?.length) setPageIdx(s.page_span[0])
   }
+  const selectParent = useCallback((pid: string) => {
+    setSelectedParentId(pid)
+    setSelectedBlockId(null)
+    setSelectedSectionId(null)
+    if (!maps || !canRenderPdf) return
+    const entries = maps.parentBoxes.get(pid)
+    if (entries?.length) setPageIdx(entries[0].page_idx)
+  }, [maps, canRenderPdf])
 
   // 深链：目标文档 maps 就绪后，定位到来源块（block 直选 / child→首个 source_block），仅一次
   useEffect(() => {
@@ -194,6 +231,16 @@ export default function ParseXrayPage() {
                 <Sparkles className="h-3.5 w-3.5" /> VLM 富化
               </span>
             )}
+
+            <div className="ml-auto">
+              <GranularityControl
+                key={docId}
+                kbId={kbId!}
+                docId={docId}
+                currentLevel={selectedDoc?.parent_heading_level ?? 0}
+                onReindexed={() => setReloadKey((k) => k + 1)}
+              />
+            </div>
           </div>
         )}
       </header>
@@ -234,14 +281,15 @@ export default function ParseXrayPage() {
                 pageIdx={pageIdx}
                 pageCount={Math.max(1, ir.document.page_count || ir.pages.length || 1)}
                 blocks={pageBlocks}
-                sectionBbox={ir.section_bbox}
+                parentBoxes={maps.parentBoxes}
                 selectedBlockId={selectedBlockId}
                 hoveredBlockId={hoveredBlockId}
                 activeSectionId={activeSectionId}
-                selectedSectionId={selectedSectionId}
+                selectedParentId={selectedParentId}
                 layers={layers}
                 onLayers={setLayers}
                 onSelectBlock={selectBlock}
+                onSelectParent={selectParent}
                 onHoverBlock={setHoveredBlockId}
                 onPageChange={setPageIdx}
               />
@@ -271,8 +319,12 @@ export default function ParseXrayPage() {
                 childCount={chunks?.counts.children ?? 0}
                 selectedBlock={selectedBlock}
                 selectedSection={selectedSection}
+                selectedParentId={selectedParentId}
+                indexesByParent={indexesByParent}
                 onSelectBlock={selectBlock}
                 onSelectSection={selectSection}
+                onSelectParent={selectParent}
+                onRefreshIndexes={refreshIndexes}
                 onCollapse={() => setInspectorOpen(false)}
               />
             </aside>

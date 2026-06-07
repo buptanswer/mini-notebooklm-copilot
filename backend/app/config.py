@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     mineru_api_key: str = Field(default="", validation_alias="MINERU_API_KEY")
     mineru_api_base: str = "https://mineru.net/api/v4"
     mineru_model_version: str = "vlm"
+    # Office 文档(doc/ppt/xls 系列)默认走 MinerU 的 office backend：无版面坐标、不产出 PDF。
+    # 给这类文件加 is_ocr=true 可强制转 PDF + 跑版面识别 → 得到 origin.pdf 与 bbox 坐标，
+    # 解析透视中央就能像 PDF 一样坐标渲染。PDF/图片不受影响（保留原生文本，不强制 OCR）。
+    mineru_office_use_ocr: bool = True
+
+    # 父块粒度：N 级标题(含其下所有子标题内容)合成 1 个父块。默认 1（一级标题=1 父块），
+    # 父块越大→给问答模型的上下文越全(Small-to-Big)，但越费 token。可按文档覆盖(解析透视里设置)。
+    parent_chunk_heading_level: int = 1
 
     # ── 阿里云百炼 (DashScope) — 嵌入 / 重排序 / VLM ─────
     # 申请地址：https://bailian.console.aliyun.com

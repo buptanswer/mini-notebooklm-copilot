@@ -36,6 +36,7 @@ export interface DocInfo {
   origin_pdf_path: string
   folder_category: string  // recording / slides / homework / notice / review_note / ''
   bound_file_path: string  // 绑定文件夹模式下的文件路径
+  parent_heading_level: number  // 父块粒度（几级标题=1父块）；0=全局默认
   created_at: string
   updated_at: string
 }
@@ -392,4 +393,39 @@ export interface ChunksResponse {
   parents: ParentChunkRow[]
   children: ChildChunkRow[]
   counts: { parents: number; children: number }
+}
+
+// ── 父块自定义索引（v1.5.0）─────────────────────────────────
+
+// 图/表描述不在此单列——基础切片管线已让每图/表各成独立子块按描述索引（见 child_chunker），故无 image_desc/table_desc。
+export type ExtraIndexKind = "summary" | "hypo_question" | "custom"
+
+/** 推测问题预答等附加数据 */
+export interface ExtraIndexPayload {
+  questions?: string[]
+  answers?: string[]
+}
+
+/** 挂在父块上的一条自定义索引（启用即物化为虚拟子块接入混合检索）。 */
+export interface ExtraIndex {
+  index_id: string
+  doc_id: string
+  parent_chunk_id: string
+  section_id: string
+  kind: ExtraIndexKind
+  title: string
+  index_text: string
+  payload: ExtraIndexPayload
+  enabled: boolean
+  source: string            // "auto" | "user"
+  child_chunk_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DocIndexesResponse {
+  doc_id: string
+  kb_id: string
+  items: ExtraIndex[]
+  by_parent: Record<string, ExtraIndex[]>
 }

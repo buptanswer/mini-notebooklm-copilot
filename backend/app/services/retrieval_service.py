@@ -27,12 +27,13 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny
 from app.config import settings
 from app.db.database import get_db
 from app.db.qdrant_client import get_qdrant
+from app.services.cn_tokenizer import segment_tokens
 from app.services.embedding_service import embed_texts
 
 logger = logging.getLogger(__name__)
 
 _RRF_K = 60          # RRF 平滑常数
-_FTS_MAX_TOKENS = 10  # FTS5 查询最大词数
+_FTS_MAX_TOKENS = 24  # FTS5 查询最大词数（jieba 分词后 token 变多，放宽以保召回）
 
 
 # ─────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ class RetrievedChunk:
     qdrant_point_id: str = ""
     score: float = 0.0
     source: str = "unknown"   # "vector" | "keyword" | "hybrid"
+    index_kind: str = ""      # ''=常规子块命中；非空=命中父块自定义索引(summary/hypo_question/image_desc/table_desc/custom)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -136,6 +138,7 @@ async def vector_search(
             qdrant_point_id=str(h.id),
             score=float(h.score),
             source="vector",
+            index_kind=str(p.get("index_kind") or ""),
         ))
 
     logger.info("向量召回: %d 条 (kb=%s)", len(results), kb_id)
@@ -152,10 +155,13 @@ def _build_fts_query(text: str, mode: str = "and") -> str:
     mode="and"：各 token 隐式 AND（要求全部命中，精确）。
     mode="or" ：各 token 以 OR 连接（命中任一即可，召回更高）——
       适合「LLM 抽取的多个关键词」检索（query_planner 场景）。
+
+    中文支持：用 jieba 分词（与索引侧 fts_text 同一分词器），把中文切成词 token，
+      让 unicode61 据空格匹配（修复中文 BM25 零召回）。中英混合通用。
     """
-    # 去除 FTS5 特殊字符
+    # 去除 FTS5 特殊字符，再 jieba 分词成词 token（与 fts_text 索引一致）
     cleaned = re.sub(r'["""()^:*\-]', " ", text)
-    tokens = [t for t in cleaned.split() if len(t) >= 1][:_FTS_MAX_TOKENS]
+    tokens = segment_tokens(cleaned)[:_FTS_MAX_TOKENS]
     if not tokens:
         return '""'
     joiner = " OR " if mode == "or" else " "
@@ -188,7 +194,7 @@ async def keyword_search(
                c.chunk_type, c.retrieval_text, c.embedding_text, c.header_path,
              c.page_span_start, c.page_span_end,
              c.bbox_norm1000, c.bbox_page, c.anchor_origin_pdf_path,
-             c.qdrant_point_id, c.asset_paths,
+             c.qdrant_point_id, c.asset_paths, c.index_kind,
                bm25(child_chunks_fts) AS bm25_score
         FROM child_chunks_fts
         JOIN child_chunks c ON c.rowid = child_chunks_fts.rowid
@@ -238,6 +244,7 @@ async def keyword_search(
             qdrant_point_id=r.get("qdrant_point_id", ""),
             score=score,
             source="keyword",
+            index_kind=str(r.get("index_kind") or ""),
         ))
 
     logger.info("关键词召回: %d 条 (kb=%s)", len(results), kb_id)
@@ -341,6 +348,7 @@ async def fetch_parent_chunks(
         cur = await db.execute(
             f"""SELECT parent_chunk_id, title, header_path,
                        text_preview, COALESCE(text_full, '') AS text_full,
+                       COALESCE(block_ids, '[]') AS block_ids,
                        page_span_start, page_span_end, doc_id
                 FROM parent_chunks WHERE parent_chunk_id IN ({placeholders})""",
             parent_chunk_ids,
@@ -356,6 +364,11 @@ async def fetch_parent_chunks(
             r["header_path"] = json.loads(r.get("header_path", "[]"))
         except Exception:
             r["header_path"] = []
+        try:
+            parsed_blocks = json.loads(r.get("block_ids", "[]"))
+            r["block_ids"] = parsed_blocks if isinstance(parsed_blocks, list) else []
+        except Exception:
+            r["block_ids"] = []
         result[r["parent_chunk_id"]] = r
     return result
 

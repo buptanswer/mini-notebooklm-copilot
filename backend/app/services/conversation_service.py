@@ -315,12 +315,12 @@ async def stream_turn(
     # 2. 可选 RAG 检索
     citations: list | None = None
     sources: list | None = None
-    image_paths: list | None = None
+    has_image: bool = False
     if rag_mode:
-        citations, sources, image_paths = await _fetch_rag_context(
+        citations, sources, has_image = await _fetch_rag_context(
             user_content, conv["kb_id"], top_k
         )
-    use_multimodal = bool(image_paths) and settings.qa_enable_multimodal
+    use_multimodal = has_image and settings.qa_enable_multimodal
 
     # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
     msgs = await list_messages(conversation_id)
@@ -331,15 +331,16 @@ async def stream_turn(
         if m["role"] in ("system", "user", "assistant"):
             openai_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # 4. RAG 注入到最后一条 user message（Small-to-Big 父块上下文；命中图片则组装多模态 content）
+    # 4. RAG 注入到最后一条 user message（Small-to-Big 父块上下文；命中图片则按原位组装多模态 content）
     if sources:
-        from app.services.qa_service import build_multimodal_user_content
+        from app.services.qa_service import build_multimodal_content_from_sources
         for i in range(len(openai_msgs) - 1, -1, -1):
             if openai_msgs[i]["role"] == "user":
-                rag_text = _build_rag_content(openai_msgs[i]["content"], sources)
+                user_q = openai_msgs[i]["content"]
                 openai_msgs[i]["content"] = (
-                    build_multimodal_user_content(rag_text, image_paths or [])
-                    if use_multimodal else rag_text
+                    build_multimodal_content_from_sources(_RAG_INTRO, sources, user_q)
+                    if use_multimodal
+                    else _build_rag_content(user_q, sources)
                 )
                 break
 
@@ -379,76 +380,65 @@ async def stream_turn(
     yield sse_line({"type": "message_end", "message_id": asst_msg_id})
 
 
-_PARENT_CONTEXT_CAP = 2000   # 单条父块上下文注入上限（字符），避免极长小节撑爆上下文窗口
-
-
 async def _fetch_rag_context(
     query: str, kb_id: str, top_k: int
-) -> tuple[list | None, list | None, list | None]:
+) -> tuple[list | None, list | None, bool]:
     """
     全链路检索（query_planner 规划 → 双路 → RRF → 重排，见 retrieval_trace）。
-    返回 (citations, sources, image_paths)；失败降级 (None, None, None)。
+    返回 (citations, sources, has_image)；失败降级 (None, None, False)。
       - citations：每个命中子块的元数据（UI 来源面板 + bbox 高亮，截断展示）。
-      - sources：**Small-to-Big** 注入上下文——每条 = 命中子块所在**父块全文**（回退 preview/子块），
-        与 citations 一一对应，保持 [来源N] 编号对齐。
-      - image_paths：命中图片类切片的原图本地路径（多模态问答传图用，已限量去重）。
+      - sources：**Small-to-Big** 注入上下文——每条 = 命中子块所在**父块**按块序还原
+        （图=VLM描述/原图、表=HTML，均在原位；见 qa_context.render_qa_sources），
+        与 citations 一一对应，保持 [来源N] 编号对齐；多模态时每条带有序 segments。
+      - has_image：是否有可注入的原图片段（决定走多模态问答）。
     """
     try:
-        from app.services.qa_service import collect_image_paths
+        from app.services.qa_context import render_qa_sources, sources_have_images
         from app.services.retrieval_trace import run_retrieval_pipeline
 
         result = await run_retrieval_pipeline(query, kb_id, top_k=top_k, build_trace=False)
         reranked = result.chunks
         parent_map = result.parent_map
         if not reranked:
-            return None, None, None
+            return None, None, False
 
+        # citations：前端来源面板 + bbox 高亮（截断展示，与 sources 按 [来源N] 同序对齐）
         citations: list[dict] = []
-        sources: list[dict] = []
         for i, c in enumerate(reranked, 1):
             parent = parent_map.get(c.parent_chunk_id, {})
             hp = parent.get("header_path") or c.header_path or []
-            ps = parent.get("page_span_start", c.page_span_start)
-            pe = parent.get("page_span_end", c.page_span_end)
             citations.append({
                 "index": i,
                 "child_chunk_id": c.child_chunk_id,
                 "parent_chunk_id": c.parent_chunk_id,
                 "doc_id": c.doc_id,
                 "header_path": hp,
-                "page_span_start": ps,
-                "page_span_end": pe,
+                "page_span_start": parent.get("page_span_start", c.page_span_start),
+                "page_span_end": parent.get("page_span_end", c.page_span_end),
                 "bbox_norm1000": c.bbox_norm1000,
                 "bbox_page": c.bbox_page,
                 "anchor_origin_pdf_path": c.anchor_origin_pdf_path,
                 "retrieval_text": (c.retrieval_text or "")[:300],
                 "score": round(c.score, 4),
             })
-            # Small-to-Big：命中子块 → 喂其所在父块全文
-            parent_text = (
-                (parent.get("text_full") or "").strip()
-                or (parent.get("text_preview") or "").strip()
-                or (c.retrieval_text or "")
-            )[:_PARENT_CONTEXT_CAP]
-            sources.append({
-                "header_path": hp,
-                "page_span_start": ps,
-                "page_span_end": pe,
-                "text": parent_text,
-            })
-        image_paths = (
-            collect_image_paths(reranked, settings.qa_multimodal_max_images)
-            if settings.qa_enable_multimodal else []
+
+        # sources：Small-to-Big 上下文，位置保真还原父块（图=描述/原图、表=HTML，均在原位）
+        sources = await render_qa_sources(
+            reranked, parent_map, multimodal=settings.qa_enable_multimodal
         )
-        return citations, sources, image_paths
+        has_image = sources_have_images(sources)
+        return citations, sources, has_image
     except Exception:
         logger.warning("RAG 检索失败，降级为纯对话模式", exc_info=True)
-        return None, None, None
+        return None, None, False
+
+
+_RAG_INTRO = "以下是从知识库检索、并扩展到命中内容所在小节的参考资料：\n"
 
 
 def _build_rag_content(user_content: str, sources: list) -> str:
-    """把 Small-to-Big 的父块上下文拼成提示词（格式与 qa_service 一致，[来源N] 与引用对齐）。"""
-    lines = ["以下是从知识库检索、并扩展到命中内容所在小节的参考资料：\n"]
+    """把 Small-to-Big 的父块上下文拼成提示词（格式与多模态路一致，[来源N] 与引用对齐）。"""
+    lines = [_RAG_INTRO]
     for i, s in enumerate(sources, 1):
         hp = " > ".join(s.get("header_path") or []) or "（无标题）"
         ps = s.get("page_span_start", 0)

@@ -1216,3 +1216,28 @@ for item in list_items:
 **解析处理（已实现）**：
 - `normalizer._flatten_text_segments`：某段 `content` 为空但存在 `children` 列表时，递归提取 children 文本作无损兜底。
 - `children` 已加入 `normalizer._KNOWN_TEXT_SEGMENT_KEYS` 与 `format_checker.TEXT_SEGMENT_KNOWN_FIELDS`，探针不再报未知字段。
+
+### 9.8 跨页拆分块的行为（2026-06-06 实测）
+
+> 来源：v1.5.0 跨页核查，扫盘上全部已解析文档（主样本：34 页设计 docx）。这是**行为/语义层面**的观察，
+> 非新字段——`format_checker` 是字段级校验，抓不到，故记录在此供维护者参考。
+
+**结论：`content_list_v2.json` 严格按页分组、不合并跨页拆分块，也没有 `cross_page`/`continued` 之类显式标记。**
+- 一个跨页编号列表实测：首页出 `list` 块（项 1、2），次页续接的项 3、4 变成两个独立 `paragraph` 块（**未并回 list**）。
+- 但断点落在**干净的句/项边界**：扫 107 个页边界，0 个「段落末尾无终止标点 + 次页接段落」的中途断句。
+- （历史上携带跨页 `lines` 信息的 `middle.json` **不在 SaaS 输出**里，只有 content_list_v2 + layout。）
+- 我们的 section 父子切片天然缝合（父块按阅读序拼接同 section 跨页块、子块按句界切窗），**无需做跨页合并**。
+
+**⚠ 跨页表格的「空幽灵块」（已在 normalizer 处理）**：跨页**表格**在首页给出完整 `html`+表图，**次页会再 emit 一个
+空 table 块**——`html=""`、`image_source.path="images/"`（只有目录、无文件名）、caption 空。
+
+```json
+{ "type": "table", "content": { "html": "", "image_source": { "path": "images/" }, "table_caption": [] }, "bbox": [...] }
+```
+
+- 危害（修复前）：经管线变成 `retrieval_text="[表格]"` 的垃圾子块污染检索（34 页文档实测 10 个）+ 一个指向 images 目录的伪 asset。
+- 处理（已实现，v1.5.0）：
+  - `normalizer._get_image_source_path`：path 无文件名后缀（如 `images/`）→ 返回 None（不造伪 asset）。
+  - `normalizer._is_empty_visual_block` + `normalize()` 主循环：image/table/equation 且无文本/无 html/无 math/无真实资产
+    → 归一化阶段直接丢弃。**注意：不写 `degraded`**——否则 `pipeline_service` 会因 `degraded` 非空把含跨页表格的文档误标 `needs_review`。
+  - `child_chunker._make_atomic_child`：兜底跳过「纯占位文本(`[表格]`/`[图片]`/`[公式]`) 且无真实资产文件」的原子块（覆盖从旧盘 IR 重切片(reindex)场景）。

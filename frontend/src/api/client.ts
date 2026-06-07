@@ -6,7 +6,10 @@ import type {
   CourseInfoCard,
   DeadlineItem,
   ChunksResponse,
+  DocIndexesResponse,
   DocInfo,
+  ExtraIndex,
+  ExtraIndexKind,
   IRResponse,
   KBInfo,
   KBType,
@@ -145,6 +148,95 @@ export async function getDocumentChunks(kbId: string, docId: string): Promise<Ch
 /** 图片资产（裁剪图）的 URL，直接用作 <img src>。 */
 export function getAssetUrl(kbId: string, docId: string, assetId: string): string {
   return `${BASE}/documents/${kbId}/${docId}/asset/${assetId}`
+}
+
+// ── 父块自定义索引（v1.5.0）─────────────────────────────────
+
+/** 列出文档全部父块自定义索引（含按父块聚合的 by_parent）。 */
+export async function listDocIndexes(kbId: string, docId: string): Promise<DocIndexesResponse> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes`)
+  return handleResponse<DocIndexesResponse>(res)
+}
+
+/** 生成一条父块索引（custom 为手填 custom_text）；enable=true 立即物化参与检索。 */
+export async function createDocIndex(
+  kbId: string, docId: string,
+  body: {
+    parent_chunk_id: string
+    kind: ExtraIndexKind
+    custom_text?: string
+    title?: string
+    with_answer?: boolean
+    enable?: boolean
+  },
+): Promise<ExtraIndex> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  return handleResponse<ExtraIndex>(res)
+}
+
+/** 编辑索引文本/标题（启用中会自动重嵌入）。 */
+export async function patchDocIndex(
+  kbId: string, docId: string, indexId: string,
+  body: { index_text?: string; title?: string },
+): Promise<ExtraIndex> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes/${indexId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  return handleResponse<ExtraIndex>(res)
+}
+
+/** 启用/停用索引（启用即物化、停用即移除虚拟子块）。 */
+export async function toggleDocIndex(
+  kbId: string, docId: string, indexId: string, enabled: boolean,
+): Promise<ExtraIndex> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes/${indexId}/toggle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  })
+  return handleResponse<ExtraIndex>(res)
+}
+
+/** 重新生成 auto 类索引（summary/hypo_question/image_desc/table_desc）。 */
+export async function regenerateDocIndex(
+  kbId: string, docId: string, indexId: string, withAnswer = false,
+): Promise<ExtraIndex> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes/${indexId}/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ with_answer: withAnswer }),
+  })
+  return handleResponse<ExtraIndex>(res)
+}
+
+/** 删除一条索引（先清理物化虚拟子块/Qdrant，再删定义）。 */
+export async function deleteDocIndex(kbId: string, docId: string, indexId: string): Promise<void> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/indexes/${indexId}`, { method: "DELETE" })
+  await handleResponse<unknown>(res)
+}
+
+/** 按新父块粒度重切片+重索引（不重新解析 MinerU；会清掉该文档已建的自定义索引）。 */
+export async function reindexDocument(
+  kbId: string, docId: string, parentLevel: number,
+): Promise<{ parent_level: number; parents: number; children: number }> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/reindex`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parent_level: parentLevel }),
+  })
+  return handleResponse(res)
+}
+
+/** 重置状态并重新解析（已索引 Office 取坐标 / 格式更新；消耗 MinerU·VLM API）。 */
+export async function reparseDocument(kbId: string, docId: string): Promise<{ doc_id: string }> {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/reparse`, { method: "POST" })
+  return handleResponse(res)
 }
 
 // ── 任务 ───────────────────────────────────────────────────

@@ -254,7 +254,7 @@ async def test_doc_tree_assign() -> None:
 
 
 def test_chunker_hierarchy() -> None:
-    print("\n[8] 层级树 → 父/子切片（无退化父块 / 无孤儿 / 标题不单列）")
+    print("\n[8] 父块粒度（N 级标题=1 父块）+ 子块路径 + heading-less 修复")
     from app.adapters.dom_builder import build_dom
     from app.chunkers.child_chunker import build_child_chunks
     from app.chunkers.parent_chunker import build_parent_chunks
@@ -273,17 +273,19 @@ def test_chunker_hierarchy() -> None:
     ]
     blocks, sections = build_dom(blocks)
     pages = [IRPage(page_id="pg0", page_idx=0), IRPage(page_id="pg1", page_idx=1)]
+
+    # 默认 parent_level=1：一级标题=1 父块，子节内容上卷聚合
     parents = build_parent_chunks(sections, blocks, pages, "docX")
     children = build_child_chunks(parents, blocks, pages, "docX")
 
-    parent_titles = {p.title for p in parents}
-    _record("容器章节不出父块（第一章/第二章 跳过）",
-            "第一章 绪论" not in parent_titles and "第二章 设计" not in parent_titles)
-    _record("叶子小节出父块（1.1/1.2/2.1）", len(parents) == 3)
-
-    p11 = next((p for p in parents if p.title == "1.1 背景"), None)
-    _record("层级 header_path 正确",
-            p11 is not None and p11.header_path == ["第一章 绪论", "1.1 背景"])
+    parent_titles = [p.title for p in parents]
+    _record("L1 粒度：一级标题各成 1 父块（第一章/第二章）",
+            parent_titles == ["第一章 绪论", "第二章 设计"])
+    p_ch1 = next((p for p in parents if p.title == "第一章 绪论"), None)
+    _record("父块聚合子节正文（第一章含 背景+目标 两段）",
+            p_ch1 is not None
+            and "背景段落" in p_ch1.text_for_generation
+            and "目标段落" in p_ch1.text_for_generation)
 
     parent_ids = {p.parent_chunk_id for p in parents}
     _record("无孤儿 child（parent_chunk_id 都有效）",
@@ -291,6 +293,223 @@ def test_chunker_hierarchy() -> None:
     title_texts = {"第一章 绪论", "1.1 背景", "1.2 目标", "第二章 设计", "2.1 架构"}
     _record("标题不单列为 child", all(c.retrieval_text not in title_texts for c in children))
     _record("child 仅来自正文段落（3 条）", len(children) == 3)
+    # 子块用块自身的 header_path（即使父块更粗，仍保留子标题上下文）
+    c_bg = next((c for c in children if "背景" in c.retrieval_text), None)
+    _record("子块保留自身子标题路径（含 1.1 背景）",
+            c_bg is not None and c_bg.header_path == ["第一章 绪论", "1.1 背景"])
+
+    # parent_level=2：到二级标题粒度 → 叶子小节各成父块（1.1/1.2/2.1）
+    parents2 = build_parent_chunks(sections, blocks, pages, "docX", parent_level=2)
+    titles2 = {p.title for p in parents2}
+    _record("L2 粒度：叶子小节各成父块（1.1/1.2/2.1）",
+            titles2 == {"1.1 背景", "1.2 目标", "2.1 架构"})
+
+    # heading-less 回归：无任何标题 → synthetic 根直含正文 → 应出 1 父块（修复 0-chunk bug）
+    hl_in = [
+        _ir_para("h0", 0, "这是没有任何标题的正文第一段。"),
+        _ir_para("h1", 1, "这是第二段正文。"),
+    ]
+    hl_pages = [IRPage(page_id="pg0", page_idx=0)]
+    hl_blocks, hl_sections = build_dom(hl_in)
+    hl_parents = build_parent_chunks(hl_sections, hl_blocks, hl_pages, "docHL")
+    hl_children = build_child_chunks(hl_parents, hl_blocks, hl_pages, "docHL")
+    _record("heading-less 文档出 1 父块（修复 0-chunk bug）", len(hl_parents) == 1)
+    _record("heading-less 文档正文成 child（≥1）", len(hl_children) >= 1)
+
+
+async def test_extra_index_builder() -> None:
+    """父块自定义索引（index_builder_service）的生成/解析/转换纯逻辑，全 mock 离线。"""
+    print("\n[9] 父块自定义索引（index_builder，mock）")
+    from app.services import index_builder_service as ib
+    from app.services.index_builder_service import IndexBuildError
+
+    # ── 工具函数 ──
+    _record("剥 ```json 围栏", ib._strip_code_fence('```json\n{"a":1}\n```') == '{"a":1}')
+    _record("无围栏原样", ib._strip_code_fence('{"a":1}') == '{"a":1}')
+    _record("_loads_list 解析 JSON 字符串", ib._loads_list('["x","y"]') == ["x", "y"])
+    _record("_loads_list 容错非法→[]", ib._loads_list("not json") == [])
+
+    parent = {
+        "doc_id": "d1", "text_full": "RRF 是一种把多路检索结果融合的方法。",
+        "block_ids": ["b1", "b2"], "header_path": ["第一章"],
+    }
+
+    # ── summary（mock LLM）──
+    with patch.object(ib, "call_llm_json", AsyncMock(return_value="  本段讲 RRF 融合。 ")):
+        txt, pl = await ib._gen_summary(parent)
+    _record("summary：LLM 文本去空白", txt == "本段讲 RRF 融合。" and pl == {})
+    with patch.object(ib, "call_llm_json", AsyncMock(return_value="")):
+        try:
+            await ib._gen_summary(parent)
+            _record("summary：空结果抛 IndexBuildError", False)
+        except IndexBuildError:
+            _record("summary：空结果抛 IndexBuildError", True)
+
+    # ── hypo_question（mock LLM）──
+    with patch.object(ib, "call_llm_json", AsyncMock(return_value='{"questions":["什么是RRF?","RRF怎么算?"]}')):
+        txt, pl = await ib._gen_hypo_question(parent, with_answer=False)
+    _record("hypo：index_text 多行拼接 + payload.questions",
+            txt == "什么是RRF?\nRRF怎么算?" and pl["questions"] == ["什么是RRF?", "RRF怎么算?"])
+    with patch.object(ib, "call_llm_json", AsyncMock(return_value='```json\n{"questions":["q1"],"answers":["a1"]}\n```')):
+        _, pl2 = await ib._gen_hypo_question(parent, with_answer=True)
+    _record("hypo：围栏 + answers 解析", pl2.get("answers") == ["a1"])
+    with patch.object(ib, "call_llm_json", AsyncMock(return_value="不是JSON")):
+        try:
+            await ib._gen_hypo_question(parent, with_answer=False)
+            _record("hypo：非 JSON 抛 IndexBuildError", False)
+        except IndexBuildError:
+            _record("hypo：非 JSON 抛 IndexBuildError", True)
+
+    # 注：图片/表格描述索引已废弃——基础切片管线已让每图/表各成独立子块按描述索引（见 child_chunker），
+    #     无需 image_desc/table_desc 合并索引；故此处不再测试 _gen_asset_desc（已删除）。
+
+    # ── custom（kind 校验 + 空文本）──
+    _record("VALID_KINDS 已去除 image_desc/table_desc",
+            "image_desc" not in ib.VALID_KINDS and "table_desc" not in ib.VALID_KINDS
+            and ib.VALID_KINDS == frozenset({"summary", "hypo_question", "custom"}))
+
+    # ── _row_to_public ──
+    pub = ib._row_to_public({
+        "index_id": "i1", "doc_id": "d1", "parent_chunk_id": "p1", "section_id": "s1",
+        "kind": "summary", "title": "", "index_text": "x",
+        "payload": '{"questions":["q"]}', "enabled": 1, "source": "auto",
+        "child_chunk_id": "ci-1", "created_at": "", "updated_at": "",
+    })
+    _record("_row_to_public：payload 解析 + enabled→bool + 默认 title",
+            pub["payload"]["questions"] == ["q"] and pub["enabled"] is True
+            and pub["title"] == "摘要索引")
+
+
+def test_cn_tokenizer() -> None:
+    """中文分词（jieba）+ FTS 查询构建：修复中文 BM25 零召回的核心。"""
+    print("\n[10] 中文分词 jieba（cn_tokenizer + FTS query）")
+    from app.services import cn_tokenizer as ct
+    from app.services.retrieval_service import _build_fts_query
+
+    toks = ct.segment_tokens("知识库系统的需求分析")
+    _record("中文切成多个词 token", len(toks) >= 3 and "知识库" in "".join(toks))
+    _record("segment 用空格连接（unicode61 可据空格切词）",
+            " " in ct.segment("程序设计基础实训课程"))
+    low = [t.lower() for t in ct.segment_tokens("MinerU API 2024 解析")]
+    _record("英文/数字 token 保留", "mineru" in low and "2024" in low)
+    _record("纯标点被过滤掉", ct.segment_tokens("，。！？；：") == [])
+    q_or = _build_fts_query("知识库 需求分析", mode="or")
+    _record("FTS OR 查询：多 token 以 OR 连接且引号包裹",
+            " OR " in q_or and q_or.count('"') >= 4)
+    q_and = _build_fts_query("不分词的中文短语", mode="and")
+    _record("FTS AND 查询：中文也切成多 token（非整串单 token）",
+            q_and.count('"') >= 4 and " OR " not in q_and)
+
+
+async def test_qa_context_render() -> None:
+    """QA 上下文位置注入：纯文本路 表→HTML/图→描述、多模态路 图片插到原位（render_qa_sources）。"""
+    print("\n[11] QA 上下文位置注入（render_qa_sources）")
+    from types import SimpleNamespace
+    from app.services import qa_context as qc
+
+    proj = {"blocks": [
+        {"block_id": "b1", "type": "paragraph", "text": "段落一", "order_in_doc": 1, "assets": []},
+        {"block_id": "b2", "type": "image", "vlm_description": "一张流程图",
+         "text": "cap", "order_in_doc": 2, "assets": ["img1"]},
+        {"block_id": "b3", "type": "table",
+         "table_html": "<table><tr><td>x</td></tr></table>", "text": "表caption",
+         "order_in_doc": 3, "assets": []},
+        {"block_id": "b4", "type": "paragraph", "text": "段落二", "order_in_doc": 4, "assets": []},
+    ]}
+    chunk = SimpleNamespace(parent_chunk_id="p1", doc_id="d1", header_path=["章"],
+                            page_span_start=0, page_span_end=0, retrieval_text="")
+    pmap = {"p1": {"header_path": ["章"], "page_span_start": 0, "page_span_end": 1,
+                   "doc_id": "d1", "block_ids": ["b1", "b2", "b3", "b4"], "text_full": "FALLBACK"}}
+
+    with patch.object(qc, "_doc_ir_paths", AsyncMock(return_value=("e", "b"))), \
+         patch.object(qc.inspection_service, "load_ir_projection", lambda e, b: proj), \
+         patch.object(qc, "_doc_asset_paths", AsyncMock(return_value={"img1": "/fake/p.png"})):
+        src_text = await qc.render_qa_sources([chunk], pmap, multimodal=False)
+        t = src_text[0]["text"]
+        _record("纯文本：表格注入 HTML（非 caption）", "<table>" in t and "[表格: 表caption]" not in t)
+        _record("纯文本：图片用 VLM 描述（在原位）", "[图片: 一张流程图]" in t)
+        _record("纯文本：块顺序保留", t.index("段落一") < t.index("段落二"))
+        _record("纯文本：multimodal=False 不产 segments", src_text[0]["segments"] is None)
+
+        src_mm = await qc.render_qa_sources([chunk], pmap, multimodal=True)
+        kinds = [s["type"] for s in (src_mm[0]["segments"] or [])]
+        _record("多模态：图片成 image 段", "image" in kinds)
+        idx = kinds.index("image") if "image" in kinds else -1
+        _record("多模态：图片夹在文字段之间（text→image→text）",
+                idx > 0 and idx < len(kinds) - 1 and kinds[0] == "text" and kinds[-1] == "text")
+        _record("sources_have_images 检测到图片", qc.sources_have_images(src_mm) is True)
+
+    pmap2 = {"p1": {"header_path": [], "page_span_start": 0, "page_span_end": 0,
+                    "doc_id": "d1", "block_ids": [], "text_full": "FALLBACK"}}
+    src_fb = await qc.render_qa_sources([chunk], pmap2, multimodal=True)
+    _record("无 block_ids 回退父块全文、无 segments",
+            src_fb[0]["text"] == "FALLBACK" and src_fb[0]["segments"] is None)
+
+    import app.services.qa_service as qs
+    with patch.object(qs, "image_to_data_url", lambda p: "data:image/png;base64,AAA"):
+        parts = qs.build_multimodal_content_from_sources("INTRO", src_mm, "我的问题")
+    types_ = [p["type"] for p in parts]
+    _record("多模态 content：含 image_url 片段（图片入消息）", "image_url" in types_)
+    _record("多模态 content：问题在末尾", parts[-1]["type"] == "text" and "我的问题" in parts[-1]["text"])
+
+
+def test_cross_page_empty_block() -> None:
+    """跨页续表/续图幽灵空块过滤：normalizer 丢弃 + child_chunker 兜底跳过（回归）。
+
+    背景：MinerU content_list_v2 不合并跨页拆分块；跨页表格在次页 emit 一个空可视块
+    （html=""、image_source.path="images/" 只有目录、caption 空）。若不处理会变成
+    retrieval_text="[表格]" 的垃圾子块污染检索 + 指向目录的伪 asset。
+    """
+    print("\n[12] 跨页幽灵空块过滤（normalizer + child_chunker）")
+    import json as _json
+    from app.adapters import normalizer as nz
+
+    _record("image_source 目录伪路径(images/)→None",
+            nz._get_image_source_path({"image_source": {"path": "images/"}}, "/x/images") is None)
+    _record("image_source 真实文件→返回路径",
+            nz._get_image_source_path({"image_source": {"path": "images/abc.jpg"}}, "/x/images") is not None)
+
+    # 两页：完整表(首页) + 跨页幽灵空表(次页)
+    page0 = [{"type": "table", "content": {
+        "html": "<table><tr><td>a</td></tr></table>",
+        "image_source": {"path": "images/real.jpg"}, "table_caption": []},
+        "bbox": [10, 800, 990, 900]}]
+    page1 = [{"type": "table", "content": {
+        "html": "", "image_source": {"path": "images/"}, "table_caption": []},
+        "bbox": [10, 80, 990, 200]}]
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "clv2.json"
+        p.write_text(_json.dumps([page0, page1]), encoding="utf-8")
+        blocks, _pages, degraded = nz.normalize(
+            str(p), None, "d", "f.pdf", "pdf", str(Path(td) / "images"))
+    tables = [b for b in blocks if b.type == "table"]
+    _record("幽灵空表块被丢弃（只剩完整表）",
+            len(tables) == 1 and (tables[0].metadata.table_html or "").strip() != "")
+    _record("不产生指向目录的伪 asset",
+            all(Path(a.path).suffix for b in blocks for a in b.assets))
+    _record("degraded 不被污染（避免误标 needs_review）",
+            not any("empty_visual" in d for d in degraded))
+
+    # child_chunker 兜底（覆盖「从旧盘上 IR 重切片」场景：旧 IR 仍含幽灵块）
+    from app.chunkers import child_chunker as cc
+    from app.models.models_chunk import ParentChunk
+    from app.models.models_ir import Asset, BboxNorm1000, BlockMetadata, IRBlock
+
+    def _mk_table(html: str, asset_path: str | None) -> IRBlock:
+        return IRBlock(
+            block_id="b", page_idx=1, order_in_page=0, order_in_doc=0,
+            section_id="s", type="table",
+            bbox_norm1000=BboxNorm1000(coords=[0.0, 0.0, 0.0, 0.0]), text="",
+            assets=[Asset(asset_id="a", asset_type="table_image", path=asset_path)] if asset_path else [],
+            metadata=BlockMetadata(table_html=html))
+
+    parent = ParentChunk(parent_chunk_id="p", doc_id="d", section_id="s")
+    ghost = _mk_table("", "images/")          # 旧 IR 幽灵：html 空 + asset 指向目录
+    real = _mk_table("<table><tr><td>x</td></tr></table>", "images/r.jpg")
+    _record("child_chunker 跳过幽灵空表块",
+            cc._make_atomic_child(ghost, parent, "", {}) == [])
+    _record("child_chunker 保留有内容的表块",
+            len(cc._make_atomic_child(real, parent, "", {})) == 1)
 
 
 async def main() -> None:
@@ -311,6 +530,10 @@ async def main() -> None:
     test_heuristic_levels()
     await test_doc_tree_assign()
     test_chunker_hierarchy()
+    await test_extra_index_builder()
+    test_cn_tokenizer()
+    await test_qa_context_render()
+    test_cross_page_empty_block()
 
     print("\n" + "=" * 58)
     total = len(_results)

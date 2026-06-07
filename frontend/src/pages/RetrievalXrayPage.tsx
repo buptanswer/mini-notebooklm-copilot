@@ -7,7 +7,7 @@ import { useParams, useSearchParams } from "react-router-dom"
 import { AnimatePresence, motion } from "motion/react"
 import {
   ScanSearch, Play, Pause, RotateCcw, ChevronLeft, ChevronRight,
-  Sparkles, Table2, Loader2, AlertCircle,
+  Sparkles, Table2, Loader2, AlertCircle, Gauge,
 } from "lucide-react"
 import { retrieveTrace } from "@/api/client"
 import type { RetrievalTraceResponse } from "@/api/types"
@@ -22,6 +22,11 @@ const STAGES = [StageQuery, StageKeyword, StageVector, StageFusion, StageRerank,
 const TOTAL = STAGES.length
 const TOPK_OPTIONS = [3, 5, 8, 10]
 
+// 演示节奏：每阶段停留时长（ms）。演示是动画叙事，刻意比真实耗时慢，给观众思考时间。
+const SPEED_MS = { slow: 3400, normal: 2300, fast: 1300 } as const
+type Speed = keyof typeof SPEED_MS
+const SPEED_LABEL: Record<Speed, string> = { slow: "慢", normal: "中", fast: "快" }
+
 export default function RetrievalXrayPage() {
   const { kbId } = useParams<{ kbId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -33,14 +38,23 @@ export default function RetrievalXrayPage() {
   const [mode, setMode] = useState<"demo" | "dev">("demo")
   const [revealed, setRevealed] = useState(0)
   const [auto, setAuto] = useState(false)
+  const [speed, setSpeed] = useState<Speed>("normal")
   const inputRef = useRef<HTMLInputElement>(null)
+  const stageRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  // 演示态分阶段自动播放
+  // 演示态分阶段自动播放（节奏可调）
   useEffect(() => {
     if (mode !== "demo" || !data || !auto || revealed >= TOTAL) return
-    const t = setTimeout(() => setRevealed((r) => Math.min(TOTAL, r + 1)), revealed === 0 ? 300 : 1150)
+    const t = setTimeout(() => setRevealed((r) => Math.min(TOTAL, r + 1)), revealed === 0 ? 450 : SPEED_MS[speed])
     return () => clearTimeout(t)
-  }, [mode, data, auto, revealed])
+  }, [mode, data, auto, revealed, speed])
+
+  // 视角自动跟随当前阶段（仿大模型流式输出时视角停在正在输出那一行）
+  useEffect(() => {
+    if (mode !== "demo" || revealed < 1) return
+    const el = stageRefs.current[revealed - 1]
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [revealed, mode])
 
   const runQuery = useCallback(async (rawQuery: string, k: number) => {
     const q = rawQuery.trim()
@@ -183,6 +197,22 @@ export default function RetrievalXrayPage() {
 
               {mode === "demo" && !empty && (
                 <div className="flex items-center gap-1.5">
+                  <div className="mr-1 inline-flex items-center rounded-lg border border-border bg-surface p-0.5">
+                    <Gauge className="ml-1 mr-0.5 h-3.5 w-3.5 text-ink-faint" />
+                    {(Object.keys(SPEED_MS) as Speed[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setSpeed(s)}
+                        className={cn(
+                          "h-6 rounded-md px-2 text-[11px] font-medium transition-colors",
+                          speed === s ? "bg-accent-soft text-accent" : "text-ink-faint hover:text-ink-soft",
+                        )}
+                        title={`节奏：${SPEED_LABEL[s]}`}
+                      >
+                        {SPEED_LABEL[s]}
+                      </button>
+                    ))}
+                  </div>
                   <IconBtn onClick={() => step(-1)} disabled={revealed === 0} label="上一步">
                     <ChevronLeft className="h-4 w-4" />
                   </IconBtn>
@@ -222,13 +252,14 @@ export default function RetrievalXrayPage() {
                     exit={{ opacity: 0 }}
                   >
                     {STAGES.map((Stage, i) => (
-                      <Stage
-                        key={i}
-                        trace={trace}
-                        docs={data.docs}
-                        state={revealed > i ? "active" : "pending"}
-                        current={revealed === i + 1}
-                      />
+                      <div key={i} ref={(el) => { stageRefs.current[i] = el }} className="scroll-mt-24">
+                        <Stage
+                          trace={trace}
+                          docs={data.docs}
+                          state={revealed > i ? "active" : "pending"}
+                          current={revealed === i + 1}
+                        />
+                      </div>
                     ))}
                   </motion.div>
                 ) : (
