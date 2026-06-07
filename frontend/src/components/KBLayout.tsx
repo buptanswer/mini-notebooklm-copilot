@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react"
-import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom"
+import { Outlet, useParams } from "react-router-dom"
 import { motion } from "motion/react"
-import {
-  ArrowLeft, BookOpenText, ClipboardList, Clock, FileScan, FolderClosed, MessagesSquare, ScanSearch,
-} from "lucide-react"
+import { Clock } from "lucide-react"
 import { getKB, getUpcomingDeadlines } from "@/api/client"
 import type { DeadlineItem, KBInfo } from "@/api/types"
-import { cn } from "@/lib/utils"
 
+/**
+ * KB 内容区的外壳：截止日 banner + 子路由内容。
+ * 导航侧栏已移到 Layout.tsx（单列设计），本组件只负责内容区装饰。
+ */
 export default function KBLayout() {
   const { kbId } = useParams<{ kbId: string }>()
-  const navigate = useNavigate()
   const [kb, setKb] = useState<KBInfo | null>(null)
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([])
 
@@ -24,19 +24,6 @@ export default function KBLayout() {
       getUpcomingDeadlines(kbId, 7).then(setDeadlines).catch(() => {})
     }
   }, [kb, kbId])
-
-  const navItems = [
-    { path: "files", icon: FolderClosed, label: "文件" },
-    { path: "chat", icon: MessagesSquare, label: "对话" },
-    { path: "dissect", icon: FileScan, label: "解析透视" },
-    { path: "xray", icon: ScanSearch, label: "检索透视" },
-    ...(kb?.kb_type === "course"
-      ? [
-          { path: "review", icon: BookOpenText, label: "课后复习" },
-          { path: "info", icon: ClipboardList, label: "课程管家" },
-        ]
-      : []),
-  ]
 
   return (
     <div className="flex h-full flex-col bg-bg">
@@ -60,57 +47,9 @@ export default function KBLayout() {
         </motion.div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* 二级侧边栏 */}
-        <aside className="flex w-52 shrink-0 flex-col border-r border-border bg-surface/60">
-          <div className="border-b border-border px-4 py-4">
-            <button
-              onClick={() => navigate("/")}
-              className="mb-3 flex items-center gap-1.5 text-xs text-ink-faint transition-colors hover:text-accent"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              知识库
-            </button>
-            <p className="truncate font-display text-base font-semibold text-ink" title={kb?.name}>
-              {kb?.name ?? "…"}
-            </p>
-            <span
-              className={cn(
-                "mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
-                kb?.kb_type === "course"
-                  ? "bg-accent-soft text-accent"
-                  : "bg-surface-2 text-ink-faint",
-              )}
-            >
-              {kb?.kb_type === "course" ? "课程知识库" : "通用知识库"}
-            </span>
-          </div>
-
-          <nav className="flex-1 space-y-1 p-2.5">
-            {navItems.map(({ path, icon: Icon, label }) => (
-              <NavLink
-                key={path}
-                to={path}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
-                    isActive
-                      ? "bg-accent-soft text-accent"
-                      : "text-ink-soft hover:bg-surface-2 hover:text-ink",
-                  )
-                }
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
-
-        {/* 内容区 */}
-        <main className="flex-1 overflow-hidden">
-          <Outlet />
-        </main>
+      {/* 内容区 */}
+      <div className="flex-1 overflow-hidden">
+        <Outlet />
       </div>
     </div>
   )

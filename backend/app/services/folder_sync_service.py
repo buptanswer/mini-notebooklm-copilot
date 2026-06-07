@@ -19,11 +19,18 @@ from app.db.database import get_db
 _SKIP_NAMES = {".git", ".DS_Store", "Thumbs.db", "__pycache__"}
 _SKIP_PREFIXES = ("~$",)
 
+# 音视频文件：不支持解析/索引，同步时跳过（用户可后续通过音视频转写功能接入）
+_UNSUPPORTED_AUDIO_VIDEO_EXTS = frozenset({
+    ".m4a", ".mp3", ".wav", ".flac", ".ogg", ".aac", ".wma",
+    ".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv",
+})
+
 _FORMAT_MAP = {
     ".pdf": "pdf", ".ppt": "pptx", ".pptx": "pptx",
     ".doc": "docx", ".docx": "docx",
     ".png": "png", ".jpg": "jpg", ".jpeg": "jpeg",
     ".txt": "txt", ".md": "md",
+    ".xlsx": "xlsx", ".xls": "xlsx",
 }
 
 
@@ -111,6 +118,9 @@ async def scan_and_sync(kb_id: str) -> SyncDiff:
                 continue
             # 跳过隐藏目录下的文件
             if any(part.startswith(".") for part in p.relative_to(folder).parts):
+                continue
+            # 跳过音视频文件（当前不支持，以后可通过转写接入）
+            if p.suffix.lower() in _UNSUPPORTED_AUDIO_VIDEO_EXTS:
                 continue
             disk_files[str(p)] = p
 

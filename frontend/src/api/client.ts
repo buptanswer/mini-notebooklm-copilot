@@ -126,6 +126,48 @@ export async function deleteDocument(kbId: string, docId: string): Promise<void>
   await handleResponse<unknown>(res)
 }
 
+/** 重命名文档 */
+export async function renameDocument(kbId: string, docId: string, newName: string) {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/rename`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_name: newName }),
+  })
+  return handleResponse<{ detail: string; new_name: string }>(res)
+}
+
+/** 复制文档 */
+export async function copyDocument(kbId: string, docId: string, targetKbId?: string) {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/copy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_kb_id: targetKbId || null }),
+  })
+  return handleResponse<{ detail: string; new_doc_id: string; new_name: string }>(res)
+}
+
+/** 移动文档 */
+export async function moveDocument(kbId: string, docId: string, targetKbId?: string, relativePath?: string) {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_kb_id: targetKbId || null, relative_path: relativePath || null }),
+  })
+  return handleResponse<{ detail: string; target_kb_id: string }>(res)
+}
+
+/** 获取文档解析/切片统计信息 */
+export async function getDocStats(kbId: string, docId: string) {
+  const res = await fetch(`${BASE}/documents/${kbId}/${docId}/stats`)
+  return handleResponse<{
+    doc_id: string; filename: string; source_format: string; file_size: number;
+    page_count: number; status: string; parent_heading_level: number;
+    parent_chunks_count: number; child_chunks_count: number;
+    assets_count: number; extra_indexes_count: number;
+    created_at: string; updated_at: string;
+  }>(res)
+}
+
 /** 获取 origin PDF 的 URL（直接在 iframe 中使用）*/
 export function getOriginPdfUrl(kbId: string, docId: string): string {
   return `${BASE}/documents/${kbId}/${docId}/origin-pdf`

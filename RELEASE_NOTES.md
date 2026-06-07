@@ -4,6 +4,68 @@
 
 ---
 
+## v1.6.0（2026-06-07 开发，待用户验收）— 前端架构重构与功能打磨
+
+> v1.5.0 交付后，新 AI（Claude）从零接手。在 v1.5.0 基础上做前端架构重构与全面功能打磨，
+> 目标是让答辩演示更出彩、交互更流畅。
+
+### 导航单列化（"两列太占地方"→ 一列可收起）
+- `Layout.tsx` 重写：合并原主菜单 + KB 二级菜单为一列智能导航
+  - 首页：知识库 / 任务 / 设置
+  - 进入 KB：自动切换为文件/对话/解析透视/检索透视（+ 课后复习/课程管家 for 课程 KB）
+  - 顶部显示 KB 名称 + 类型徽章 + ← 返回按钮
+- `KBLayout.tsx` 精简为 deadline banner + 内容区（侧栏完全移走）
+- 内容区宽度显著增加（原两列占 ~450px → 单列 240px/68px 收起）
+
+### 文件管理 Explorer 风格重做
+- `KBFilesPage.tsx` 完全重写：
+  - **表格式紧凑布局**：名称/格式/大小/页数/状态列，信息密度大幅提升
+  - **右键上下文菜单**：属性 / 解析透视 / 重新解析 / 索引到检索库 / 删除
+  - **属性侧面板**：基本信息 (名称/格式/大小/页数) + 切片统计 (父块粒度/父块数/子块数/资产数/自定义索引数) + 时间戳
+  - **双击跳转**：已索引文档双击 → 解析透视 (`/kb/:id/dissect?doc=:docId`)
+  - Shift+点击范围多选（保留）
+- 后端新增 `GET /api/documents/{kb}/{doc}/stats` 统计端点
+
+### 设置页可编辑
+- `api/settings.py` 重写：新增 `GET /api/settings`(读) + `POST /api/settings`(写)
+- 配置持久化到 `backend/.user_config.json`，重启后端生效
+- `config.py`：启动时自动加载 user_config 覆盖环境变量
+- `SettingsPage.tsx` 重写：QA 模型/Base URL/API Key/多模态模型/VLM 模型/MinerU Key/百炼 Key/思维链开关/多模态开关 均可直接编辑
+- API Key 字段支持显示/隐藏切换 (Eye 图标)
+
+### MinerU 格式校验从"字段级"升级到"语义级"
+- `format_checker.py` 新增 `_check_semantic_values()`：
+  - `title.level`：当前 MinerU 版本始终输出 1，若非 1 则告警（MinerU 可能启用了层级识别）
+  - `list.attribute` / `list.list_type`：应仅为 'ordered' | 'unordered'
+  - `table.table_type`：应仅为 'simple' | 'complex' | 'normal' | ''
+  - `equation_interline.math_type`：应仅为 'latex' | 'mathml' | 'asciimath'
+  - `image_source.path`：应以 'images/' 开头
+  - `list_items[].ilevel`：≥0（负数则告警）
+  - `list_items[].prefix`：应为 str
+  - `TextSegment.url` / `.style`：应为 str
+  - `TextSegment.children`：递归校验嵌套文本段
+
+### 课堂录音处理加固
+- `folder_sync_service.py`：跳过音视频文件（.m4a/.mp3/.mp4/.avi/.mov 等）
+- `api/documents.py`：上传时拒绝音视频文件（明确报错）、新增 .xlsx/.xls 支持
+
+### 聊天界面动效升级
+- `ChatThread.tsx` 新增 `StreamingIndicator`：流式生成时四阶段进度指示器
+  - 规划检索策略 → 混合检索中 → 深度思考中 → 正在撰写回答
+  - 旋转光晕动画 + 阶段标签淡入淡出
+
+### Bug 修复
+- `main.py`：版本号 "1.2.0" → "1.5.0"
+- `test_v120.py`：mock `stream_llm_completion` 补 `multimodal` 参数、prompts 计数 5→9、音频同步测试断言 4→2
+- 删除了 format_checker.py 中 `ocr_text` 残留引用（编辑错误）
+
+### 验证
+- `basedpyright` 0 错；`test_v140.py` **86/86**；`test_v120.py` **122/122**
+- 前端 `tsc -p tsconfig.app.json` 0 错、`npm run build` 通过
+- Playwright 真机：首页→KB 导航单列化、0 控制台报错
+
+---
+
 ## v1.5.0（2026-06-06 开发，待用户验收）— 解析/检索透视深化 + 检索质量与正确性
 
 > 在 v1.4.0「把隐藏链路做成可视化」的基础上，v1.5.0 把**解析透视**做成可操作的检视/管理台（父块自定义索引、

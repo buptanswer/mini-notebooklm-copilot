@@ -41,6 +41,22 @@ export interface DocInfo {
   updated_at: string
 }
 
+export interface DocStats {
+  doc_id: string
+  filename: string
+  source_format: string
+  file_size: number
+  page_count: number
+  status: string
+  parent_heading_level: number
+  parent_chunks_count: number
+  child_chunks_count: number
+  assets_count: number
+  extra_indexes_count: number
+  created_at: string
+  updated_at: string
+}
+
 export type TaskStatus = "created" | "running" | "done" | "failed"
 
 export interface TaskInfo {

@@ -3,11 +3,71 @@ import { AnimatePresence, motion } from "motion/react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
-  BookOpenText, Brain, ChevronRight, FileScan, FileText, GitBranch, Loader2, Send, Sparkles,
+  BookOpenText, Brain, ChevronRight, FileScan, FileText, GitBranch, Loader2, ScanSearch, Send, Sparkles,
 } from "lucide-react"
 import type { CitationItem } from "@/api/types"
 import type { ThreadMessage } from "@/hooks/useConversation"
 import { cn } from "@/lib/utils"
+
+/** 流式生成状态指示器：展示 AI 正在做的事情 */
+function StreamingIndicator({ hasThinking, hasContent, hasCitations }: {
+  hasThinking: boolean; hasContent: boolean; hasCitations: boolean
+}) {
+  const phases = [
+    { key: "plan", label: "规划检索策略", icon: Brain },
+    { key: "search", label: "混合检索中", icon: ScanSearch },
+    { key: "think", label: "深度思考中", icon: Brain },
+    { key: "write", label: "正在撰写回答", icon: Sparkles },
+  ]
+
+  let activePhase: number
+  if (hasContent) activePhase = 3
+  else if (hasThinking) activePhase = 2
+  else if (hasCitations) activePhase = 1
+  else activePhase = 0
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-3 py-2"
+    >
+      {/* 旋转图标 */}
+      <div className="relative flex h-7 w-7 items-center justify-center">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+          className="absolute inset-0 rounded-full border-2 border-accent/30 border-t-accent"
+        />
+        <Sparkles className="h-3.5 w-3.5 text-accent" />
+      </div>
+      {/* 阶段指示 */}
+      <div className="flex items-center gap-1.5">
+        {phases.map((p, i) => {
+          const isActive = i === activePhase
+          const isDone = i < activePhase
+          const Icon = p.icon
+          return (
+            <span key={p.key} className="flex items-center gap-1">
+              {i > 0 && <span className="mx-0.5 h-3 w-px bg-border" />}
+              <span
+                className={cn(
+                  "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  isActive && "bg-accent-soft text-accent",
+                  isDone && "text-ink-faint line-through",
+                  !isActive && !isDone && "text-ink-faint/40",
+                )}
+              >
+                {isActive ? <Icon className="h-3 w-3" /> : isDone ? <span className="text-[10px]">✓</span> : null}
+                {isActive && p.label}
+              </span>
+            </span>
+          )
+        })}
+      </div>
+    </motion.div>
+  )
+}
 
 function Md({ content, compact }: { content: string; compact?: boolean }) {
   return (
@@ -209,11 +269,12 @@ export function ChatThread({
                   <div className={m.streaming ? "stream-caret" : ""}>
                     <Md content={m.content} compact={!isSection} />
                   </div>
-                ) : m.streaming && !m.thinking ? (
-                  <span className="flex items-center gap-2 text-sm text-ink-faint">
-                    <Sparkles className="breathe-dot h-4 w-4 text-accent" />
-                    正在生成…
-                  </span>
+                ) : m.streaming ? (
+                  <StreamingIndicator
+                    hasThinking={!!m.thinking}
+                    hasContent={!!m.content}
+                    hasCitations={m.citations.length > 0}
+                  />
                 ) : null}
 
                 <Citations items={m.citations} docName={docName} onView={onViewSource} onDissect={onDissectSource} />

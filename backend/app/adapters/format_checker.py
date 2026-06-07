@@ -594,6 +594,14 @@ def _check_content_sub_fields(
             report.add("warning", f"{loc}.level",
                        f"title.level 应为 int，实际为 {type(level).__name__}",
                        repr(level))
+        elif level is not None and level != 1:
+            report.add(
+                "warning", f"{loc}.level",
+                f"title.level 语义漂移：预期始终为 1（当前 MinerU 版本不做层级检测），"
+                f"实际为 {level}",
+                "MinerU 可能已启用标题层级识别——需更新推断文档、"
+                "重新评估 doc_tree_service LLM 重建策略是否仍然必要",
+            )
 
     # ── chart.content（提取数据，字符串）─────────────────────────────
     if raw_type == "chart":
@@ -609,6 +617,87 @@ def _check_content_sub_fields(
             report.add("warning", f"{loc}.content",
                        f"image.content 应为 str（VLM OCR 文本），实际为 {type(ocr_text).__name__}")
 
+    # ── 语义值校验（字段存在 + 值在预期范围内）──────────────────────
+    _check_semantic_values(content, raw_type, loc, report)
+
+
+def _check_semantic_values(
+    content: dict,
+    raw_type: str,
+    loc: str,
+    report: FormatCheckReport,
+) -> None:
+    """检查字段的**实际值**是否与当前 MinerU 版本的推断格式一致。
+
+    与字段存在性检查不同：这里关注已知字段的值是否发生了语义漂移。
+    例如 title.level 当前始终为 1、list.attribute 应为 "ordered"/"unordered" 等。
+    任何与推断文档不符的值都应告警，提示更新格式文档和解析代码。
+    """
+
+    # ── list: attribute / list_type ───────────────────────────────
+    if raw_type in ("list", "index"):
+        attr = content.get("attribute")
+        if attr is not None and attr not in ("ordered", "unordered"):
+            report.add(
+                "warning", f"{loc}.attribute",
+                f"list.attribute 语义漂移：预期 'ordered' 或 'unordered'，实际为 {attr!r}",
+                "MinerU 可能新增了列表样式类型，需更新推断文档",
+            )
+        lt = content.get("list_type")
+        if lt is not None and lt not in ("ordered", "unordered"):
+            report.add(
+                "warning", f"{loc}.list_type",
+                f"list.list_type 语义漂移：预期 'ordered' 或 'unordered'，实际为 {lt!r}",
+            )
+
+    # ── table: table_type ────────────────────────────────────────
+    if raw_type == "table":
+        tt = content.get("table_type")
+        if tt is not None and tt not in ("", "simple", "complex", "normal"):
+            report.add(
+                "warning", f"{loc}.table_type",
+                f"table.table_type 语义漂移：已知值 ('simple'|'complex'|'normal'|'')，实际为 {tt!r}",
+                "MinerU 可能新增表格分类，需更新推断文档",
+            )
+
+    # ── code: code_language ──────────────────────────────────────
+    if raw_type == "code":
+        lang = content.get("code_language")
+        if lang is not None and not isinstance(lang, str):
+            report.add("warning", f"{loc}.code_language",
+                       f"code.code_language 应为 str 或 null，实际为 {type(lang).__name__}")
+
+    # ── equation_interline: math_type ────────────────────────────
+    if raw_type == "equation_interline":
+        mt = content.get("math_type")
+        if mt is not None and mt not in ("latex", "mathml", "asciimath", ""):
+            report.add(
+                "warning", f"{loc}.math_type",
+                f"equation.math_type 语义漂移：已知值 ('latex'|'mathml'|'asciimath')，实际为 {mt!r}",
+            )
+
+    # ── image: image_source 路径格式 ──────────────────────────────
+    if raw_type == "image":
+        img_src = content.get("image_source")
+        if isinstance(img_src, dict):
+            path_val = img_src.get("path", "")
+            if isinstance(path_val, str) and path_val and not path_val.startswith("images/"):
+                report.add(
+                    "info", f"{loc}.image_source.path",
+                    f"image_source.path 路径格式变化：预期以 'images/' 开头，实际为 {path_val!r}",
+                    "MinerU 可能改变了图片资源目录结构，需检查 assets 拼接逻辑",
+                )
+
+    # ── chart: image_source 路径格式 ─────────────────────────────
+    if raw_type == "chart":
+        img_src = content.get("image_source")
+        if isinstance(img_src, dict):
+            path_val = img_src.get("path", "")
+            if isinstance(path_val, str) and path_val and not path_val.startswith("images/"):
+                report.add(
+                    "info", f"{loc}.image_source.path",
+                    f"image_source.path 路径格式变化：预期以 'images/' 开头，实际为 {path_val!r}",
+                )
 
 def _check_text_segment_list(
     segs: Any,
@@ -649,6 +738,27 @@ def _check_text_segment_list(
             report.add("warning", f"{seg_loc}.content",
                        f"TextSegment.content 应为 str，实际为 {type(seg_content).__name__}")
 
+        # url 字段（hyperlink 类型附带的 URL）
+        seg_url = seg.get("url")
+        if seg_url is not None and not isinstance(seg_url, str):
+            report.add("warning", f"{seg_loc}.url",
+                       f"TextSegment.url 应为 str，实际为 {type(seg_url).__name__}")
+
+        # style 字段（Office 字体/样式标记）
+        seg_style = seg.get("style")
+        if seg_style is not None and not isinstance(seg_style, str):
+            report.add("warning", f"{seg_loc}.style",
+                       f"TextSegment.style 应为 str，实际为 {type(seg_style).__name__}")
+
+        # children 字段（hyperlink 嵌套子文本段）
+        seg_children = seg.get("children")
+        if seg_children is not None:
+            if not isinstance(seg_children, list):
+                report.add("warning", f"{seg_loc}.children",
+                           f"TextSegment.children 应为 list，实际为 {type(seg_children).__name__}")
+            else:
+                _check_text_segment_list(seg_children, f"{seg_loc}.children", report)
+
 
 def _check_list_items(
     items: Any,
@@ -678,11 +788,25 @@ def _check_list_items(
         if item_content is not None:
             _check_text_segment_list(item_content, f"{item_loc}.item_content", report)
 
-        # ilevel 应为 int
+        # ilevel 应为 int 且 ≥ 0
         ilevel = item.get("ilevel")
-        if ilevel is not None and not isinstance(ilevel, int):
-            report.add("info", f"{item_loc}.ilevel",
-                       f"ilevel 应为 int，实际为 {type(ilevel).__name__}")
+        if ilevel is not None:
+            if not isinstance(ilevel, int):
+                report.add("warning", f"{item_loc}.ilevel",
+                           f"ilevel 应为 int，实际为 {type(ilevel).__name__}")
+            elif ilevel < 0:
+                report.add("warning", f"{item_loc}.ilevel",
+                           f"ilevel 语义漂移：预期 ≥0，实际为 {ilevel}",
+                           "缩进层级不应为负数，MinerU 可能变更了数据结构")
+            elif ilevel > 10:
+                report.add("info", f"{item_loc}.ilevel",
+                           f"ilevel 值较大: {ilevel}（正常范围 0-5，超过 10 需确认是否是 MinerU 格式变更）")
+
+        # prefix 应为 str
+        prefix = item.get("prefix")
+        if prefix is not None and not isinstance(prefix, str):
+            report.add("warning", f"{item_loc}.prefix",
+                       f"prefix 应为 str，实际为 {type(prefix).__name__}")
 
 
 def _check_image_source(

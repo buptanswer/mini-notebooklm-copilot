@@ -1,25 +1,99 @@
 import { useEffect, useState } from "react"
-import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw } from "lucide-react"
+import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw, Save, Eye, EyeOff } from "lucide-react"
 import { listPrompts, reloadPrompts } from "@/api/client"
-import { Btn } from "@/components/Modal"
+import { Btn, Field } from "@/components/Modal"
 import { cn } from "@/lib/utils"
+
+interface AppConfig {
+  qa_model: string
+  qa_base_url: string
+  qa_api_key: string
+  qa_enable_thinking: boolean
+  qa_enable_multimodal: boolean
+  qa_multimodal_model: string
+  vlm_model: string
+  mineru_api_key: string
+  dashscope_api_key: string
+  embedding_model: string
+  rerank_model: string
+  embedding_dim: number
+  parent_chunk_heading_level: number
+  max_concurrent_parses: number
+  mineru_model_version: string
+  mineru_office_use_ocr: boolean
+}
 
 export default function SettingsPage() {
   const [health, setHealth] = useState<{ ok: boolean; checked: boolean }>({ ok: false, checked: false })
   const [prompts, setPrompts] = useState<Record<string, string>>({})
   const [reloading, setReloading] = useState(false)
   const [reloadMsg, setReloadMsg] = useState("")
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  const [edit, setEdit] = useState<Partial<AppConfig>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState("")
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetch("/api/health").then((r) => setHealth({ ok: r.ok, checked: true })).catch(() => setHealth({ ok: false, checked: true }))
     listPrompts().then(setPrompts).catch(() => {})
+    fetch("/api/settings").then((r) => r.json()).then(setConfig).catch(() => {})
   }, [])
+
+  const toggleKey = (k: string) => setShowKeys((p) => ({ ...p, [k]: !p[k] }))
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveMsg("")
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(edit),
+      })
+      if (res.ok) {
+        setSaveMsg("配置已保存，重启后端生效")
+        setEdit({})
+        // 刷新显示
+        const r2 = await fetch("/api/settings")
+        setConfig(await r2.json())
+      } else {
+        setSaveMsg("保存失败")
+      }
+    } catch {
+      setSaveMsg("网络错误")
+    } finally {
+      setSaving(false)
+      setTimeout(() => setSaveMsg(""), 4000)
+    }
+  }
+
+  const updateEdit = (k: keyof AppConfig, v: string | boolean | number) => {
+    setEdit((p) => ({ ...p, [k]: v }))
+  }
+
+  const cfg = config
+  const hasEdits = Object.keys(edit).length > 0
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl px-8 py-8">
-        <h1 className="font-display text-2xl font-semibold text-ink">设置</h1>
-        <p className="mt-0.5 text-sm text-ink-soft">系统配置说明与服务状态</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-semibold text-ink">设置</h1>
+            <p className="mt-0.5 text-sm text-ink-soft">系统配置与服务状态</p>
+          </div>
+          {hasEdits && (
+            <Btn variant="primary" disabled={saving} onClick={handleSave}>
+              <Save className="h-4 w-4" />{saving ? "保存中…" : "保存配置"}
+            </Btn>
+          )}
+        </div>
+        {saveMsg && (
+          <p className={cn("mt-2 text-sm", saveMsg.includes("失败") || saveMsg.includes("错误") ? "text-accent" : "text-[color:var(--c-success)]")}>
+            {saveMsg}
+          </p>
+        )}
 
         <Section title="服务状态">
           <div className="card flex items-center justify-between p-4">
@@ -34,26 +108,41 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        <Section title="API 配置">
+        {/* ── QA 模型配置 ── */}
+        <Section title="问答模型 (QA)">
           <div className="card divide-y divide-[color:var(--c-border)]">
-            <ConfigRow name="MinerU API Key" envKey="MINERU_API_KEY" desc="文档解析（PDF / PPT / Word / 图片）" link="https://mineru.net" required />
-            <ConfigRow name="阿里云百炼 API Key" envKey="ALIBABA_CLOUD_ACCESS_KEY_SECRET" desc="向量化 / 重排序 / VLM" link="https://bailian.console.aliyun.com" required />
-            <ConfigRow name="QA 模型 Base URL" envKey="QA_BASE_URL" desc="可选，不填用百炼 qwen-plus" />
-            <ConfigRow name="QA 模型 API Key" envKey="QA_API_KEY" desc="可选，切换 DeepSeek / OpenAI 等" />
-            <ConfigRow name="解析并发上限" envKey="MAX_CONCURRENT_PARSES" desc="可选，默认 2（批量解析时限流，避免连接打爆）" />
+            <EditableRow label="模型名称" env="QA_MODEL" value={cfg?.qa_model ?? ""} editVal={edit.qa_model} onChange={(v) => updateEdit("qa_model", v)} />
+            <EditableRow label="Base URL" env="QA_BASE_URL" value={cfg?.qa_base_url ?? ""} editVal={edit.qa_base_url} onChange={(v) => updateEdit("qa_base_url", v)} placeholder="留空使用百炼" />
+            <EditableRow label="API Key" env="QA_API_KEY" value={cfg?.qa_api_key ?? ""} editVal={edit.qa_api_key} onChange={(v) => updateEdit("qa_api_key", v)} masked={!showKeys["qa"]} onToggleMask={() => toggleKey("qa")} placeholder="留空使用百炼 Key" />
+            <ToggleRow label="思维链" value={edit.qa_enable_thinking ?? cfg?.qa_enable_thinking ?? false} onChange={(v) => updateEdit("qa_enable_thinking", v)} />
+            <ToggleRow label="多模态问答" value={edit.qa_enable_multimodal ?? cfg?.qa_enable_multimodal ?? true} onChange={(v) => updateEdit("qa_enable_multimodal", v)} />
+            <EditableRow label="多模态模型" env="QA_MULTIMODAL_MODEL" value={cfg?.qa_multimodal_model ?? ""} editVal={edit.qa_multimodal_model} onChange={(v) => updateEdit("qa_multimodal_model", v)} />
           </div>
-          <p className="mt-2 text-xs text-ink-faint">
-            配置在 <code className="rounded bg-surface-2 px-1">backend/.env</code>，可参考 <code className="rounded bg-surface-2 px-1">.env.example</code>，修改后重启后端生效。
-          </p>
         </Section>
 
-        <Section title="当前模型">
+        {/* ── VLM 配置 ── */}
+        <Section title="VLM（图片/表格描述）">
+          <div className="card divide-y divide-[color:var(--c-border)]">
+            <EditableRow label="VLM 模型" env="VLM_MODEL" value={cfg?.vlm_model ?? ""} editVal={edit.vlm_model} onChange={(v) => updateEdit("vlm_model", v)} />
+          </div>
+        </Section>
+
+        {/* ── API Keys ── */}
+        <Section title="API Key">
+          <div className="card divide-y divide-[color:var(--c-border)]">
+            <EditableRow label="MinerU API Key" env="MINERU_API_KEY" value={cfg?.mineru_api_key ?? ""} editVal={edit.mineru_api_key} onChange={(v) => updateEdit("mineru_api_key", v)} masked={!showKeys["mineru"]} onToggleMask={() => toggleKey("mineru")} />
+            <EditableRow label="百炼 API Key" env="ALIBABA_CLOUD_ACCESS_KEY_SECRET" value={cfg?.dashscope_api_key ?? ""} editVal={edit.dashscope_api_key} onChange={(v) => updateEdit("dashscope_api_key", v)} masked={!showKeys["dashscope"]} onToggleMask={() => toggleKey("dashscope")} />
+          </div>
+        </Section>
+
+        <Section title="当前模型（只读）">
           <div className="card divide-y divide-[color:var(--c-border)] text-sm">
-            <Row label="文档解析" value="MinerU (vlm)" />
-            <Row label="向量化" value="text-embedding-v4（1024 维）" />
-            <Row label="重排序" value="qwen3-rerank" />
-            <Row label="图片 / 表格描述" value="qwen-vl-plus" env="VLM_MODEL" />
-            <Row label="问答生成" value="qwen-plus" env="QA_MODEL" />
+            <Row label="文档解析" value={`MinerU (${cfg?.mineru_model_version ?? "vlm"})`} />
+            <Row label="向量化" value={`${cfg?.embedding_model ?? "text-embedding-v4"}（${cfg?.embedding_dim ?? 1024}维）`} />
+            <Row label="重排序" value={cfg?.rerank_model ?? "qwen3-rerank"} />
+            <Row label="解析并发" value={String(cfg?.max_concurrent_parses ?? 2)} />
+            <Row label="父块默认粒度" value={`${cfg?.parent_chunk_heading_level ?? 1} 级标题`} />
+            <Row label="Office 取坐标" value={cfg?.mineru_office_use_ocr ? "是 (is_ocr)" : "否"} />
           </div>
         </Section>
 
@@ -108,19 +197,7 @@ function Section({ title, action, children }: { title: string; action?: React.Re
     </section>
   )
 }
-function ConfigRow({ name, envKey, desc, link, required }: { name: string; envKey: string; desc: string; link?: string; required?: boolean }) {
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-ink">{name}</span>
-        {required && <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">必填</span>}
-      </div>
-      <code className="mt-0.5 inline-block rounded bg-surface-2 px-1.5 py-0.5 text-xs text-accent">{envKey}</code>
-      <p className="mt-1 text-xs text-ink-soft">{desc}</p>
-      {link && <a href={link} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-0.5 text-xs text-accent hover:underline">申请地址 <ExternalLink className="h-3 w-3" /></a>}
-    </div>
-  )
-}
+
 function Row({ label, value, env }: { label: string; value: string; env?: string }) {
   return (
     <div className="flex items-center justify-between px-4 py-2.5">
@@ -129,10 +206,65 @@ function Row({ label, value, env }: { label: string; value: string; env?: string
     </div>
   )
 }
+
 function LinkBtn({ href, label }: { href: string; label: string }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm text-ink-soft transition-colors hover:text-accent">
       <ExternalLink className="h-3.5 w-3.5" />{label}
     </a>
+  )
+}
+
+// ── EditableRow: 可编辑字段行 ──
+function EditableRow({
+  label, env, value, editVal, onChange, masked, onToggleMask, placeholder,
+}: {
+  label: string; env?: string; value: string; editVal?: string
+  onChange: (v: string) => void; masked?: boolean; onToggleMask?: () => void
+  placeholder?: string
+}) {
+  const isEditing = editVal !== undefined
+  const display = isEditing ? editVal : value
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5">
+      <span className="w-28 shrink-0 text-sm text-ink-soft">{label}</span>
+      <div className="flex flex-1 items-center gap-1.5">
+        <Field
+          value={isEditing || !masked ? display : (display ? "••••••••" : "")}
+          onChange={(e) => onChange((e.target as HTMLInputElement).value)}
+          className="flex-1 font-mono text-xs"
+          placeholder={placeholder ?? ""}
+        />
+        {env && <code className="shrink-0 rounded bg-surface-2 px-1 text-[10px] text-ink-faint">{env}</code>}
+        {onToggleMask && (
+          <button onClick={onToggleMask} className="shrink-0 p-1 text-ink-faint hover:text-ink-soft" title={masked ? "显示" : "隐藏"}>
+            {masked ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── ToggleRow: 布尔值切换行 ──
+function ToggleRow({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5">
+      <span className="text-sm text-ink-soft">{label}</span>
+      <button
+        onClick={() => onChange(!value)}
+        className={cn(
+          "relative h-6 w-11 rounded-full transition-colors",
+          value ? "bg-accent" : "bg-surface-2",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+            value ? "left-[22px]" : "left-[2px]",
+          )}
+        />
+      </button>
+    </div>
   )
 }

@@ -107,7 +107,7 @@ async def run_all_tests() -> None:
     _test_chunk_windows()
 
     # Mock LLM 流式输出（避免真实 API 调用）
-    async def _mock_stream_llm(messages, *, enable_thinking=False, model=None):
+    async def _mock_stream_llm(messages, *, enable_thinking=False, model=None, multimodal=False):
         yield {"type": "delta", "content": "这是测试回答。"}
         yield {"type": "end"}
 
@@ -590,7 +590,7 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
         r_sync = await c.post(f"/api/kb/{review_kb_id}/sync-folder")
         _record("同步文件夹 → 200", r_sync.status_code == 200)
         diff = r_sync.json()
-        _record("4个文件被同步（2 txt + 2 音频）", len(diff.get("added", [])) == 4)
+        _record("2个文件被同步（音频文件已被跳过）", len(diff.get("added", [])) == 2)
 
         # 检查日期
         r_dates = await c.get(f"/api/review/{review_kb_id}/dates")
@@ -694,13 +694,17 @@ async def _test_prompts(c: httpx.AsyncClient) -> None:
     data = r.json()
     _record("response has prompts key", "prompts" in data)
     prompts = data.get("prompts", {})
-    _record("5 prompts loaded", len(prompts) == 5)
+    _record("9 prompts loaded", len(prompts) == 9)
     expected = {
         "lecture_review_section_first",
         "lecture_review_section_subsequent",
         "lecture_review_followup_system",
         "course_info_extract_system",
         "course_info_chat_system",
+        "query_plan_system",
+        "doc_tree_system",
+        "index_summary_system",
+        "index_hypo_question_system",
     }
     _record("all expected prompts present", expected.issubset(prompts.keys()))
 

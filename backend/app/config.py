@@ -28,10 +28,13 @@
 ─────────────────────────────────────────────────────────────────
 """
 
+import json
+import logging
 from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
 
 # ── 项目根目录 ──────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # mini-notebooklm/
@@ -39,14 +42,37 @@ BACKEND_ROOT = PROJECT_ROOT / "backend"
 DATA_ROOT = PROJECT_ROOT / "data"
 
 
+def _load_user_config_overrides() -> dict[str, object]:
+    """读取用户通过 UI 保存的配置覆盖（backend/.user_config.json）。"""
+    cfg_path = BACKEND_ROOT / ".user_config.json"
+    try:
+        if cfg_path.is_file():
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            logger.info("已加载用户配置覆盖: %d 项 — %s", len(data), cfg_path)
+            return {k: v for k, v in data.items() if v is not None and v != ""}
+    except Exception:
+        logger.warning("读取 user_config 失败，忽略", exc_info=True)
+    return {}
+
+
 class Settings(BaseSettings):
-    """从 .env 或环境变量读取配置"""
+    """从 .env 或环境变量读取配置，用户 UI 覆盖优先。
+
+    读取优先级（由低到高）：
+      1. 代码默认值
+      2. backend/.env 文件
+      3. 系统环境变量
+      4. backend/.user_config.json（用户通过前端设置页保存）
+    """
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    # ── MinerU API ────────────────────────────────────────
+    mineru_api_key: str = Field(default="", validation_alias="MINERU_API_KEY")
 
     # ── MinerU API ────────────────────────────────────────
     mineru_api_key: str = Field(default="", validation_alias="MINERU_API_KEY")
@@ -152,3 +178,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# ── 用户 UI 配置覆盖（backend/.user_config.json）─────────────
+# 优先级高于 .env / 环境变量，在 Settings 实例化后覆盖对应字段。
+_user_overrides = _load_user_config_overrides()
+for _key, _val in _user_overrides.items():
+    if hasattr(settings, _key) and _val:
+        setattr(settings, _key, _val)

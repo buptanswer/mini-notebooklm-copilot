@@ -46,7 +46,10 @@ class DocListResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────
 
 _SUPPORTED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".png", ".jpg", ".jpeg",
-                          ".txt", ".md"}
+                          ".txt", ".md", ".xlsx", ".xls"}
+# 明确不支持的类型（音视频等，上传时直接拒绝，文件夹同步时跳过）
+_UNSUPPORTED_EXTENSIONS = {".m4a", ".mp3", ".wav", ".flac", ".ogg", ".aac", ".wma",
+                           ".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv"}
 _DOC_SELECT = """
     SELECT doc_id, kb_id, filename,
            COALESCE(relative_path, filename) AS relative_path,
@@ -68,6 +71,7 @@ def _detect_format(filename: str) -> str:
         ".doc": "docx", ".docx": "docx",
         ".png": "png", ".jpg": "jpg", ".jpeg": "jpeg",
         ".txt": "txt", ".md": "md",
+        ".xlsx": "xlsx", ".xls": "xlsx",
     }
     return mapping.get(ext, "unknown")
 
@@ -95,6 +99,8 @@ async def upload_document(
 
     display_name = Path(file.filename).name
     ext = Path(display_name).suffix.lower()
+    if ext in _UNSUPPORTED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支持音视频文件（当前版本未接入转写服务）: {ext}")
     if ext not in _SUPPORTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext}")
 
@@ -658,3 +664,215 @@ async def reparse_document(kb_id: str, doc_id: str, bg: BackgroundTasks):
         source_format=r["source_format"],
     )
     return {"detail": "重新解析任务已启动", "doc_id": doc_id}
+
+
+@router.get("/{kb_id}/{doc_id}/stats", summary="获取文档解析/切片统计信息")
+async def get_document_stats(kb_id: str, doc_id: str):
+    """返回文档的解析与切片统计：父块数、子块数、资产数等（供属性面板使用）。"""
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, kb_id, filename, source_format, file_size, page_count, "
+            "status, parent_heading_level, created_at, updated_at "
+            "FROM documents WHERE doc_id=? AND kb_id=?", (doc_id, kb_id)
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+
+        # 父块 / 子块计数
+        cur2 = await db.execute(
+            "SELECT COUNT(*) FROM parent_chunks WHERE doc_id=?", (doc_id,)
+        )
+        pcnt_row = await cur2.fetchone()
+        pcnt = pcnt_row[0] if pcnt_row else 0
+
+        cur3 = await db.execute(
+            "SELECT COUNT(*) FROM child_chunks WHERE doc_id=?", (doc_id,)
+        )
+        ccnt_row = await cur3.fetchone()
+        ccnt = ccnt_row[0] if ccnt_row else 0
+
+        # 资产计数
+        cur4 = await db.execute(
+            "SELECT COUNT(*) FROM assets WHERE doc_id=?", (doc_id,)
+        )
+        acnt_row = await cur4.fetchone()
+        acnt = acnt_row[0] if acnt_row else 0
+
+        # 自定义索引计数
+        cur5 = await db.execute(
+            "SELECT COUNT(*) FROM parent_extra_indexes WHERE doc_id=?", (doc_id,)
+        )
+        ecnt_row = await cur5.fetchone()
+        ecnt = ecnt_row[0] if ecnt_row else 0
+
+        return {
+            "doc_id": r["doc_id"],
+            "filename": r["filename"],
+            "source_format": r["source_format"],
+            "file_size": r["file_size"],
+            "page_count": r["page_count"],
+            "status": r["status"],
+            "parent_heading_level": r["parent_heading_level"] or 1,
+            "parent_chunks_count": pcnt,
+            "child_chunks_count": ccnt,
+            "assets_count": acnt,
+            "extra_indexes_count": ecnt,
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+        }
+    finally:
+        await db.close()
+
+
+class RenameBody(BaseModel):
+    new_name: str
+
+
+@router.patch("/{kb_id}/{doc_id}/rename", summary="重命名文档")
+async def rename_document(kb_id: str, doc_id: str, body: RenameBody):
+    """重命名文档（仅改显示名称和磁盘文件，不改 relative_path）。"""
+    new_name = body.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    if "/" in new_name or "\\" in new_name:
+        raise HTTPException(status_code=400, detail="文件名不能包含路径分隔符")
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, filename, upload_path, bound_file_path FROM documents "
+            "WHERE doc_id=? AND kb_id=?", (doc_id, kb_id)
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+
+        old_path = r["upload_path"] or r["bound_file_path"] or ""
+        new_upload = old_path
+        if old_path:
+            old = Path(old_path)
+            if old.exists():
+                new_path = old.parent / new_name
+                old.rename(new_path)
+                new_upload = str(new_path)
+
+        now = datetime.now(timezone.utc).isoformat()
+        await db.execute(
+            "UPDATE documents SET filename=?, upload_path=?, updated_at=? WHERE doc_id=?",
+            (new_name, new_upload, now, doc_id),
+        )
+        await db.commit()
+        return {"detail": "已重命名", "new_name": new_name}
+    finally:
+        await db.close()
+
+
+class CopyBody(BaseModel):
+    target_kb_id: str | None = None
+
+
+@router.post("/{kb_id}/{doc_id}/copy", summary="复制文档")
+async def copy_document(kb_id: str, doc_id: str, body: CopyBody = CopyBody()):
+    """复制文档到同 KB 或指定 KB（仅复制文件+元数据，不复制索引/向量）。"""
+    target_kb = body.target_kb_id or kb_id
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, filename, source_format, file_size, upload_path, "
+            "bound_file_path, relative_path, folder_category "
+            "FROM documents WHERE doc_id=? AND kb_id=?", (doc_id, kb_id)
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+
+        cur2 = await db.execute("SELECT kb_id FROM knowledge_bases WHERE kb_id=?", (target_kb,))
+        if not await cur2.fetchone():
+            raise HTTPException(status_code=404, detail="目标知识库不存在")
+
+        new_doc_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        stem = Path(r["filename"]).stem
+        suffix = Path(r["filename"]).suffix
+        new_name = f"{stem}_副本{suffix}"
+
+        new_upload = ""
+        old_path = r["upload_path"] or r["bound_file_path"] or ""
+        if old_path:
+            old = Path(old_path)
+            if old.exists():
+                dest_dir = settings.upload_dir / target_kb / new_doc_id
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / new_name
+                shutil.copy2(old, dest)
+                new_upload = str(dest)
+
+        await db.execute(
+            """INSERT INTO documents
+               (doc_id, kb_id, filename, relative_path, source_format, file_size,
+                upload_path, folder_category, status, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,'uploaded',?,?)""",
+            (new_doc_id, target_kb, new_name, r["relative_path"], r["source_format"],
+             r["file_size"], new_upload, r["folder_category"], now, now),
+        )
+        await db.commit()
+        return {"detail": "已复制", "new_doc_id": new_doc_id, "new_name": new_name}
+    finally:
+        await db.close()
+
+
+class MoveBody(BaseModel):
+    target_kb_id: str | None = None
+    relative_path: str | None = None
+
+
+@router.post("/{kb_id}/{doc_id}/move", summary="移动文档")
+async def move_document(kb_id: str, doc_id: str, body: MoveBody):
+    """移动文档到其他 KB 或修改 relative_path（子文件夹）。"""
+    target_kb = body.target_kb_id or kb_id
+
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT doc_id, kb_id, filename, upload_path, bound_file_path, "
+            "relative_path, source_format, file_size, folder_category "
+            "FROM documents WHERE doc_id=? AND kb_id=?", (doc_id, kb_id)
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        r = dict(row)
+
+        if target_kb != kb_id:
+            cur2 = await db.execute("SELECT kb_id FROM knowledge_bases WHERE kb_id=?", (target_kb,))
+            if not await cur2.fetchone():
+                raise HTTPException(status_code=404, detail="目标知识库不存在")
+
+        new_rel = body.relative_path or r["relative_path"]
+        now = datetime.now(timezone.utc).isoformat()
+
+        new_upload = r["upload_path"]
+        old_path = r["upload_path"] or r["bound_file_path"] or ""
+        if old_path and target_kb != r["kb_id"]:
+            old = Path(old_path)
+            if old.exists():
+                dest_dir = settings.upload_dir / target_kb / r["doc_id"]
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / old.name
+                shutil.move(str(old), str(dest))
+                new_upload = str(dest)
+
+        await db.execute(
+            "UPDATE documents SET kb_id=?, relative_path=?, upload_path=?, updated_at=? WHERE doc_id=?",
+            (target_kb, new_rel, new_upload, now, doc_id),
+        )
+        await db.commit()
+        return {"detail": "已移动", "target_kb_id": target_kb}
+    finally:
+        await db.close()
