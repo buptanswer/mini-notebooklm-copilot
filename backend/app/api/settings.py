@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
@@ -97,10 +96,14 @@ async def update_config(body: UserConfigUpdate):
     uc = _load_user_config()
     updates = body.model_dump(exclude_none=True)
 
-    # API key 特殊处理：前端传空字符串视为"不更新"，传非空才覆盖
+    # API key 智能保存：掩码值 "sk-xx****xxxx" 跳过（用户没改），真实 key 才保存。
     for key_field in ("qa_api_key", "mineru_api_key", "dashscope_api_key"):
-        if key_field in updates and not updates[key_field]:
-            del updates[key_field]
+        val = updates.get(key_field)
+        if val is None:
+            continue
+        if "****" in val:
+            del updates[key_field]  # 掩码值，用户没改，跳过
+        # 否则是用户输入的新 key，正常保存
 
     uc.update(updates)
     _save_user_config(uc)

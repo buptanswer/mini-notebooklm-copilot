@@ -180,8 +180,12 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # ── 用户 UI 配置覆盖（backend/.user_config.json）─────────────
-# 优先级高于 .env / 环境变量，在 Settings 实例化后覆盖对应字段。
+# API key 保护：只覆盖非掩码值（不含 "****" 的真实 key）。
+# 前端显示掩码 "sk-xx****xxxx"，用户未修改时不应覆盖环境变量中的真实 key。
 _user_overrides = _load_user_config_overrides()
 for _key, _val in _user_overrides.items():
-    if hasattr(settings, _key) and _val:
-        setattr(settings, _key, _val)
+    if not hasattr(settings, _key) or not _val:
+        continue
+    if isinstance(_val, str) and "****" in _val:
+        continue  # 掩码值，跳过
+    setattr(settings, _key, _val)
