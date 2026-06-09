@@ -25,6 +25,8 @@ import httpx
 from app.config import settings
 from app.models.models_ir import (
     BlockEnrichment,
+    CodeEnrichment,
+    EquationEnrichment,
     ImageEnrichment,
     IRBlock,
     IRBlockEnriched,
@@ -46,6 +48,18 @@ _IMAGE_DESC_PROMPT = (
 _TABLE_SUMMARY_PROMPT = (
     "请用一段简洁的中文总结下面这个表格的内容和要点，控制在100字以内。"
     "如果表格包含数字数据，请提炼关键趋势或对比信息。"
+)
+_CODE_ENRICH_PROMPT = (
+    "请分析以下代码块，用中文输出两部分：\n"
+    "1. [功能说明]：用1-2句话概括这段代码的核心功能和用途。\n"
+    "2. [核心代码]：提取这段代码中最关键的部分（函数定义/核心逻辑/关键类名），"
+    "剔除无关的 import 语句和冗长的 boilerplate 代码，保留能体现功能特征的标识符。\n\n"
+    "代码：\n{code}"
+)
+_EQUATION_ENRICH_PROMPT = (
+    "请用中文解释以下数学公式，包括：公式名称、各符号的含义、用途。"
+    "控制在100字以内。\n\n"
+    "公式：{equation}"
 )
 
 
@@ -69,9 +83,11 @@ async def enrich_blocks(
     # 找出需要富化的块
     image_indices = [(i, b) for i, b in enumerate(blocks) if b.type == "image"]
     table_indices = [(i, b) for i, b in enumerate(blocks) if b.type == "table"]
+    code_indices = [(i, b) for i, b in enumerate(blocks) if b.type == "code" and b.text.strip()]
+    equation_indices = [(i, b) for i, b in enumerate(blocks) if b.type == "equation" and b.text.strip()]
 
-    if not image_indices and not table_indices:
-        logger.info("无可富化的多模态块，跳过")
+    if not image_indices and not table_indices and not code_indices and not equation_indices:
+        logger.info("无可富化的块，跳过")
         return [_to_enriched(b, None) for b in blocks]
 
     sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
@@ -86,11 +102,25 @@ async def enrich_blocks(
             enrichment = await _enrich_table_block(blk)
             return idx, enrichment
 
+    async def enrich_code(idx: int, blk: IRBlock) -> tuple[int, Optional[BlockEnrichment]]:
+        async with sem:
+            enrichment = await _enrich_code_block(blk)
+            return idx, enrichment
+
+    async def enrich_equation(idx: int, blk: IRBlock) -> tuple[int, Optional[BlockEnrichment]]:
+        async with sem:
+            enrichment = await _enrich_equation_block(blk)
+            return idx, enrichment
+
     tasks = []
     for idx, blk in image_indices:
         tasks.append(enrich_image(idx, blk))
     for idx, blk in table_indices:
         tasks.append(enrich_table(idx, blk))
+    for idx, blk in code_indices:
+        tasks.append(enrich_code(idx, blk))
+    for idx, blk in equation_indices:
+        tasks.append(enrich_equation(idx, blk))
 
     # 并行执行，收集结果
     results: dict[int, Optional[BlockEnrichment]] = {}
@@ -106,8 +136,8 @@ async def enrich_blocks(
 
     img_ok = sum(1 for r in results.values() if r and r.enrichment_status == "ok")
     logger.info(
-        "富化完成: %d images, %d tables → %d ok",
-        len(image_indices), len(table_indices), img_ok,
+        "富化完成: %d images, %d tables, %d code, %d equations → %d ok",
+        len(image_indices), len(table_indices), len(code_indices), len(equation_indices), img_ok,
     )
     return enriched
 
@@ -227,6 +257,98 @@ async def _enrich_table_block(blk: IRBlock) -> Optional[BlockEnrichment]:
 
 
 # ─────────────────────────────────────────────────────────────
+# 代码块富化（LLM 文本模型）
+# ─────────────────────────────────────────────────────────────
+
+async def _enrich_code_block(blk: IRBlock) -> Optional[BlockEnrichment]:
+    """对单个 code 块用 LLM 生成功能说明 + 提取核心代码。"""
+    code_text = blk.text.strip()
+    if not code_text:
+        return BlockEnrichment(
+            code=CodeEnrichment(code_summary="", core_code=""),
+            enrichment_status="skipped",
+        )
+    try:
+        prompt = _CODE_ENRICH_PROMPT.format(code=code_text[:3000])
+        result = await _call_text_enrich(prompt)
+    except Exception as exc:
+        logger.warning("代码富化失败 %s: %s", blk.block_id, exc)
+        return BlockEnrichment(
+            code=CodeEnrichment(code_summary="", core_code=code_text[:500]),
+            enrichment_status="partial_failed",
+        )
+
+    summary, core = _parse_code_result(result, code_text)
+    emb_parts = []
+    if summary:
+        emb_parts.append(f"[代码功能说明]: {summary}")
+    if core:
+        emb_parts.append(f"[核心代码]: {core}")
+    return BlockEnrichment(
+        code=CodeEnrichment(
+            code_summary=summary,
+            core_code=core,
+            embedding_text="\n".join(emb_parts),
+        ),
+        enrichment_status="ok",
+    )
+
+
+def _parse_code_result(result: str, fallback_code: str) -> tuple[str, str]:
+    """解析 LLM 输出的代码富化结果，提取功能说明和核心代码。"""
+    summary = ""
+    core = ""
+    for line in result.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("[功能说明]") or stripped.startswith("1."):
+            summary = stripped.split("]", 1)[-1].strip().lstrip(":").strip() if "]" in stripped else stripped.split(".", 1)[-1].strip()
+        elif stripped.startswith("[核心代码]") or stripped.startswith("2."):
+            core_part = stripped.split("]", 1)[-1].strip() if "]" in stripped else stripped.split(".", 1)[-1].strip()
+            core = core_part if core_part else core
+    # Fallback: use summary as description, truncated code as core
+    if not summary and not core:
+        summary = result[:200]
+        core = fallback_code[:500]
+    return summary, core
+
+
+# ─────────────────────────────────────────────────────────────
+# 公式块富化（LLM 文本模型）
+# ─────────────────────────────────────────────────────────────
+
+async def _enrich_equation_block(blk: IRBlock) -> Optional[BlockEnrichment]:
+    """对单个 equation 块用 LLM 生成自然语言解释。"""
+    eq_text = blk.text.strip()
+    if not eq_text:
+        return BlockEnrichment(
+            equation=EquationEnrichment(equation_context_text="", embedding_text=""),
+            enrichment_status="skipped",
+        )
+    try:
+        prompt = _EQUATION_ENRICH_PROMPT.format(equation=eq_text[:1000])
+        result = await _call_text_enrich(prompt)
+    except Exception as exc:
+        logger.warning("公式富化失败 %s: %s", blk.block_id, exc)
+        return BlockEnrichment(
+            equation=EquationEnrichment(
+                equation_context_text="",
+                embedding_text=f"[数学公式]: {eq_text}",
+            ),
+            enrichment_status="partial_failed",
+        )
+
+    explanation = result.strip()[:300]
+    embedding_text = f"[数学公式]: {eq_text}\n[公式含义]: {explanation}"
+    return BlockEnrichment(
+        equation=EquationEnrichment(
+            equation_context_text=explanation,
+            embedding_text=embedding_text,
+        ),
+        enrichment_status="ok",
+    )
+
+
+# ─────────────────────────────────────────────────────────────
 # API 调用
 # ─────────────────────────────────────────────────────────────
 
@@ -298,5 +420,30 @@ async def _call_text_summary(text: str, prompt: str) -> str:
             return resp.json()
 
     body = await retry_async(_call, what="VLM API")
+    content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return content.strip()
+
+
+async def _call_text_enrich(prompt: str) -> str:
+    """调用 QA 文本模型做代码/公式富化（不消耗 VLM 配额）。"""
+    payload = {
+        "model": settings.qa_model,
+        "messages": [
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.effective_qa_api_key}",
+        "Content-Type": "application/json",
+    }
+    url = f"{settings.effective_qa_base_url}/chat/completions"
+
+    async def _call() -> dict:
+        async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+    body = await retry_async(_call, what="LLM enrich API")
     content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
     return content.strip()

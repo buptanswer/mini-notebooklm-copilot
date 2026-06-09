@@ -283,6 +283,9 @@ def _build_windows(
 
 def _build_retrieval_text(blk: IRBlock) -> str:
     """根据块类型生成 retrieval_text（不含 header_path 前缀）。"""
+    # code/equation: 优先使用 LLM 富化文本（含功能说明/公式含义），回退原始文本
+    if blk.metadata.retrieval_text_override:
+        return blk.metadata.retrieval_text_override
     if blk.type == "image":
         caption = blk.text.strip()
         return f"[图片: {caption}]" if caption else "[图片]"

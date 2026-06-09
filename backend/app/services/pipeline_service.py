@@ -342,6 +342,12 @@ async def _run_parse_pipeline_impl(
                 blk.text = eb.enrichment.image.embedding_text
             elif eb.enrichment.table and eb.enrichment.table.embedding_text:
                 blk.text = eb.enrichment.table.embedding_text
+            # code/equation: 不覆盖 blk.text（保留原始代码/公式给父块QA上下文），
+            # 富化文本存入 metadata.retrieval_text_override 供子块检索使用。
+            if eb.enrichment.code and eb.enrichment.code.embedding_text:
+                blk.metadata.retrieval_text_override = eb.enrichment.code.embedding_text
+            if eb.enrichment.equation and eb.enrichment.equation.embedding_text:
+                blk.metadata.retrieval_text_override = eb.enrichment.equation.embedding_text
 
         # 写出 document_ir_enriched.json
         ir_enriched_path = _write_enriched_ir(

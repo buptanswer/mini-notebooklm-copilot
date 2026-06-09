@@ -146,10 +146,8 @@ export default function KnowledgeBasePage() {
               ))}
             </div>
           </div>
-          {kbType === "course" && (
-            <Field label="绑定文件夹路径（可选）" hint="绑定后可用「同步」自动登记录音、课件等文件"
-              placeholder="例如：C:\Users\Alan\Desktop\数学物理方法" value={folder} onChange={(e) => setFolder(e.target.value)} />
-          )}
+          <Field label="绑定文件夹路径（可选）" hint="绑定后可用「同步」将本地文件登记到知识库"
+            placeholder="例如：C:\Users\Alan\Desktop\数学物理方法" value={folder} onChange={(e) => setFolder(e.target.value)} />
         </div>
       </Modal>
 

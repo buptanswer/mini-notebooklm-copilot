@@ -171,6 +171,11 @@ LAYOUT_PAGE_KNOWN_FIELDS: frozenset[str] = frozenset({
     "preproc_blocks",   # MinerU 内部预处理块（稳定出现，2026-05-21 实测确认）
 })
 
+# ── 当前已观察到的 MinerU 版本号范围 ─────────────────────────────────
+# 实测 3.1.8（图片/旧版）～ 3.2.1（2026-06 docx/pptx）。
+# 若 layout.json 的 _version_name 不在此范围内 → 提醒用户去官网下载最新文档、比对差异。
+KNOWN_MINERU_VERSION = "3.2.1"  # 当前最新观察值
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 偏差记录结构
@@ -594,12 +599,12 @@ def _check_content_sub_fields(
             report.add("warning", f"{loc}.level",
                        f"title.level 应为 int，实际为 {type(level).__name__}",
                        repr(level))
-        elif level is not None and level != 1:
+        elif level is not None and level not in (1, 2, 3):
             report.add(
                 "warning", f"{loc}.level",
-                f"title.level 语义漂移：预期始终为 1（当前 MinerU 版本不做层级检测），"
+                f"title.level 语义漂移：预期 1-3（PDF→1，Office/is_ocr→可能为2），"
                 f"实际为 {level}",
-                "MinerU 可能已启用标题层级识别——需更新推断文档、"
+                "MinerU 可能已启用更精细的标题层级识别——需更新推断文档、"
                 "重新评估 doc_tree_service LLM 重建策略是否仍然必要",
             )
 
@@ -644,19 +649,20 @@ def _check_semantic_values(
                 "MinerU 可能新增了列表样式类型，需更新推断文档",
             )
         lt = content.get("list_type")
-        if lt is not None and lt not in ("ordered", "unordered"):
+        if lt is not None and lt not in ("ordered", "unordered", "text_list", "reference_list"):
             report.add(
                 "warning", f"{loc}.list_type",
-                f"list.list_type 语义漂移：预期 'ordered' 或 'unordered'，实际为 {lt!r}",
+                f"list.list_type 语义漂移：已知值 ('ordered'|'unordered'|'text_list'|'reference_list')，实际为 {lt!r}",
             )
 
     # ── table: table_type ────────────────────────────────────────
     if raw_type == "table":
         tt = content.get("table_type")
-        if tt is not None and tt not in ("", "simple", "complex", "normal"):
+        if tt is not None and tt not in ("", "simple", "complex", "normal",
+                                           "simple_table", "complex_table"):
             report.add(
                 "warning", f"{loc}.table_type",
-                f"table.table_type 语义漂移：已知值 ('simple'|'complex'|'normal'|'')，实际为 {tt!r}",
+                f"table.table_type 语义漂移：已知值 ('simple'|'complex'|'normal'|'simple_table'|'complex_table'|'')，实际为 {tt!r}",
                 "MinerU 可能新增表格分类，需更新推断文档",
             )
 
@@ -837,7 +843,7 @@ def _check_layout_json(
     layout_data: Any,
     report: FormatCheckReport,
 ) -> None:
-    """校验 layout.json 顶层结构"""
+    """校验 layout.json 顶层结构 + 版本号监控"""
     if not isinstance(layout_data, dict):
         report.add("error", "layout.json",
                    f"顶层结构应为 dict，实际为 {type(layout_data).__name__}")
@@ -848,6 +854,35 @@ def _check_layout_json(
         report.add("warning", "layout.json",
                    f"出现未知顶级字段: {sorted(extra)}")
 
+    # ── 版本号监控 ──────────────────────────────────────────────────
+    detected_version = layout_data.get("_version_name", "")
+    if detected_version and detected_version != KNOWN_MINERU_VERSION:
+        report.add(
+            "warning", "layout.json._version_name",
+            f"MinerU 版本变更：已知={KNOWN_MINERU_VERSION}，实际={detected_version}",
+            "建议去 MinerU 官网下载最新文档，比对新旧文档找出变更点，"
+            "评估是否需要更新本项目推断文档及后续处理代码",
+        )
+
+    # ── _backend 后端正交校验 ────────────────────────────────────
+    detected_backend = layout_data.get("_backend", "")
+    if detected_backend and detected_backend not in ("vlm", "hybrid", "pipeline", "office"):
+        report.add(
+            "warning", "layout.json._backend",
+            f"未知的解析后端: {detected_backend!r}（已知: vlm/hybrid/pipeline/office）",
+            "MinerU 可能新增了后端类型，需评估对坐标/OCR/输出结构的影响",
+        )
+
+    # ── OCR 模式 ──────────────────────────────────────────────────
+    ocr_enable = layout_data.get("_ocr_enable")
+    vlm_ocr_enable = layout_data.get("_vlm_ocr_enable")
+    if ocr_enable is not None and not isinstance(ocr_enable, bool):
+        report.add("info", "layout.json._ocr_enable",
+                   f"_ocr_enable 应为 bool，实际为 {type(ocr_enable).__name__}")
+    if vlm_ocr_enable is not None and not isinstance(vlm_ocr_enable, bool):
+        report.add("info", "layout.json._vlm_ocr_enable",
+                   f"_vlm_ocr_enable 应为 bool，实际为 {type(vlm_ocr_enable).__name__}")
+
     pdf_info = layout_data.get("pdf_info")
     if pdf_info is None:
         report.add("warning", "layout.json", "缺少 'pdf_info' 字段")
@@ -855,7 +890,7 @@ def _check_layout_json(
         report.add("warning", "layout.json.pdf_info",
                    f"pdf_info 应为 list，实际为 {type(pdf_info).__name__}")
     else:
-        for i, page in enumerate(pdf_info[:3]):  # 只检前 3 页，避免过多输出
+        for i, page in enumerate(pdf_info[:3]):
             if not isinstance(page, dict):
                 continue
             extra_page = set(page.keys()) - LAYOUT_PAGE_KNOWN_FIELDS

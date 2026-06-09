@@ -114,7 +114,8 @@ class Settings(BaseSettings):
     # 多模态模型走 DashScope（与 QA Provider 解耦）；qa_enable_multimodal=False 则回退纯文本。
     qa_enable_multimodal: bool = Field(default=True, validation_alias="QA_ENABLE_MULTIMODAL")
     qa_multimodal_model: str = Field(default="qwen-vl-max", validation_alias="QA_MULTIMODAL_MODEL")
-    qa_multimodal_max_images: int = Field(default=3, validation_alias="QA_MULTIMODAL_MAX_IMAGES")
+    # 多模态问答图片数量上限（仅旧 /chat 端点使用；主对话路径不限数量，按位注入所有图片）
+    qa_multimodal_max_images: int = Field(default=50, validation_alias="QA_MULTIMODAL_MAX_IMAGES")
 
     # ── 数据路径 ──────────────────────────────────────────
     upload_dir: Path = DATA_ROOT / "uploads"
@@ -133,11 +134,15 @@ class Settings(BaseSettings):
     child_chunk_overlap_ratio: float = 0.15
 
     # ── 解析并发 ──────────────────────────────────────────
-    # 同时运行的解析流水线上限：批量重解析时避免 N 路并发打爆 MinerU/OSS/DashScope 连接
-    max_concurrent_parses: int = Field(default=2, validation_alias="MAX_CONCURRENT_PARSES")
+    # 同时运行的解析流水线上限。
+    # MinerU 官方限流：提交任务 50次/分钟，查询结果 1000次/分钟。
+    # 单次解析全程约 30-120s（主要在等 MinerU 处理），8 并发 ≈ 约 4-8 文件/分钟，
+    # 远低于 50/min 限制。DashScope 嵌入/VLM 无硬性限流；SQLite WAL 可承受。
+    # 如需调高/调低，通过环境变量 MAX_CONCURRENT_PARSES 覆盖。
+    max_concurrent_parses: int = Field(default=8, validation_alias="MAX_CONCURRENT_PARSES")
 
     # ── Server ────────────────────────────────────────────
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"  # 公网访问：同时支持 IPv4 + IPv6
     port: int = 8000
     debug: bool = True
 

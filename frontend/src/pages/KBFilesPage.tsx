@@ -238,8 +238,8 @@ export default function KBFilesPage() {
       try {
         const relPath = fromFolder && (file as File & { webkitRelativePath?: string }).webkitRelativePath
           ? (file as File & { webkitRelativePath?: string }).webkitRelativePath! : file.name
-        const doc = await uploadDocument(kbId, file, relPath)
-        if (doc.source_format !== "txt" && doc.source_format !== "md") await triggerParse(kbId, doc.doc_id)
+        await uploadDocument(kbId, file, relPath)
+        // 上传后不自动解析——用户可手动选择何时解析
       } catch (e) { fail++; lastErr = (e as Error).message }
     }
     setUploading(false)

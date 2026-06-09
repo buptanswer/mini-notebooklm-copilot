@@ -4,7 +4,7 @@
 
 MinerU 提供两种文档解析 API，满足不同场景需求：
 
-*   🎯 **精准解析 API** — 需申请 Token，支持单文件 / 批量、表格 / 公式 / 多格式输出
+*   🎯 **精准解析 API** — 需填写 token（API 管理页面自定创建），支持单文件 / 批量、表格 / 公式 / 多格式输出
 *   ⚡ **Agent 轻量解析 API** — 免登录，IP 限频防滥用，专为 AI Agent 工作流设计
 
 [](#模式对比)模式对比
@@ -15,7 +15,7 @@ MinerU 提供两种文档解析 API，满足不同场景需求：
 [](#-精准解析-api)🎯 精准解析 API
 =========================
 
-> 需申请 Token，支持 pipeline / vlm / MinerU-HTML 三种模型，单文件和批量均支持。
+> 需填写 token（API 管理页面自定创建），支持 pipeline / vlm / MinerU-HTML 三种模型，单文件和批量均支持。
 
 [](#概述)概述
 ---------
@@ -40,7 +40,7 @@ MinerU 的精准解析 API 专为需要高精度、深层次结构化提取的�
 
 **接口说明**
 
-适用于通过 API 创建解析任务的场景，用户须先申请 Token。 注意：
+适用于通过 API 创建解析任务的场景，用户需在 Header 中填写 Token（可在 API 管理页面自定创建）。 注意：
 
 *   单个文件大小不能超过 200MB, 文件页数不超出 200 页
 *   每个账号每天享有 1000 页最高优先级解析额度，超过 1000 页的部分优先级降低
@@ -53,7 +53,7 @@ MinerU 的精准解析 API 专为需要高精度、深层次结构化提取的�
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/extract/task"
 header = {
     "Content-Type": "application/json",
@@ -75,7 +75,7 @@ print(res.json()["data"])
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/extract/task"
 header = {
     "Content-Type": "application/json",
@@ -150,7 +150,7 @@ curl --location --request POST 'https://mineru.net/api/v4/extract/task' \
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 task_id = "上一步创建任务返回的 task_id"
 url = f"https://mineru.net/api/v4/extract/task/{task_id}"
 header = {
@@ -230,7 +230,7 @@ curl --location --request GET 'https://mineru.net/api/v4/extract/task/{task_id}'
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/file-urls/batch"
 header = {
     "Content-Type": "application/json",
@@ -272,7 +272,7 @@ except Exception as err:
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/file-urls/batch"
 header = {
     "Content-Type": "application/json",
@@ -383,7 +383,7 @@ curl -X PUT -T /path/to/your/file.pdf 'https://****'
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/extract/task/batch"
 header = {
     "Content-Type": "application/json",
@@ -416,7 +416,7 @@ except Exception as err:
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 url = "https://mineru.net/api/v4/extract/task/batch"
 header = {
     "Content-Type": "application/json",
@@ -520,7 +520,7 @@ curl --location --request POST 'https://mineru.net/api/v4/extract/task/batch' \
 ```
 import requests
 
-token = "官网申请的api token"
+token = "API管理页面自定创建的token"
 batch_id = "上一步批量提交返回的 batch_id"
 url = f"https://mineru.net/api/v4/extract-results/batch/{batch_id}"
 header = {
@@ -593,7 +593,7 @@ Agent 轻量解析接口专为 OpenClaw 等 AI Agent 场景设计，提供快速
 
 **核心特性：**
 
-*   **无需登录**：通过 IP 限频防滥用，无需申请 Token
+*   **无需登录**：通过 IP 限频防滥用，无需 Token
 *   **轻量快速**：PDF、图片使用 pipeline 轻量模型，禁用表格 / 公式识别，追求最快解析速度; Word、PPT 使用 Office 原生 API 解析
 *   **统一输出**：仅输出 Markdown 格式，返回 CDN 链接
 *   **双模式提交**：URL 解析和文件上传为独立接口，文件上传采用签名上传模式

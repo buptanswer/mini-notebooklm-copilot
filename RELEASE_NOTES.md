@@ -4,10 +4,10 @@
 
 ---
 
-## v1.6.0（2026-06-07 开发，待用户验收）— 前端架构重构与功能打磨
+## v1.6.0（2026-06-10 开发，待用户验收）— 全面接手重构与增强
 
-> v1.5.0 交付后，新 AI（Claude）从零接手。在 v1.5.0 基础上做前端架构重构与全面功能打磨，
-> 目标是让答辩演示更出彩、交互更流畅。
+> v1.5.0 交付后，新 AI（Claude）从零接手。在 v1.5.0 基础上做前端架构重构、
+> 切片增强、MinerU 格式校验升级与基础设施优化。
 
 ### 导航单列化（"两列太占地方"→ 一列可收起）
 - `Layout.tsx` 重写：合并原主菜单 + KB 二级菜单为一列智能导航
@@ -63,6 +63,37 @@
 - `basedpyright` 0 错；`test_v140.py` **86/86**；`test_v120.py` **122/122**
 - 前端 `tsc -p tsconfig.app.json` 0 错、`npm run build` 通过
 - Playwright 真机：首页→KB 导航单列化、0 控制台报错
+
+### 第二轮增强（2026-06-10）
+
+**切片增强**：
+- **父切片空标题合并**：连续空标题 section 的标题文本累积到下一个有正文的父块开头，防止上级标题信息丢失。（`parent_chunker.py`）
+- **代码块 LLM 富化**（`enricher.py`）：调用 QA 文本模型生成 1-2 句功能说明 + 提取核心代码（剔除 import/boilerplate）。富化文本 `[代码功能说明]+[核心代码]` → 子块检索；原始完整代码 → 父块 QA 上下文。
+- **公式块 LLM 富化**（`enricher.py`）：调用 QA 文本模型生成自然语言公式含义解释。富化文本 `[数学公式]+[公式含义]` → 子块检索；原始 LaTeX → 父块 QA 上下文。
+- **新增模型**：`BlockEnrichment.code`（`CodeEnrichment`），`BlockMetadata.retrieval_text_override`
+
+**MinerU 格式校验升级**：
+- 语义检查从字段级扩展到 **19 项值语义检查**（完整清单见推断文档 §10.5）
+- 新增 `_version_name` 版本号监控、`_backend` 后端类型检查、`_ocr_enable`/`_vlm_ocr_enable` 类型检查
+- **修正格式预期值**（来自 format_probe_log 实测）：`list_type` 补 `text_list`/`reference_list`，`table_type` 补 `simple_table`/`complex_table`，`title.level` 放宽到 1-3（PDF→1，Office/is_ocr→2）
+- 推断文档《在线API输出文件格式（SaaS推断版）.md》新增 §10 记录所有发现
+
+**基础设施**：
+- **公网访问**：Vite + uvicorn `host: "0.0.0.0"`（IPv4+IPv6 双栈）
+- **并发提升**：解析并发 2→8（对齐 MinerU 单次 50 文件批量 + 50 文件/分钟频控）
+- **文件夹绑定通用化**：新建 KB 时通用和课程类型均可绑定本地文件夹
+- **上传不自动解析**：文件上传后仅登记，用户手动点「解析」
+- **文件操作 API**：新增 rename/copy/move 三个端点
+
+**Bug 修复**：
+- API Key 防掩码覆盖（`config.py` 跳过含 `****` 的值；`settings.py` POST 跳过掩码值）
+- test_v120.py：mock 签名补 `multimodal` 参数、prompts 计数 5→9、音频同步测试断言适配
+- format_probe_log.jsonl 清空（旧条目全为预期值误报）
+
+**文档更新**：
+- `doc/项目当前情况.md`、`README.md`、`RELEASE_NOTES.md` 更新至 v1.6.0
+- `doc/在线API输出文件格式（SaaS推断版）.md` 新增 §10（格式发现 + 语义检查清单）
+- `doc/MinerU to RAG Pipeline 架构设计与数据流方案.md` 新增 §16（切片/格式/并发更新）
 
 ---
 

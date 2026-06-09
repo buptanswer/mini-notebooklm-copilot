@@ -1240,4 +1240,79 @@ for item in list_items:
   - `normalizer._get_image_source_path`：path 无文件名后缀（如 `images/`）→ 返回 None（不造伪 asset）。
   - `normalizer._is_empty_visual_block` + `normalize()` 主循环：image/table/equation 且无文本/无 html/无 math/无真实资产
     → 归一化阶段直接丢弃。**注意：不写 `degraded`**——否则 `pipeline_service` 会因 `degraded` 非空把含跨页表格的文档误标 `needs_review`。
+
+## §10 v1.6.0 格式发现（2026-06-07 实测，Office/is_ocr 模式）
+
+以下发现来自对 docx/pptx 文件（`mineru_office_use_ocr=True`）的真实解析结果。
+
+### §10.1 title.level 在不同源格式下的行为
+
+当前 MinerU 版本（实测 3.1.8–3.2.1）的 `title.level` 行为：
+
+| 源格式 | 解析模式 | title.level | 说明 |
+|--------|---------|-------------|------|
+| PDF | vlm (默认) | 1 | MinerU 不做层级识别 |
+| Office (docx/pptx) | is_ocr=true → hybrid | 2 | MinerU 在 is_ocr 模式下可能检测到部分层级 |
+
+`title.level` 可能范围为 1–3。format_checker 仅对超出此范围的值告警。
+
+### §10.2 新增 list_type 值
+
+实测发现 `content.list_type` 除了已有的 `"ordered"` / `"unordered"` 外，还包括：
+
+| 值 | 出现场景 |
+|----|---------|
+| `"text_list"` | Office/pptx 中的文本列表（非编号/非项目符号） |
+| `"reference_list"` | PDF 中的参考文献列表 |
+
+normalizer 将这些值原样保存到 `IRBlock.metadata.list_type`，不做特殊处理。
+
+### §10.3 新增 table_type 值
+
+实测发现 `content.table_type` 除了已见过的 `"simple"` / `"complex"` / `"normal"` / `""` 外，还包括：
+
+| 值 | 出现场景 |
+|----|---------|
+| `"simple_table"` | Office/pptx 简单表格 |
+| `"complex_table"` | PDF 复杂表格（含合并单元格等） |
+
+normalizer 将这些值原样保存到 `IRBlock.metadata.table_type`。
+
+### §10.4 _backend 后端类型
+
+layout.json 的 `_backend` 字段指示 MinerU 实际使用的解析后端：
+
+| 值 | 含义 |
+|----|------|
+| `"vlm"` | 纯 VLM 模式 |
+| `"hybrid"` | 混合模式（PDF 转图片 + OCR + VLM）—— is_ocr=true 的 Office 文件落在此 |
+| `"pipeline"` | 纯 pipeline 模式 |
+| `"office"` | Office 原生解析（无 bbox 坐标） |
+
+format_checker 对未知 `_backend` 值告警。
+
+### §10.5 format_checker 当前覆盖的语义检查清单 (v1.6.0)
+
+| 检查项 | 位置 | 预期值 |
+|--------|------|--------|
+| title.level | content_list_v2 → title.content | 1–3 |
+| list.attribute | content_list_v2 → list.content | `"ordered"` / `"unordered"` |
+| list.list_type | content_list_v2 → list.content | `"ordered"` / `"unordered"` / `"text_list"` / `"reference_list"` |
+| table.table_type | content_list_v2 → table.content | `"simple"` / `"complex"` / `"normal"` / `"simple_table"` / `"complex_table"` / `""` |
+| equation.math_type | content_list_v2 → equation.content | `"latex"` / `"mathml"` / `"asciimath"` |
+| code.code_language | content_list_v2 → code.content | str 或 null |
+| image_source.path | content_list_v2 → image/chart.content | 以 `"images/"` 开头 |
+| list_items[].ilevel | content_list_v2 → list.content | ≥ 0 |
+| list_items[].prefix | content_list_v2 → list.content | str 或 null |
+| TextSegment.url | content → …_content[] | str 或 null |
+| TextSegment.style | content → …_content[] | str 或 null |
+| TextSegment.children | content → …_content[] | list（递归校验） |
+| _version_name | layout.json | 与 `KNOWN_MINERU_VERSION` 比对（当前 "3.2.0"） |
+| _backend | layout.json | `"vlm"` / `"hybrid"` / `"pipeline"` / `"office"` |
+| _ocr_enable | layout.json | bool 或 null |
+| _vlm_ocr_enable | layout.json | bool 或 null |
+| 块类型 | content_list_v2 → block.type | 已知白名单 |
+| 块字段 | content_list_v2 → block.* | 已知白名单 |
+| content 字段 | content_list_v2 → block.content.* | 按类型白名单 |
+| ZIP 文件结构 | 解压目录 | 已知文件白名单 |
   - `child_chunker._make_atomic_child`：兜底跳过「纯占位文本(`[表格]`/`[图片]`/`[公式]`) 且无真实资产文件」的原子块（覆盖从旧盘 IR 重切片(reindex)场景）。

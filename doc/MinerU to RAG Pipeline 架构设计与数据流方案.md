@@ -1539,7 +1539,28 @@ DOCX/PPTX 使用 Office 原生引擎解析，有以下特性：
 2. `document_ir.json -> parent_chunks / child_chunks`
 3. `document_ir_enriched.json` 的多模态富化接口定义
 
-## 16. 交付完成定义
+## 16. v1.6.0 更新（2026-06-10）
+
+### 切片层
+
+- **父切片空标题合并**：连续空标题 section 的标题文本累积到下一个有正文的父块开头，防止上级标题信息丢失。（`parent_chunker.py`）
+- **代码块富化**：`enricher.py` 新增 `_enrich_code_block`——调用 QA 文本模型生成 1-2 句功能说明 + 提取核心代码（剔除 import/boilerplate）。富化文本存入 `BlockMetadata.retrieval_text_override`，仅用于子块检索；父块 QA 上下文保留原始完整代码。
+- **公式块富化**：`enricher.py` 新增 `_enrich_equation_block`——调用 QA 文本模型生成自然语言公式含义解释。富化方式同代码块：检索用富化文本，QA 用原始 LaTeX。
+- **新增模型**：`BlockEnrichment.code`（`CodeEnrichment`），`BlockMetadata.retrieval_text_override`
+
+### MinerU 格式校验
+
+- 语义检查从字段存在性扩展到 19 项值语义检查（详见《在线API输出文件格式（SaaS推断版）.md》§10.5）
+- 新增 `_version_name` 版本号监控（与 `KNOWN_MINERU_VERSION` 比对）
+- 新增 `_backend` 后端类型检查（vlm/hybrid/pipeline/office）
+- 新增 `_ocr_enable` / `_vlm_ocr_enable` 类型检查
+- 修正预期值：`list_type` 补 `text_list`/`reference_list`，`table_type` 补 `simple_table`/`complex_table`，`title.level` 放宽到 1-3
+
+### 并发
+
+- 解析并发 2→8（对齐 MinerU 单次 50 文件批量限制）
+
+## 17. 交付完成定义
 
 如果由其他 AI 编程助手直接根据本文档开发，至少应交付并满足下面这些完成条件：
 

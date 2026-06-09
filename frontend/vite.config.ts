@@ -12,12 +12,9 @@ export default defineConfig({
     },
   },
   server: {
-    // Bind IPv4 loopback explicitly. Node >=17 resolves "localhost" to ::1
-    // (IPv6) first, so Vite's default would only listen on [::1]:5173, and
-    // http://localhost:5173 / http://127.0.0.1:5173 in the browser (IPv4) get
-    // "connection refused" on Windows. Forcing 127.0.0.1 matches the proxy
-    // target and the uvicorn --host convention.
-    host: "127.0.0.1",
+    // 公网访问：0.0.0.0 同时支持 IPv4 和 IPv6，局域网内其他设备也可访问。
+    // 演示时手机/平板打开 http://<本机IP>:5173 即可查看前端。
+    host: "0.0.0.0",
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",

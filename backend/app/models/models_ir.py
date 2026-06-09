@@ -133,6 +133,7 @@ class BlockMetadata(BaseModel):
     table_type: Optional[str] = None
     table_html: Optional[str] = None
     math_content: Optional[str] = None
+    retrieval_text_override: Optional[str] = None  # code/equation LLM 富化文本，供子块检索
     page_auxiliary_ref: Optional[PageAuxiliaryRef] = None
 
 
@@ -328,8 +329,16 @@ class TableEnrichment(BaseModel):
 
 
 class EquationEnrichment(BaseModel):
-    equation_context_text: str = ""
-    embedding_text: str = ""
+    """公式富化：LLM 生成的自然语言解释"""
+    equation_context_text: str = ""   # 公式含义的自然语言说明
+    embedding_text: str = ""          # [数学公式]:LaTeX\n[公式含义]:说明 → 用于检索
+
+
+class CodeEnrichment(BaseModel):
+    """代码块富化：LLM 生成的功能摘要 + 提取核心代码"""
+    code_summary: str = ""            # 1-2 句代码功能说明
+    core_code: str = ""              # 提取的核心函数/类代码（剔除 import/boilerplate）
+    embedding_text: str = ""          # [代码功能说明]:摘要\n[核心代码]:code → 用于检索
 
 
 class BlockEnrichment(BaseModel):
@@ -337,6 +346,7 @@ class BlockEnrichment(BaseModel):
     image: Optional[ImageEnrichment] = None
     table: Optional[TableEnrichment] = None
     equation: Optional[EquationEnrichment] = None
+    code: Optional[CodeEnrichment] = None
     enrichment_status: Literal["ok", "partial_failed", "skipped"] = "ok"
 
 

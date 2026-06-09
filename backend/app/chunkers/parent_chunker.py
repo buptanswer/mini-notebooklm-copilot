@@ -72,6 +72,10 @@ def build_parent_chunks(
 
     result: list[ParentChunk] = []
 
+    # 空标题合并：连续的纯标题 section（无正文）的标题文本积累起来，
+    # 附加到下一个有正文的父块开头，避免上级标题信息丢失。
+    pending_titles: list[str] = []
+
     # 以组根 section 在 sections 中的顺序产出（保持文档顺序）
     for root_sec in sections:
         members = groups.get(root_sec.section_id)
@@ -89,11 +93,19 @@ def build_parent_chunks(
 
         # 仅当组内含 ≥1 正文块时才出父块（纯标题/空容器/合成根无正文 → 跳过）
         if not any(b.role not in _SKIP_ROLE and b.type != "title" for b in sec_blocks):
+            # 收集这个空 section 的标题文本，累积到下一个父块
+            for blk in sec_blocks:
+                if blk.type == "title" and blk.text.strip():
+                    pending_titles.append(blk.text.strip())
             continue
 
         parent_chunk_id = f"pc-{uuid.uuid4().hex[:12]}"
 
         text_parts: list[str] = []
+        # 将前面累积的空标题文本前置到本父块
+        if pending_titles:
+            text_parts.extend(pending_titles)
+            pending_titles = []
         asset_ids: list[str] = []
         page_indices: set[int] = set()
 
