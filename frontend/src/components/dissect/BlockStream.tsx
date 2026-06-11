@@ -2,7 +2,7 @@
 // DOCX/PPTX/Excel 无 origin.pdf 且 bbox 全 0，改为按阅读顺序铺块卡，
 // 仍保留「点块联动」与类型层位色，结构感知依旧可见。
 
-import { Fragment } from "react"
+import { Fragment, useEffect } from "react"
 import { ImageOff } from "lucide-react"
 import type { IRBlock } from "@/api/types"
 import { getAssetUrl } from "@/api/client"
@@ -26,6 +26,15 @@ export function BlockStream({
   const ordered = [...blocks].sort((a, b) => a.order_in_doc - b.order_in_doc)
   const crumbOf = (b: IRBlock) => (b.header_path || []).filter(Boolean).join(" › ")
 
+  useEffect(() => {
+    if (selectedBlockId) {
+      const el = document.getElementById(`block-box-${selectedBlockId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+    }
+  }, [selectedBlockId])
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-surface-2/40 px-4 py-4">
       <div className="mx-auto max-w-2xl space-y-1.5">
@@ -45,6 +54,7 @@ export function BlockStream({
                 </p>
               )}
               <button
+                id={`block-box-${b.block_id}`}
                 onClick={() => onSelectBlock(b.block_id)}
                 onMouseEnter={() => onHoverBlock(b.block_id)}
                 onMouseLeave={() => onHoverBlock(null)}

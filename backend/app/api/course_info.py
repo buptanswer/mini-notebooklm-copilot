@@ -18,16 +18,37 @@ class ChatRequest(BaseModel):
     content: str
     conversation_id: str | None = None   # None 时自动创建新会话
     enable_thinking: bool = False
+    enable_rag: bool = False
 
 
 @router.post("/{kb_id}/generate")
-async def generate_card(kb_id: str):
-    """触发课程信息卡片生成（同步等待，约 10-30s）。"""
-    try:
-        card = await course_info_service.generate_card(kb_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return card
+async def generate_card(kb_id: str, stream: bool = False):
+    """触发课程信息卡片生成。支持通过 stream=true 参数以 SSE 流流式返回 Agent 中途步骤。"""
+    if not stream:
+        try:
+            card = await course_info_service.generate_card(kb_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return card
+
+    async def _stream():
+        try:
+            async for evt in course_info_service.generate_card_stream(kb_id):
+                yield conversation_service.sse_line(evt)
+        except ValueError as e:
+            yield conversation_service.sse_line({"type": "error", "message": str(e)})
+        except Exception as e:
+            yield conversation_service.sse_line({"type": "error", "message": f"生成失败: {str(e)}"})
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 
 @router.get("/{kb_id}")
@@ -112,6 +133,8 @@ async def chat(kb_id: str, req: ChatRequest):
             conv_id,
             user_content=req.content,
             extra_system_for_this_turn=extra_system,
+            rag_mode=req.enable_rag,
+            enable_thinking=req.enable_thinking,
         ):
             yield chunk
         yield conversation_service.sse_line(

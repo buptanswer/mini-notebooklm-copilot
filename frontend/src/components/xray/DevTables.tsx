@@ -2,6 +2,7 @@
 // 把每一路的原始名次/分数/命中词/RRF/重排 delta 全摊开，不做动画。
 
 import type { ReactNode } from "react"
+import { useNavigate, useParams } from "react-router-dom"
 import type { RetrievalTrace, DocMeta } from "@/api/types"
 import { docName, crumb, fmtScore, isImageType } from "./helpers"
 
@@ -42,6 +43,8 @@ export function DevTables({
   docs: Record<string, DocMeta>
 }) {
   const { plan, vector_hits, keyword_hits, fusion, reranked, counts, timings_ms } = trace
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
 
   return (
     <div className="space-y-6 text-xs">
@@ -83,7 +86,7 @@ export function DevTables({
           </thead>
           <tbody className="divide-y divide-border">
             {vector_hits.map((h) => (
-              <tr key={h.child_chunk_id} className="hover:bg-surface-2/30">
+              <tr key={h.child_chunk_id} className="hover:bg-surface-2/30 cursor-pointer transition-colors" onClick={() => navigate(`/kb/${kbId}/dissect?doc=${h.doc_id}&child=${encodeURIComponent(h.child_chunk_id)}`)}>
                 <Td><Num>{h.rank + 1}</Num></Td>
                 <Td className="whitespace-nowrap text-ink-soft">{docName(h.doc_id, docs)}</Td>
                 <Td className="whitespace-nowrap text-ink-faint">{h.chunk_type ?? "—"}</Td>
@@ -105,7 +108,7 @@ export function DevTables({
             </thead>
             <tbody className="divide-y divide-border">
               {keyword_hits.map((h) => (
-                <tr key={h.child_chunk_id} className="hover:bg-surface-2/30">
+                <tr key={h.child_chunk_id} className="hover:bg-surface-2/30 cursor-pointer transition-colors" onClick={() => navigate(`/kb/${kbId}/dissect?doc=${h.doc_id}&child=${encodeURIComponent(h.child_chunk_id)}`)}>
                   <Td><Num>{h.rank + 1}</Num></Td>
                   <Td className="whitespace-nowrap text-ink-soft">{docName(h.doc_id, docs)}</Td>
                   <Td className="max-w-[160px] truncate text-ink-faint">{crumb(h.header_path)}</Td>
@@ -135,7 +138,7 @@ export function DevTables({
           </thead>
           <tbody className="divide-y divide-border">
             {fusion.map((f) => (
-              <tr key={f.child_chunk_id} className="hover:bg-surface-2/30">
+              <tr key={f.child_chunk_id} className="hover:bg-surface-2/30 cursor-pointer transition-colors" onClick={() => navigate(`/kb/${kbId}/dissect?doc=${f.doc_id}&child=${encodeURIComponent(f.child_chunk_id)}`)}>
                 <Td><Num>{f.rank + 1}</Num></Td>
                 <Td className="whitespace-nowrap text-ink-soft">{docName(f.doc_id, docs)}</Td>
                 <Td><Num>{f.vec_rank !== null ? f.vec_rank + 1 : "—"}</Num></Td>
@@ -158,7 +161,7 @@ export function DevTables({
           </thead>
           <tbody className="divide-y divide-border">
             {reranked.map((r) => (
-              <tr key={r.child_chunk_id} className="hover:bg-surface-2/30">
+              <tr key={r.child_chunk_id} className="hover:bg-surface-2/30 cursor-pointer transition-colors" onClick={() => navigate(`/kb/${kbId}/dissect?doc=${r.doc_id}&child=${encodeURIComponent(r.child_chunk_id)}`)}>
                 <Td className="text-accent"><Num>{r.rank + 1}</Num></Td>
                 <Td><Num>{r.prev_rank !== null ? r.prev_rank + 1 : "—"}</Num></Td>
                 <Td>

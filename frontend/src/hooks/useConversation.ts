@@ -15,7 +15,7 @@ export interface ThreadMessage {
 }
 
 function newAssistant(id: string, metadata: Record<string, unknown>): ThreadMessage {
-  return { id, role: "assistant", content: "", thinking: "", citations: [], metadata, streaming: true, showThinking: false }
+  return { id, role: "assistant", content: "", thinking: "", citations: [], metadata, streaming: true, showThinking: true }
 }
 
 /** 把最后一条 assistant 消息（当前流式目标）应用 patch。 */

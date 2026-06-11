@@ -445,3 +445,43 @@ export interface DocIndexesResponse {
   items: ExtraIndex[]
   by_parent: Record<string, ExtraIndex[]>
 }
+
+// ── 课程卡片生成流式事件定义 ──────────────────────────────────
+
+export interface CourseInfoProgressEvent {
+  type: "progress"
+  round: number | "final"
+  step:
+    | "retrieving"
+    | "queries"
+    | "merging"
+    | "evaluating"
+    | "eval_result"
+    | "eval_complete"
+    | "planning"
+    | "extracting"
+    | "done"
+  message: string
+  queries?: string[]
+  status?: string
+  missing_analysis?: string
+  new_queries?: Array<{ query: string; keywords?: string[] }>
+  added_count?: number
+  total_chunks?: number
+}
+
+export interface CourseInfoCardEvent {
+  type: "card"
+  card: CourseInfoCard
+}
+
+export interface CourseInfoErrorEvent {
+  type: "error"
+  message: string
+}
+
+export type CourseInfoGenerateEvent =
+  | CourseInfoProgressEvent
+  | CourseInfoCardEvent
+  | CourseInfoErrorEvent
+

@@ -1,8 +1,40 @@
 # progress.md — Mini-NotebookLM 开发进度
 
-> v1.6.0 全部交付，待用户验收。
+> v1.8.0 功能优化与 Bug 修复全部交付，测试通过。
 
 ---
+
+## v1.8.0 已完成
+
+### 后端 RAG / Q&A 迭代优化
+- **Iterative Retrieval Agent**：重构 `_fetch_rag_context` 为异步生成器，引入 `rag_eval_system.md` LLM 评估和第二轮补充检索，将 Agent 检索规划与完整度评估作为 `thinking` 事件流式返回。
+- **课程问答与追问检索开关**：在 `course_info` 聊天 API 中支持 `enable_rag`；在 `review` 追问 API 中支持 `enable_rag` 与 `enable_thinking`。
+- **只读讲义 Q&A 激活**：支持在 `conversation_id` 为空时传入 `date` 进行追问，后端自动基于该日期创建新会话、载入磁盘讲义作为上下文进行问答。
+
+### 后端讲义 Pandoc 导出
+- **Pandoc PDF/Markdown 编译导出**：实现 `POST /api/review/{kb_id}/export` 接口，支持调用本地 `pandoc` 并使用 `xelatex` (CJK 字体 Microsoft YaHei 支持) / `wkhtmltopdf` 编译并下载 PDF/Markdown。
+
+### 前端问答交互与 Composer 增强
+- **Composer 检索开关**：在 `Composer` 中增加 `enableRag` 开关与 `ScanSearch` 图标，并在课程问答和课后追问中绑定。
+- **流式生成指示器裁剪**：当 `ragMode` 为 False 时自动裁剪显示步骤，防讲义生成或纯对话时误报 "规划检索中"。
+- **查看已存讲义问答激活**：修复只读讲义视图，展示 Q&A composer，首发提问自动初始化会话。
+- **移除上课描述**：从 Review 页面生成参数表单中移除“上课描述”，并默认传递空字符串给后端。
+- **替换 print 导出**：更换 Review 页导出按钮为 handleExport，流式下载编译生成的正式中英双语讲义 PDF。
+
+### 检索透视定位跳转
+- **透视-溯源跳转**：为 DemoStages 演示态 Chunks 卡片与 DevTables 开发态数据行绑定 onClick 事件，支持点击跳转并高亮框选定位至 `/kb/${kbId}/dissect?doc={docId}&child={childChunkId}`。
+
+### 回归与类型安全
+- **测试通过**：`test_v120.py` (122/122 PASS) 与 `test_v140.py` (86/86 PASS) 回归全部通过。
+- **类型安全**：`basedpyright` 0 错误，前端 `tsc` 0 错误，`npm run build` 构建成功。
+
+## v1.7.0 已完成
+
+### Agent 多轮检索过程流式与可视化
+- **SSE 流式接口**：`/generate` API 添加 `stream=true` 选项，输出各阶段 JSON 进度通知，并对原有同步返回做 100% 降级兼容，未影响任何测试用例。
+- **Agent 状态上报**：服务层封装 `generate_card_stream` 异步迭代器，细粒度流式上报意图检索、片段合并去重、Agent 完整度评估分析和新一轮规划搜索词等中途状态。
+- **决策透视时间线**：前端针对提取过程重构为精美的垂直 Timeline 组件，结合 Framer Motion 呈现渐变、高亮与 Agent 决策思考气泡。
+- **路由绝对路径修复**：修复了侧边栏菜单使用相对路由时，在多层级路径下导致参数错误拼接跳转至 404 并回退主菜单的 Bug。
 
 ## v1.6.0 已完成
 

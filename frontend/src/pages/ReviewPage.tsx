@@ -7,6 +7,7 @@ import {
 import {
   forkConversation, getConversation, listReviewConversations, listReviewDates,
   listReviewSections, loadReviewNotes, saveReviewNotes, streamReviewFollowup, streamReviewGenerate,
+  exportReviewNotes,
 } from "@/api/client"
 import type { ConversationInfo, ReviewDateInfo, ReviewSectionInfo } from "@/api/types"
 import { threadFromHistory, useConversation, type ThreadMessage } from "@/hooks/useConversation"
@@ -23,14 +24,19 @@ export default function ReviewPage() {
   const [sections, setSections] = useState<ReviewSectionInfo[]>([])
   const [history, setHistory] = useState<ConversationInfo[]>([])
 
-  const [timeDescriptor, setTimeDescriptor] = useState("")
+  const timeDescriptor = ""
   const [userIdentity, setUserIdentity] = useState("北邮通信工程专业大二下")
   const [enableThinking, setEnableThinking] = useState(false)
+  const [enableRag, setEnableRag] = useState(false)
   const [savedMsg, setSavedMsg] = useState("")
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const hasSections = convo.messages.some((m) => (m.metadata as { kind?: string }).kind === "section")
   const sectionsDone = hasSections && !convo.streaming
   const readOnly = !convo.convId // 磁盘只读视图（无会话）
+  const hasFollowup = convo.messages.some(
+    (m) => m.role === "user" || (m.role === "assistant" && (m.metadata as { kind?: string }).kind !== "section")
+  )
 
   const refreshDates = () => { if (kbId) listReviewDates(kbId).then(setDates).catch(() => {}) }
 
@@ -41,6 +47,18 @@ export default function ReviewPage() {
   useEffect(() => {
     if (kbId && selectedDate) listReviewSections(kbId, selectedDate).then(setSections).catch(() => {})
   }, [kbId, selectedDate])
+
+  useEffect(() => {
+    if (!convo.streaming && selectedDate) {
+      refreshDates()
+      if (kbId) listReviewSections(kbId, selectedDate).then(setSections).catch(() => {})
+      if (isGenerating) {
+        setIsGenerating(false)
+        setSavedMsg("讲义已自动保存到磁盘，并已索引供问答检索")
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convo.streaming])
 
   // 打开历史会话：线程化重载（修复重载错乱）
   useEffect(() => {
@@ -66,6 +84,7 @@ export default function ReviewPage() {
   const handleGenerate = () => {
     if (!kbId || !selectedDate || convo.streaming) return
     setSavedMsg("")
+    setIsGenerating(true)
     convo.reset([], null)
     convo.start({
       starter: (h) => streamReviewGenerate(
@@ -77,10 +96,15 @@ export default function ReviewPage() {
   }
 
   const handleFollowup = (text: string) => {
-    if (!kbId || !convo.convId) return
+    if (!kbId) return
     convo.start({
       optimisticUser: text,
-      starter: (h) => streamReviewFollowup(kbId, convo.convId!, text, h),
+      starter: (h) => streamReviewFollowup(kbId, convo.convId, text, {
+        enableThinking,
+        enableRag,
+        date: selectedDate,
+        ...h
+      }),
     })
   }
 
@@ -115,6 +139,31 @@ export default function ReviewPage() {
     }))
     convo.reset(thread, null)
     setSavedMsg("已加载磁盘讲义（只读）")
+  }
+
+  const handleExport = async (format: "pdf" | "md") => {
+    if (!kbId) return
+    try {
+      setSavedMsg(format === "pdf" ? "正在编译导出 PDF (通过 Pandoc)..." : "正在导出 Markdown...")
+      const blob = await exportReviewNotes(kbId, {
+        conversationId: convo.convId,
+        date: selectedDate,
+        format,
+      })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${selectedDate}_课堂讲义.${format}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      setSavedMsg(`讲义 ${format.toUpperCase()} 导出成功！`)
+    } catch (e) {
+      const msg = (e as Error).message
+      setSavedMsg("导出失败：" + msg)
+      alert(`讲义 ${format.toUpperCase()} 导出失败！\n` + msg)
+    }
   }
 
   return (
@@ -184,15 +233,20 @@ export default function ReviewPage() {
                     <FileText className="h-3.5 w-3.5" />查看已存讲义
                   </button>
                 )}
-                {sectionsDone && !readOnly && (
+                {sectionsDone && !readOnly && !hasFollowup && !dates.find((d) => d.date === selectedDate)?.has_notes && (
                   <button onClick={handleSave} className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink hover:brightness-105">
                     <Save className="h-3.5 w-3.5" />保存讲义
                   </button>
                 )}
                 {hasSections && (
-                  <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent">
-                    <Printer className="h-3.5 w-3.5" />导出
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleExport("pdf")} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent">
+                      <Printer className="h-3.5 w-3.5" />导出 PDF
+                    </button>
+                    <button onClick={() => handleExport("md")} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-accent" title="无需 Pandoc 依赖，直接下载 Markdown 原文">
+                      <FileText className="h-3.5 w-3.5" />导出 MD
+                    </button>
+                  </div>
                 )}
               </div>
             </header>
@@ -200,19 +254,24 @@ export default function ReviewPage() {
             <div className="flex-1 overflow-y-auto">
               <div className="mx-auto max-w-3xl px-6 py-6">
                 {savedMsg && (
-                  <div className="mb-4 rounded-xl border border-border bg-accent-soft px-4 py-2.5 text-sm text-accent">✓ {savedMsg}</div>
+                  <div
+                    className={cn(
+                      "mb-4 rounded-xl border px-4 py-2.5 text-sm transition-all",
+                      savedMsg.includes("失败")
+                        ? "border-accent/30 bg-accent-soft text-accent"
+                        : "border-border bg-surface-2 text-ink-soft"
+                    )}
+                  >
+                    {savedMsg.includes("失败") ? "⚠ " : "✓ "}
+                    {savedMsg}
+                  </div>
                 )}
 
                 {/* 生成参数（未生成且无消息时） */}
                 {!hasSections && !convo.streaming && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card mb-6 p-6">
                     <h2 className="mb-4 font-display text-base font-semibold text-ink">生成参数</h2>
-                    <div className="grid grid-cols-2 gap-4">
-                      <label className="block">
-                        <span className="text-xs text-ink-soft">上课描述</span>
-                        <input value={timeDescriptor} onChange={(e) => setTimeDescriptor(e.target.value)} placeholder="如：下午第 2 节"
-                          className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
-                      </label>
+                    <div className="space-y-4">
                       <label className="block">
                         <span className="text-xs text-ink-soft">身份描述</span>
                         <input value={userIdentity} onChange={(e) => setUserIdentity(e.target.value)}
@@ -245,17 +304,27 @@ export default function ReviewPage() {
                   streaming={convo.streaming}
                   onToggleThinking={convo.toggleThinking}
                   onFork={readOnly ? undefined : handleFork}
+                  ragMode={hasSections ? enableRag : false}
+                  enableThinking={enableThinking}
                 />
 
                 {convo.error && (
                   <div className="mt-4 rounded-xl border border-border bg-accent-soft px-4 py-2.5 text-sm text-accent">⚠ {convo.error}</div>
                 )}
 
-                {/* 追问输入（有真实会话且讲义已生成） */}
-                {convo.convId && sectionsDone && (
+                {/* 追问输入（有真实会话且讲义已生成，或只读模式下且有讲义） */}
+                {(convo.convId || (readOnly && hasSections)) && sectionsDone && (
                   <div className="mt-6">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">课后追问</p>
-                    <Composer onSend={handleFollowup} disabled={convo.streaming} placeholder="在本次课堂上下文内继续提问…" />
+                    <Composer
+                      onSend={handleFollowup}
+                      disabled={convo.streaming}
+                      placeholder="在本次课堂上下文内继续提问，或开启检索问答整个知识库…"
+                      enableThinking={enableThinking}
+                      onToggleThinking={setEnableThinking}
+                      enableRag={enableRag}
+                      onToggleRag={setEnableRag}
+                    />
                   </div>
                 )}
               </div>

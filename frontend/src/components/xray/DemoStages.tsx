@@ -4,6 +4,7 @@
 
 import { useMemo } from "react"
 import type { ReactNode } from "react"
+import { useNavigate, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import {
   Sparkles, ScanLine, Radar, GitMerge, ArrowUpNarrowWide, Trophy,
@@ -144,6 +145,8 @@ export function StageQuery({ trace, state, current }: StageProps) {
 
 export function StageKeyword({ trace, docs, state, current }: StageProps) {
   const { plan, keyword_hits, counts, timings_ms } = trace
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
   const matchedUnion = useMemo(() => {
     const s = new Set<string>()
     keyword_hits.forEach((h) => h.matched_keywords?.forEach((k) => s.add(k)))
@@ -192,7 +195,8 @@ export function StageKeyword({ trace, docs, state, current }: StageProps) {
                   initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.15 + i * 0.08, duration: 0.4 }}
-                  className="px-3 py-2"
+                  className="px-3 py-2 cursor-pointer hover:bg-accent-soft/20 transition-colors"
+                  onClick={() => navigate(`/kb/${kbId}/dissect?doc=${h.doc_id}&child=${encodeURIComponent(h.child_chunk_id)}`)}
                 >
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[10px] text-ink-faint">#{h.rank + 1}</span>
@@ -231,6 +235,8 @@ const GOLDEN = 2.399963229728653 // 黄金角，用于均匀铺散方位
 
 export function StageVector({ trace, docs, state, current }: StageProps) {
   const { vector_hits, counts, timings_ms } = trace
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
   const hits = vector_hits.slice(0, 12)
 
   // 节点坐标：半径 ∝ (1−相似度)（越相关越靠近中心，诚实映射）；方位用黄金角铺散
@@ -371,7 +377,8 @@ export function StageVector({ trace, docs, state, current }: StageProps) {
               initial={{ opacity: 0, x: 10 }}
               animate={state === "active" ? { opacity: 1, x: 0 } : {}}
               transition={{ delay: 0.4 + i * 0.08 }}
-              className="flex items-center gap-2 rounded-md border border-border bg-surface-2/40 px-2.5 py-1.5"
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-2/40 px-2.5 py-1.5 cursor-pointer hover:bg-accent-soft/20 transition-colors"
+              onClick={() => navigate(`/kb/${kbId}/dissect?doc=${h.doc_id}&child=${encodeURIComponent(h.child_chunk_id)}`)}
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[10px] font-semibold text-accent">
                 {h.rank + 1}
@@ -398,6 +405,8 @@ export function StageVector({ trace, docs, state, current }: StageProps) {
 
 export function StageFusion({ trace, docs, state, current }: StageProps) {
   const { fusion, counts, timings_ms } = trace
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
   const maxRrf = Math.max(...fusion.map((f) => f.rrf_score), 0.0001)
   const rows = fusion.slice(0, 10)
 
@@ -423,7 +432,8 @@ export function StageFusion({ trace, docs, state, current }: StageProps) {
             initial={{ opacity: 0, y: 8 }}
             animate={state === "active" ? { opacity: 1, y: 0 } : {}}
             transition={{ delay: 0.1 + i * 0.06 }}
-            className="flex items-center gap-3 rounded-md border border-border bg-surface-2/30 px-2.5 py-1.5"
+            className="flex items-center gap-3 rounded-md border border-border bg-surface-2/30 px-2.5 py-1.5 cursor-pointer hover:bg-accent-soft/20 transition-colors"
+            onClick={() => navigate(`/kb/${kbId}/dissect?doc=${f.doc_id}&child=${encodeURIComponent(f.child_chunk_id)}`)}
           >
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[10px] font-semibold text-accent">
               {f.rank + 1}
@@ -507,7 +517,7 @@ export function StageRerank({ trace, docs, state, current }: StageProps) {
           {left.map((f, i) => (
             <ReorderRow
               key={f.child_chunk_id}
-              h={{ rank: i, doc_id: f.doc_id, text: f.text }}
+              h={{ rank: i, doc_id: f.doc_id, text: f.text, child_chunk_id: f.child_chunk_id }}
               docs={docs}
               side="left"
             />
@@ -566,7 +576,7 @@ export function StageRerank({ trace, docs, state, current }: StageProps) {
           {reranked.map((r, j) => (
             <ReorderRow
               key={r.child_chunk_id}
-              h={{ rank: j, doc_id: r.doc_id, text: r.text, chunk_type: r.chunk_type }}
+              h={{ rank: j, doc_id: r.doc_id, text: r.text, chunk_type: r.chunk_type, child_chunk_id: r.child_chunk_id }}
               docs={docs}
               side="right"
               delta={r.delta}
@@ -586,7 +596,7 @@ export function StageRerank({ trace, docs, state, current }: StageProps) {
 function ReorderRow({
   h, docs, side, delta, score, scoreMax, scoreMin, animateInDelay = 0, active = true,
 }: {
-  h: { rank: number; doc_id: string; text: string; chunk_type?: string }
+  h: { rank: number; doc_id: string; text: string; chunk_type?: string; child_chunk_id?: string }
   docs: Record<string, DocMeta>
   side: "left" | "right"
   delta?: number | null
@@ -596,13 +606,16 @@ function ReorderRow({
   animateInDelay?: number
   active?: boolean
 }) {
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
   const content = (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md border px-2 py-1.5",
+        "flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer hover:bg-accent-soft/20 transition-colors",
         side === "right" ? "border-accent/25 bg-accent-soft/20" : "border-border bg-surface-2/30",
       )}
       style={{ height: ROW_H - 6 }}
+      onClick={() => h.child_chunk_id && navigate(`/kb/${kbId}/dissect?doc=${h.doc_id}&child=${encodeURIComponent(h.child_chunk_id)}`)}
     >
       <span
         className={cn(
@@ -669,6 +682,8 @@ function DeltaBadge({ delta }: { delta?: number | null }) {
 
 export function StageFinal({ trace, docs, state, current }: StageProps) {
   const { reranked, timings_ms } = trace
+  const navigate = useNavigate()
+  const { kbId } = useParams<{ kbId: string }>()
   const maxScore = Math.max(...reranked.map((r) => r.rerank_score), 0.0001)
   const minScore = Math.min(...reranked.map((r) => r.rerank_score), 0)
   const hasImage = reranked.some((r) => isImageType(r.chunk_type))
@@ -692,11 +707,12 @@ export function StageFinal({ trace, docs, state, current }: StageProps) {
             animate={state === "active" ? { opacity: 1, y: 0 } : {}}
             transition={{ delay: 0.1 + i * 0.1, duration: 0.45 }}
             className={cn(
-              "rounded-lg border p-3",
+              "rounded-lg border p-3 cursor-pointer hover:bg-accent-soft/20 transition-colors",
               isImageType(r.chunk_type)
                 ? "border-accent/30 bg-accent-soft/20"
                 : "border-border bg-surface-2/30",
             )}
+            onClick={() => navigate(`/kb/${kbId}/dissect?doc=${r.doc_id}&child=${encodeURIComponent(r.child_chunk_id)}`)}
           >
             <div className="mb-1.5 flex items-center gap-2">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-xs font-bold text-accent-ink">

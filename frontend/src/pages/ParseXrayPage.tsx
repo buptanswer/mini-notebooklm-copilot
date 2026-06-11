@@ -48,6 +48,7 @@ export default function ParseXrayPage() {
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null)
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null)
   const [pageIdx, setPageIdx] = useState(0)
   const [layers, setLayers] = useState<CanvasLayers>({ blocks: true, parents: true, color: true })
@@ -132,6 +133,7 @@ export default function ParseXrayPage() {
 
   const selectBlock = (id: string) => {
     setSelectedBlockId(id)
+    setSelectedChildId(null)
     // selectedSectionId removed in v1.6.0
     const b = maps?.blockById.get(id)
     if (b && canRenderPdf) setPageIdx(b.page_idx)
@@ -162,6 +164,7 @@ export default function ParseXrayPage() {
   const selectParent = useCallback((pid: string) => {
     setSelectedParentId(pid)
     setSelectedBlockId(null)
+    setSelectedChildId(null)
     // selectedSectionId removed in v1.6.0
     if (!maps || !canRenderPdf) return
     const entries = maps.parentBoxes.get(pid)
@@ -177,6 +180,7 @@ export default function ParseXrayPage() {
     if (dl.block && maps.blockById.has(dl.block)) {
       target = dl.block
     } else if (dl.child) {
+      setSelectedChildId(dl.child)
       const c = chunks?.children.find((x) => x.child_chunk_id === dl.child)
       target = c?.source_block_ids?.find((id) => maps.blockById.has(id)) ?? null
     }
@@ -331,6 +335,7 @@ export default function ParseXrayPage() {
                 childCount={chunks?.counts.children ?? 0}
                 selectedBlock={selectedBlock}
                 selectedParentId={selectedParentId}
+                selectedChildId={selectedChildId}
                 indexesByParent={indexesByParent}
                 onSelectBlock={selectBlock}
                 onSelectParent={selectParent}

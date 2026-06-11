@@ -27,7 +27,7 @@ import { BlockTypeBadge, TypeDot } from "./badges"
 
 export function Inspector({
   ir, maps, kbId, docId, parentCount, childCount,
-  selectedBlock, selectedParentId, indexesByParent,
+  selectedBlock, selectedParentId, selectedChildId, indexesByParent,
   onSelectBlock, onSelectParent, onRefreshIndexes, onCollapse,
 }: {
   ir: IRResponse
@@ -38,6 +38,7 @@ export function Inspector({
   childCount: number
   selectedBlock: IRBlock | null
   selectedParentId: string | null
+  selectedChildId?: string | null
   indexesByParent: Record<string, ExtraIndex[]>
   onSelectBlock: (id: string) => void
   onSelectParent: (id: string) => void
@@ -62,12 +63,13 @@ export function Inspector({
         {selectedBlock ? (
           <BlockView
             ir={ir} maps={maps} kbId={kbId} docId={docId}
-            block={selectedBlock} onSelectBlock={onSelectBlock}
+            block={selectedBlock} selectedChildId={selectedChildId} onSelectBlock={onSelectBlock}
             onSelectParent={onSelectParent}
           />
         ) : selectedParent ? (
           <ParentView
             ir={ir} maps={maps} kbId={kbId} docId={docId} parent={selectedParent}
+            selectedChildId={selectedChildId}
             indexes={indexesByParent[selectedParent.parent_chunk_id] ?? []}
             onSelectBlock={onSelectBlock}
             onRefreshIndexes={onRefreshIndexes}
@@ -191,13 +193,14 @@ function ActionBtn({ icon: Icon, busy, onClick, className, children }: {
 // ── ① 块解析详情 ────────────────────────────────────────────
 
 function BlockView({
-  ir, maps, kbId, docId, block, onSelectBlock, onSelectParent,
+  ir, maps, kbId, docId, block, selectedChildId, onSelectBlock, onSelectParent,
 }: {
   ir: IRResponse
   maps: DerivedMaps
   kbId: string
   docId: string
   block: IRBlock
+  selectedChildId?: string | null
   onSelectBlock: (id: string) => void
   onSelectParent: (id: string) => void
 }) {
@@ -300,7 +303,7 @@ function BlockView({
           <div className="space-y-1.5">
             {childHits.map((c) => (
               <ChildCard key={c.child_chunk_id} child={c} sourceBlocks={c.source_block_ids.length}
-                onSelectBlock={onSelectBlock} currentBlockId={block.block_id} />
+                onSelectBlock={onSelectBlock} currentBlockId={block.block_id} isSelected={c.child_chunk_id === selectedChildId} />
             ))}
           </div>
         ) : (
@@ -320,13 +323,14 @@ function BlockView({
 const ASSET_TYPES = new Set(["image", "table", "code", "equation"])
 
 function ParentView({
-  ir, maps, kbId, docId, parent, indexes, onSelectBlock, onRefreshIndexes,
+  ir, maps, kbId, docId, parent, selectedChildId, indexes, onSelectBlock, onRefreshIndexes,
 }: {
   ir: IRResponse
   maps: DerivedMaps
   kbId: string
   docId: string
   parent: ParentChunkRow
+  selectedChildId?: string | null
   indexes: ExtraIndex[]
   onSelectBlock: (id: string) => void
   onRefreshIndexes: () => void
@@ -412,7 +416,7 @@ function ParentView({
           <div className="space-y-1.5">
             {children.map((c) => (
               <ChildCard key={c.child_chunk_id} child={c} sourceBlocks={c.source_block_ids.length}
-                onSelectBlock={onSelectBlock} />
+                onSelectBlock={onSelectBlock} isSelected={c.child_chunk_id === selectedChildId} />
             ))}
           </div>
         </Collapsible>
@@ -831,13 +835,16 @@ function ParentCard({ parent, childCount, onClick }: {
   )
 }
 
-function ChildCard({ child, sourceBlocks, onSelectBlock, currentBlockId }: {
+function ChildCard({ child, sourceBlocks, onSelectBlock, currentBlockId, isSelected }: {
   child: ChildChunkRow; sourceBlocks: number
-  onSelectBlock: (id: string) => void; currentBlockId?: string
+  onSelectBlock: (id: string) => void; currentBlockId?: string; isSelected?: boolean
 }) {
   const others = child.source_block_ids.filter((b) => b !== currentBlockId)
   return (
-    <div className="rounded-lg border border-border bg-surface p-2.5">
+    <div className={cn(
+      "rounded-lg border p-2.5 transition-colors",
+      isSelected ? "border-accent bg-accent-soft/30 ring-1 ring-accent shadow-[0_0_0_2px_color-mix(in_srgb,var(--c-accent)_22%,transparent)]" : "border-border bg-surface"
+    )}>
       <div className="mb-1 flex items-center gap-2">
         <BlockTypeBadge type={child.chunk_type} />
         <span className="font-mono text-[10px] text-ink-faint">{child.child_chunk_id.slice(0, 8)}</span>

@@ -214,7 +214,6 @@ async def generate_notes_streaming(
 
         user_content = f"{prompt_text}\n\n【录音转写】\n{txt_content}"
 
-        # 通过统一原语生成本节（录音作为隐藏 user，section 元数据打到 assistant）
         async for chunk in conversation_service.stream_turn(
             conv_id,
             user_content=user_content,
@@ -222,6 +221,12 @@ async def generate_notes_streaming(
             assistant_metadata={"kind": "section", "section_num": section_num},
         ):
             yield chunk
+
+    # 在所有节生成成功后，自动保存到本地文件夹并同步登记
+    try:
+        await save_notes_to_disk(kb_id, conv_id)
+    except Exception as e:
+        logger.error("Auto-saving lecture notes to disk failed: %s", e, exc_info=True)
 
     yield conversation_service.sse_line({"type": "done", "conversation_id": conv_id})
 

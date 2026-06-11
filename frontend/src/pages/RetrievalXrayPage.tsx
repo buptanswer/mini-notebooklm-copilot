@@ -7,7 +7,7 @@ import { useParams, useSearchParams } from "react-router-dom"
 import { AnimatePresence, motion } from "motion/react"
 import {
   ScanSearch, Play, Pause, RotateCcw, ChevronLeft, ChevronRight,
-  Sparkles, Table2, Loader2, AlertCircle, Gauge,
+  Sparkles, Table2, Loader2, AlertCircle, Gauge, History,
 } from "lucide-react"
 import { retrieveTrace } from "@/api/client"
 import type { RetrievalTraceResponse } from "@/api/types"
@@ -41,6 +41,19 @@ export default function RetrievalXrayPage() {
   const [speed, setSpeed] = useState<Speed>("normal")
   const inputRef = useRef<HTMLInputElement>(null)
   const stageRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [history, setHistory] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!kbId) return
+    const raw = localStorage.getItem(`xray_history_${kbId}`)
+    if (raw) {
+      try {
+        setHistory(JSON.parse(raw))
+      } catch (e) {}
+    } else {
+      setHistory([])
+    }
+  }, [kbId])
 
   // 演示态分阶段自动播放（节奏可调）
   useEffect(() => {
@@ -68,6 +81,11 @@ export default function RetrievalXrayPage() {
       setData(res)
       setRevealed(0)
       setAuto(true) // 演示态自动开播
+      setHistory((prev) => {
+        const next = [q, ...prev.filter((x) => x !== q)].slice(0, 20)
+        localStorage.setItem(`xray_history_${kbId}`, JSON.stringify(next))
+        return next
+      })
     } catch (e) {
       setError((e as Error).message || "检索失败")
       setData(null)
@@ -109,8 +127,55 @@ export default function RetrievalXrayPage() {
   const empty = trace && trace.counts.final === 0
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-5 py-7 sm:px-8">
+    <div className="flex h-full">
+      {/* 左：检索历史 */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface/40 p-3.5 sm:flex">
+        <div className="mb-3 flex items-center justify-between px-1">
+          <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+            <History className="h-3.5 w-3.5" />
+            检索历史
+          </h2>
+          {history.length > 0 && (
+            <button
+              onClick={() => {
+                if (confirm("确定清除所有检索历史吗？")) {
+                  setHistory([])
+                  localStorage.removeItem(`xray_history_${kbId}`)
+                }
+              }}
+              className="text-[10px] text-ink-faint hover:text-accent"
+            >
+              清空
+            </button>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <p className="px-1 py-6 text-center text-xs text-ink-faint">暂无检索历史</p>
+        ) : (
+          <div className="space-y-1 overflow-y-auto pr-0.5">
+            {history.map((h, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  setQuery(h)
+                  runQuery(h, topK)
+                }}
+                className={cn(
+                  "block w-full truncate rounded-xl px-3 py-2 text-left text-xs transition-all",
+                  query === h ? "bg-accent-soft text-accent font-medium" : "text-ink-soft hover:bg-surface-2",
+                )}
+                title={h}
+              >
+                {h}
+              </button>
+            ))}
+          </div>
+        )}
+      </aside>
+
+      {/* 右：内容 */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-5 py-7 sm:px-8">
         {/* 标题 */}
         <header className="mb-6">
           <div className="flex items-center gap-2.5">
@@ -278,6 +343,7 @@ export default function RetrievalXrayPage() {
         )}
       </div>
     </div>
+  </div>
   )
 }
 

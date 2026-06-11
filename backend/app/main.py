@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Mini-NotebookLM",
     description="面向大学生的多模态课程知识库与 AI 辅导系统",
-    version="1.6.0",
+    version="1.7.0",
     lifespan=lifespan,
 )
 

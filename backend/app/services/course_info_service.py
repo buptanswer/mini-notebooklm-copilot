@@ -15,6 +15,7 @@ import logging
 import re
 import uuid
 from datetime import date, datetime, timezone
+from typing import AsyncIterator
 
 from app.db.database import get_db
 from app.prompts import load_prompt
@@ -35,10 +36,31 @@ _QUERIES = [
 async def generate_card(kb_id: str) -> dict:
     """
     触发课程信息卡片生成（或重新生成）。
-    同步等待 LLM 返回，前端可显示加载动画。
+    同步收集 stream 事件，最后返回 final card 字典。
+    """
+    card = None
+    async for evt in generate_card_stream(kb_id):
+        if evt["type"] == "card":
+            card = evt["card"]
+    if not card:
+        raise ValueError("生成课程卡片失败")
+    return card
+
+
+async def generate_card_stream(kb_id: str) -> AsyncIterator[dict]:
+    """
+    触发课程信息卡片生成（或重新生成）的流式生成器。
+    采用多轮迭代检索 Agent 架构，最大进行 2 轮搜索，查漏补缺并流式向前端汇报各步骤状态。
     """
     # 1. 并行 5 查询
     import asyncio
+    yield {
+        "type": "progress",
+        "round": 1,
+        "step": "retrieving",
+        "message": "正在启动第一轮检索：并行检索5个课程核心维度...",
+        "queries": _QUERIES,
+    }
     all_chunks_lists = await asyncio.gather(
         *[hybrid_search(q, kb_id, top_k=5) for q in _QUERIES]
     )
@@ -51,11 +73,145 @@ async def generate_card(kb_id: str) -> dict:
                 seen[c.child_chunk_id] = c
 
     all_chunks = list(seen.values())
+    yield {
+        "type": "progress",
+        "round": 1,
+        "step": "merging",
+        "message": f"第一轮检索完成，共检索并去重合并了 {len(all_chunks)} 个参考片段。",
+        "total_chunks": len(all_chunks),
+    }
 
     if not all_chunks:
         raise ValueError("该知识库暂无可检索内容，请先上传并解析文档")
 
-    # 3. 构建 LLM messages
+    # Agent 多轮迭代查漏补缺 (最多进行 2 轮)
+    max_rounds = 2
+    current_round = 1
+    
+    while current_round < max_rounds:
+        # 构建当前检索到的上下文以供评估
+        context_parts = []
+        for i, c in enumerate(all_chunks, 1):
+            context_parts.append(f"[来源{i}]\n{c.retrieval_text or c.embedding_text}")
+        context_text = "\n---\n".join(context_parts)
+
+        yield {
+            "type": "progress",
+            "round": current_round,
+            "step": "evaluating",
+            "message": f"Agent 正在执行第 {current_round} 轮信息完整度评估...",
+        }
+
+        eval_system_prompt = load_prompt("course_info_eval_system")
+        eval_user_content = f"【当前已检索到的参考资料】\n{context_text}\n\n请评估以上资料，判断找齐了核心课程信息吗？返回 JSON。"
+
+        try:
+            eval_raw = await call_llm_json([
+                {"role": "system", "content": eval_system_prompt},
+                {"role": "user", "content": eval_user_content},
+            ])
+            eval_data = json.loads(_strip_code_fence(eval_raw))
+            status = eval_data.get("status", "complete")
+            missing_analysis = eval_data.get("missing_info_analysis", "")
+            new_queries_spec = eval_data.get("new_queries") or []
+            
+            logger.info(
+                f"[CourseInfoAgent] 第 {current_round} 轮检索评估结果: status={status}, 分析={missing_analysis}"
+            )
+            
+            yield {
+                "type": "progress",
+                "round": current_round,
+                "step": "eval_result",
+                "status": status,
+                "missing_analysis": missing_analysis,
+                "new_queries": new_queries_spec,
+                "message": f"第 {current_round} 轮评估结果：{'完整' if status == 'complete' else '尚不完整'}。分析：{missing_analysis}",
+            }
+            
+            if status == "complete" or not new_queries_spec:
+                yield {
+                    "type": "progress",
+                    "round": current_round,
+                    "step": "eval_complete",
+                    "message": "信息已完整，无需继续补充检索。",
+                }
+                break
+                
+            # 如果不完整，且有新的检索意图，跑第二轮检索（加大 top_k=10 以覆盖更多边缘内容）
+            yield {
+                "type": "progress",
+                "round": current_round + 1,
+                "step": "planning",
+                "message": f"启动查漏补缺检索。新规划了 {len(new_queries_spec)} 个定向检索词：",
+                "new_queries": new_queries_spec,
+            }
+
+            search_tasks = []
+            for spec in new_queries_spec:
+                q_text = spec.get("query")
+                keywords = spec.get("keywords") or []
+                # 拼接关键词和陈述句，交给双路检索
+                combined_query = f"{' '.join(keywords)} {q_text}".strip()
+                if combined_query:
+                    search_tasks.append(hybrid_search(combined_query, kb_id, top_k=10))
+            
+            if not search_tasks:
+                break
+                
+            yield {
+                "type": "progress",
+                "round": current_round + 1,
+                "step": "retrieving",
+                "message": "正在并行执行第二轮深挖检索...",
+                "queries": [spec.get("query") for spec in new_queries_spec],
+            }
+            
+            new_chunks_lists = await asyncio.gather(*search_tasks)
+            added_count = 0
+            for chunks in new_chunks_lists:
+                for c in chunks:
+                    if c.child_chunk_id not in seen:
+                        seen[c.child_chunk_id] = c
+                        all_chunks.append(c)
+                        added_count += 1
+            
+            logger.info(f"[CourseInfoAgent] 第 {current_round} 轮查漏补缺检索完成，补充了 {added_count} 个新切片")
+            
+            yield {
+                "type": "progress",
+                "round": current_round + 1,
+                "step": "merging",
+                "message": f"第二轮检索完成。新增 {added_count} 个相关切片，共计 {len(all_chunks)} 个参考切片。",
+                "added_count": added_count,
+                "total_chunks": len(all_chunks),
+            }
+
+            if added_count == 0:
+                break
+                
+        except Exception as e:
+            logger.warning(f"[CourseInfoAgent] 评估检索完整性失败，跳过迭代: {e}")
+            yield {
+                "type": "progress",
+                "round": current_round,
+                "step": "eval_result",
+                "status": "complete",
+                "missing_analysis": f"评估异常，跳过迭代：{str(e)}",
+                "message": f"完整性评估遇到异常: {str(e)}。跳过后续检索轮次。",
+            }
+            break
+            
+        current_round += 1
+
+    # 3. 构建最终 LLM messages 用于结构化提取
+    yield {
+        "type": "progress",
+        "round": "final",
+        "step": "extracting",
+        "message": "整合全部检索到的参考资料，启动 LLM 课程卡片内容结构化提取...",
+    }
+
     context_parts = []
     for i, c in enumerate(all_chunks, 1):
         context_parts.append(f"[来源{i}]\n{c.retrieval_text or c.embedding_text}")
@@ -150,7 +306,17 @@ async def generate_card(kb_id: str) -> dict:
     finally:
         await db.close()
 
-    return await get_card(kb_id)  # type: ignore[return-value]
+    card = await get_card(kb_id)
+    yield {
+        "type": "progress",
+        "round": "final",
+        "step": "done",
+        "message": "课程卡片生成完毕！",
+    }
+    yield {
+        "type": "card",
+        "card": card,
+    }
 
 
 async def get_card(kb_id: str) -> dict | None:

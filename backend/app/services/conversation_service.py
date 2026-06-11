@@ -312,14 +312,26 @@ async def stream_turn(
         yield sse_line({"type": "message_start", "role": "user",
                         "message_id": user_msg_id, "metadata": umeta})
 
+    # 5. assistant message_start（预生成 id，便于前端绑定 / fork）
+    asst_msg_id = str(uuid.uuid4())
+    ameta = dict(assistant_metadata or {})
+    yield sse_line({"type": "message_start", "role": "assistant",
+                    "message_id": asst_msg_id, "metadata": ameta})
+
     # 2. 可选 RAG 检索
     citations: list | None = None
     sources: list | None = None
     has_image: bool = False
+    acc_thinking: list[str] = []
     if rag_mode:
-        citations, sources, has_image = await _fetch_rag_context(
-            user_content, conv["kb_id"], top_k
-        )
+        async for evt in _fetch_rag_context(user_content, conv["kb_id"], top_k):
+            if evt["type"] == "progress":
+                acc_thinking.append(evt["message"])
+                yield sse_line({"type": "thinking", "content": evt["message"]})
+            elif evt["type"] == "result":
+                citations = evt["citations"]
+                sources = evt["sources"]
+                has_image = evt["has_image"]
     use_multimodal = has_image and settings.qa_enable_multimodal
 
     # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
@@ -344,17 +356,11 @@ async def stream_turn(
                 )
                 break
 
-    # 5. assistant message_start（预生成 id，便于前端绑定 / fork）
-    asst_msg_id = str(uuid.uuid4())
-    ameta = dict(assistant_metadata or {})
-    yield sse_line({"type": "message_start", "role": "assistant",
-                    "message_id": asst_msg_id, "metadata": ameta})
     if citations:
         yield sse_line({"type": "citations", "citations": citations})
 
     # 6. 流式调用 LLM
     acc_content: list[str] = []
-    acc_thinking: list[str] = []
     use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
     async for evt in stream_llm_completion(
         openai_msgs, enable_thinking=use_thinking, multimodal=use_multimodal,
@@ -382,27 +388,127 @@ async def stream_turn(
 
 async def _fetch_rag_context(
     query: str, kb_id: str, top_k: int
-) -> tuple[list | None, list | None, bool]:
+) -> AsyncIterator[dict]:
     """
-    全链路检索（query_planner 规划 → 双路 → RRF → 重排，见 retrieval_trace）。
-    返回 (citations, sources, has_image)；失败降级 (None, None, False)。
-      - citations：每个命中子块的元数据（UI 来源面板 + bbox 高亮，截断展示）。
-      - sources：**Small-to-Big** 注入上下文——每条 = 命中子块所在**父块**按块序还原
-        （图=VLM描述/原图、表=HTML，均在原位；见 qa_context.render_qa_sources），
-        与 citations 一一对应，保持 [来源N] 编号对齐；多模态时每条带有序 segments。
-      - has_image：是否有可注入的原图片段（决定走多模态问答）。
+    全链路检索（含多轮 Agent 自主评估与补漏规划）。
+    返回 AsyncIterator[dict]，包含 progress (中途日志) 与 result (最终结果)。
     """
     try:
         from app.services.qa_context import render_qa_sources, sources_have_images
         from app.services.retrieval_trace import run_retrieval_pipeline
+        from app.services.qa_service import call_llm_json
+        from app.prompts import load_prompt
+        import asyncio
+
+        def local_strip_code_fence(text: str) -> str:
+            t = text.strip()
+            if t.startswith("```"):
+                lines = t.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                t = "\n".join(lines).strip()
+            return t
+
+        yield {"type": "progress", "message": "【Agent 检索首轮】正在执行双路混合检索，召回候选切片...\n"}
 
         result = await run_retrieval_pipeline(query, kb_id, top_k=top_k, build_trace=False)
-        reranked = result.chunks
-        parent_map = result.parent_map
+        reranked = list(result.chunks) if result.chunks else []
+        parent_map = dict(result.parent_map) if result.parent_map else {}
+        
         if not reranked:
-            return None, None, False
+            yield {"type": "progress", "message": "【Agent 检索首轮】未召回任何切片。\n"}
+            yield {"type": "result", "citations": None, "sources": None, "has_image": False}
+            return
 
-        # citations：前端来源面板 + bbox 高亮（截断展示，与 sources 按 [来源N] 同序对齐）
+        seen = {c.child_chunk_id: c for c in reranked}
+
+        max_rounds = 2
+        current_round = 1
+        
+        while current_round <= max_rounds:
+            context_parts = []
+            for i, c in enumerate(reranked, 1):
+                context_parts.append(f"[来源{i}]\n{c.retrieval_text}")
+            context_text = "\n---\n".join(context_parts)
+
+            yield {"type": "progress", "message": f"【Agent 评估中】已召回 {len(reranked)} 个相关切片，正在评估信息完整度...\n"}
+
+            eval_system_prompt = load_prompt("rag_eval_system", query=query)
+            eval_user_content = f"【当前已检索到的参考资料】\n{context_text}\n\n请评估以上资料，判断是否足以回答用户的原始问题？返回 JSON。"
+
+            try:
+                eval_raw = await call_llm_json([
+                    {"role": "system", "content": eval_system_prompt},
+                    {"role": "user", "content": eval_user_content},
+                ])
+                eval_data = json.loads(local_strip_code_fence(eval_raw))
+                status = eval_data.get("status", "complete")
+                missing_analysis = eval_data.get("missing_info_analysis", "")
+                new_queries_spec = eval_data.get("new_queries") or []
+
+                yield {
+                    "type": "progress",
+                    "message": f"【Agent 评估结果】状态: {'完整' if status == 'complete' else '不完整'}\n"
+                               f"【Agent 缺失分析】{missing_analysis}\n"
+                }
+
+                if status == "complete" or not new_queries_spec:
+                    yield {"type": "progress", "message": "【Agent 检索决策】现有信息已足够回答，结束检索。\n"}
+                    break
+
+                if current_round == max_rounds:
+                    yield {"type": "progress", "message": "【Agent 检索决策】达到最大检索轮数限制，结束检索。\n"}
+                    break
+
+                yield {
+                    "type": "progress",
+                    "message": f"【Agent 规划补漏】发现关键事实缺失，启动第二轮查漏补缺检索，检索词:\n" +
+                               "\n".join([f"- {spec.get('query')}" for spec in new_queries_spec]) + "\n"
+                }
+
+                search_tasks = []
+                for spec in new_queries_spec:
+                    q_text = spec.get("query")
+                    keywords = spec.get("keywords") or []
+                    combined_query = f"{' '.join(keywords)} {q_text}".strip()
+                    if combined_query:
+                        from app.services.retrieval_service import hybrid_search
+                        search_tasks.append(hybrid_search(combined_query, kb_id, top_k=5))
+
+                if not search_tasks:
+                    break
+
+                new_chunks_lists = await asyncio.gather(*search_tasks)
+                added_count = 0
+                for chunks in new_chunks_lists:
+                    for c in chunks:
+                        if c.child_chunk_id not in seen:
+                            seen[c.child_chunk_id] = c
+                            reranked.append(c)
+                            added_count += 1
+
+                yield {"type": "progress", "message": f"【Agent 定向检索完成】第二轮新增召回 {added_count} 个切片。\n"}
+
+                if added_count == 0:
+                    break
+
+                # 提取补充父切片
+                new_parent_ids = list({c.parent_chunk_id for c in reranked if c.parent_chunk_id not in parent_map})
+                if new_parent_ids:
+                    from app.services.retrieval_service import fetch_parent_chunks
+                    new_parent_map = await fetch_parent_chunks(new_parent_ids)
+                    parent_map.update(new_parent_map)
+
+            except Exception as e:
+                logger.warning(f"RAG 检索 Agent 评估迭代失败: {e}", exc_info=True)
+                yield {"type": "progress", "message": f"【Agent 评估异常】{str(e)}，跳过迭代。\n"}
+                break
+
+            current_round += 1
+
+        # 整理 citations
         citations: list[dict] = []
         for i, c in enumerate(reranked, 1):
             parent = parent_map.get(c.parent_chunk_id, {})
@@ -422,15 +528,15 @@ async def _fetch_rag_context(
                 "score": round(c.score, 4),
             })
 
-        # sources：Small-to-Big 上下文，位置保真还原父块（图=描述/原图、表=HTML，均在原位）
         sources = await render_qa_sources(
             reranked, parent_map, multimodal=settings.qa_enable_multimodal
         )
         has_image = sources_have_images(sources)
-        return citations, sources, has_image
+        yield {"type": "result", "citations": citations, "sources": sources, "has_image": has_image}
+
     except Exception:
         logger.warning("RAG 检索失败，降级为纯对话模式", exc_info=True)
-        return None, None, False
+        yield {"type": "result", "citations": None, "sources": None, "has_image": False}
 
 
 _RAG_INTRO = "以下是从知识库检索、并扩展到命中内容所在小节的参考资料：\n"

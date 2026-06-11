@@ -4,6 +4,25 @@
 
 ---
 
+## v1.7.0（2026-06-11 开发，待用户验收）— RAG Agent 多轮检索透视与前端可视化
+
+> 在 v1.6.0 稳定交付的基础上，针对场景 Agent 模块（课程管家）在多轮迭代检索上的不透明体验进行深度优化，
+> 实现了 Server-Sent Events (SSE) 流式进度感知与“多轮检索 Agent 决策透视”前端时间线可视化。
+
+### Agent 多轮检索过程流式输出与前端可视化
+- **接口双模式兼容**：后端 `POST /generate` 支持流式参数 `stream: bool = False`。
+  - `stream=false`（默认值）：维持原同步返回 JSON 模式，**100% 降级兼容已有测试桩**。
+  - `stream=true`：通过 FastAPI `StreamingResponse` 提供 Server-Sent Events (SSE) 协议的实时事件通知流。
+- **Agent 进度流封装**：后端 `course_info_service.py` 内部重写并引入 `generate_card_stream` 迭代器，实时上报第一轮检索词、去重片段数、LLM 完整性评估气泡（缺失细节分析）、规划补漏检索词、第二轮定向检索状态与卡片生成状态。
+- **二级菜单绝对路由修复**：修复了原侧边栏 `Layout.tsx` 子功能链接使用相对路由在多级 segment 下被错误替换并回退首页的 Bug，修改为绝对路径绑定，保障全局二级跳转的流畅与正确。
+- **决策透视时间线可视化**：前端 `CourseInfoPage.tsx` 重构，废弃了静态 spinner 状态，设计并实现了**“多轮检索 Agent 决策透视”**时间线组件。使用 `motion/react` 进行精细的进入动画渲染，向教师和用户完整揭示 Agent “检索-评估-补缺-重检索”的整条黑盒思考链。
+
+### 验证
+- 后端：`pytest backend/test_v120.py`（**122/122**）、`test_v140.py`（**86/86**）与 `test_api.py`（**49/49**）全部通过。
+- 类型检查：`basedpyright` **0 errors**，前端 `tsc --noEmit` **0 errors**。
+
+---
+
 ## v1.6.0（2026-06-10 开发，待用户验收）— 全面接手重构与增强
 
 > v1.5.0 交付后，新 AI（Claude）从零接手。在 v1.5.0 基础上做前端架构重构、

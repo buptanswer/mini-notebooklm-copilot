@@ -4,6 +4,7 @@ import type {
   ChatEvent,
   ConversationInfo,
   CourseInfoCard,
+  CourseInfoGenerateEvent,
   DeadlineItem,
   ChunksResponse,
   DocIndexesResponse,
@@ -426,11 +427,18 @@ export function streamReviewGenerate(
 /** 模块七：课后追问（已有会话内）。 */
 export function streamReviewFollowup(
   kbId: string,
-  conversationId: string,
+  conversationId: string | null,
   content: string,
-  h: StreamHandlers,
+  h: StreamHandlers & { enableThinking?: boolean; enableRag?: boolean; date?: string },
 ): () => void {
-  return runSSE(`${BASE}/review/${kbId}/followup`, { conversation_id: conversationId, content }, h)
+  const { enableThinking, enableRag, date, ...rest } = h
+  return runSSE(`${BASE}/review/${kbId}/followup`, {
+    conversation_id: conversationId,
+    content,
+    enable_thinking: enableThinking ?? false,
+    enable_rag: enableRag ?? false,
+    date: date ?? null,
+  }, rest)
 }
 
 /** 模块九：课程信息问答（conversationId 为空时后端自动建会话）。 */
@@ -438,13 +446,14 @@ export function streamCourseInfoChat(
   kbId: string,
   content: string,
   conversationId: string | null,
-  h: StreamHandlers & { enableThinking?: boolean },
+  h: StreamHandlers & { enableThinking?: boolean; enableRag?: boolean },
 ): () => void {
-  const { enableThinking, ...rest } = h
+  const { enableThinking, enableRag, ...rest } = h
   return runSSE(`${BASE}/course-info/${kbId}/chat`, {
     content,
     conversation_id: conversationId,
     enable_thinking: enableThinking ?? false,
+    enable_rag: enableRag ?? false,
   }, rest)
 }
 
@@ -522,6 +531,63 @@ export async function generateCourseInfoCard(kbId: string): Promise<CourseInfoCa
   return handleResponse<CourseInfoCard>(res)
 }
 
+export interface CourseInfoStreamHandlers {
+  onEvent: (e: CourseInfoGenerateEvent) => void
+  onError?: (err: Error) => void
+  onDone?: () => void
+}
+
+/** 发起课程管家卡片生成的 SSE 流，并返回 abort 函数。 */
+export function streamCourseInfoCardGenerate(
+  kbId: string,
+  h: CourseInfoStreamHandlers,
+): () => void {
+  const controller = new AbortController()
+
+  const run = async () => {
+    try {
+      const res = await fetch(`${BASE}/course-info/${kbId}/generate?stream=true`, {
+        method: "POST",
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
+        throw new Error(detail)
+      }
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split("\n")
+        buf = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue
+          const data = line.slice(5).trim()
+          if (!data || data === "[DONE]") continue
+          try {
+            const ev = JSON.parse(data) as CourseInfoGenerateEvent
+            h.onEvent(ev)
+            if (ev.type === "card") {
+              h.onDone?.()
+              return
+            }
+          } catch { /* ignore malformed */ }
+        }
+      }
+      h.onDone?.()
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") h.onError?.(err as Error)
+    }
+  }
+
+  run()
+  return () => controller.abort()
+}
+
 export async function getCourseInfoCard(kbId: string): Promise<CourseInfoCard> {
   const res = await fetch(`${BASE}/course-info/${kbId}`)
   return handleResponse<CourseInfoCard>(res)
@@ -565,6 +631,30 @@ export async function loadReviewNotes(kbId: string, date: string): Promise<Revie
   const res = await fetch(`${BASE}/review/${kbId}/notes?date=${encodeURIComponent(date)}`)
   const data = await handleResponse<{ notes: ReviewNote[] }>(res)
   return data.notes
+}
+
+export async function exportReviewNotes(
+  kbId: string,
+  params: {
+    conversationId?: string | null
+    date?: string | null
+    format: string
+  }
+): Promise<Blob> {
+  const res = await fetch(`${BASE}/review/${kbId}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      conversation_id: params.conversationId,
+      date: params.date,
+      format: params.format,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || "导出失败")
+  }
+  return res.blob()
 }
 
 export async function listReviewConversations(kbId: string): Promise<ConversationInfo[]> {

@@ -4,12 +4,14 @@ import { motion } from "motion/react"
 import {
   AlertCircle, BarChart3, CalendarClock, ClipboardList, Loader2, Mail,
   MessagesSquare, RefreshCw, Trash2, User,
+  Brain, Database, Search, CheckCircle2, HelpCircle,
 } from "lucide-react"
 import {
-  deleteCourseInfoCard, forkConversation, generateCourseInfoCard, getConversation,
+  deleteCourseInfoCard, forkConversation, getConversation,
   getCourseInfoCard, listConversations, streamCourseInfoChat,
+  streamCourseInfoCardGenerate,
 } from "@/api/client"
-import type { ConversationInfo, CourseInfoCard } from "@/api/types"
+import type { ConversationInfo, CourseInfoCard, CourseInfoProgressEvent } from "@/api/types"
 import { threadFromHistory, useConversation } from "@/hooks/useConversation"
 import { ChatThread, Composer } from "@/components/ChatThread"
 import { cn } from "@/lib/utils"
@@ -24,8 +26,17 @@ export default function CourseInfoPage() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState("")
   const [enableThinking, setEnableThinking] = useState(false)
+  const [enableRag, setEnableRag] = useState(false)
   const [history, setHistory] = useState<ConversationInfo[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [progressEvents, setProgressEvents] = useState<CourseInfoProgressEvent[]>([])
+  const abortRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.()
+    }
+  }, [])
 
   const loadCard = async () => {
     if (!kbId) return
@@ -38,12 +49,34 @@ export default function CourseInfoPage() {
   }, [kbId, convo.convId])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [convo.messages])
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (!kbId) return
-    setGenerating(true); setError("")
-    try { setCard(await generateCourseInfoCard(kbId)) }
-    catch (e) { setError((e as Error).message) }
-    finally { setGenerating(false) }
+    abortRef.current?.()
+    setGenerating(true)
+    setError("")
+    setProgressEvents([])
+
+    const abort = streamCourseInfoCardGenerate(kbId, {
+      onEvent: (ev) => {
+        if (ev.type === "progress") {
+          setProgressEvents((prev) => [...prev, ev])
+        } else if (ev.type === "card") {
+          setCard(ev.card)
+          setGenerating(false)
+        } else if (ev.type === "error") {
+          setError(ev.message)
+          setGenerating(false)
+        }
+      },
+      onError: (err) => {
+        setError(err.message)
+        setGenerating(false)
+      },
+      onDone: () => {
+        setGenerating(false)
+      },
+    })
+    abortRef.current = abort
   }
 
   const handleDelete = async () => {
@@ -56,7 +89,7 @@ export default function CourseInfoPage() {
     if (!kbId) return
     convo.start({
       optimisticUser: text,
-      starter: (h) => streamCourseInfoChat(kbId, text, convo.convId, { enableThinking, ...h }),
+      starter: (h) => streamCourseInfoChat(kbId, text, convo.convId, { enableThinking, enableRag, ...h }),
     })
   }
 
@@ -112,9 +145,141 @@ export default function CourseInfoPage() {
         )}
 
         {generating && (
-          <div className="card p-12 text-center">
-            <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-accent" />
-            <p className="text-ink-soft">AI 正在提取课程信息…（约 10–30 秒）</p>
+          <div className="card p-6 md:p-8 space-y-6 bg-surface border border-border shadow-sm rounded-2xl relative overflow-hidden">
+            {/* Background Glow */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="flex items-center justify-between border-b border-border pb-4">
+              <div className="flex items-center gap-2.5">
+                <Brain className="h-5 w-5 text-accent animate-pulse" />
+                <div>
+                  <h3 className="font-display font-semibold text-ink text-base">多轮检索 Agent 决策透视</h3>
+                  <p className="text-xs text-ink-faint font-sans">基于思考树与自主查漏的双路混合检索</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>智能决策中...</span>
+              </div>
+            </div>
+
+            {/* Timeline Area */}
+            <div className="relative border-l border-border/85 ml-3 pl-6 space-y-6 text-sm">
+              
+              {/* If no events yet */}
+              {progressEvents.length === 0 && (
+                <div className="flex items-center gap-3 text-ink-soft py-2 animate-pulse">
+                  <div className="absolute -left-[31px] h-4 w-4 rounded-full border-2 border-accent bg-surface flex items-center justify-center">
+                    <div className="h-2 w-2 rounded-full bg-accent animate-ping" />
+                  </div>
+                  <span>正在初始化检索上下文...</span>
+                </div>
+              )}
+
+              {progressEvents.map((evt, idx) => {
+                let IconComponent = Search
+                let iconColorClass = "text-accent"
+                
+                if (evt.step === "merging") {
+                  IconComponent = Database
+                  iconColorClass = "text-accent"
+                } else if (evt.step === "evaluating") {
+                  IconComponent = Brain
+                  iconColorClass = "text-accent"
+                } else if (evt.step === "eval_result") {
+                  if (evt.status === "complete") {
+                    IconComponent = CheckCircle2
+                    iconColorClass = "text-green-500"
+                  } else {
+                    IconComponent = HelpCircle
+                    iconColorClass = "text-amber-500"
+                  }
+                } else if (evt.step === "planning") {
+                  IconComponent = RefreshCw
+                  iconColorClass = "text-amber-500"
+                } else if (evt.step === "extracting") {
+                  IconComponent = ClipboardList
+                  iconColorClass = "text-accent"
+                } else if (evt.step === "done") {
+                  IconComponent = CheckCircle2
+                  iconColorClass = "text-green-500"
+                }
+
+                const isLast = idx === progressEvents.length - 1
+
+                return (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="relative group"
+                  >
+                    {/* Timeline Node marker */}
+                    <div className={cn(
+                      "absolute -left-[32px] h-4 w-4 rounded-full border bg-surface flex items-center justify-center shadow-sm transition-all",
+                      isLast ? "border-accent scale-110 ring-2 ring-accent-soft" : "border-border"
+                    )}>
+                      {isLast && evt.step !== "done" && evt.step !== "eval_result" && evt.step !== "eval_complete" ? (
+                        <div className="h-2 w-2 rounded-full bg-accent animate-ping" />
+                      ) : (
+                        <div className={cn("h-1.5 w-1.5 rounded-full", evt.step === "done" || evt.status === "complete" ? "bg-green-500" : evt.status === "incomplete" ? "bg-amber-500" : "bg-accent")} />
+                      )}
+                    </div>
+
+                    <div className={cn("rounded-xl p-4 bg-surface-2/40 border border-border/40 space-y-2", isLast && "bg-surface-2 border-border/80 shadow-sm")}>
+                      <div className="flex items-center gap-2">
+                        <IconComponent className={cn("h-4 w-4", iconColorClass, isLast && evt.step !== "done" && evt.step !== "eval_result" && "animate-pulse")} />
+                        <span className="font-semibold text-ink-soft text-xs">
+                          {evt.round === "final" ? "最终阶段" : `第 ${evt.round} 轮检索`}
+                        </span>
+                        <span className="text-[10px] text-ink-faint px-2 py-0.5 rounded-full bg-border/40 font-mono ml-auto">
+                          {evt.step}
+                        </span>
+                      </div>
+                      
+                      <p className="text-ink text-sm leading-relaxed">{evt.message}</p>
+
+                      {/* Render queries tag list if present */}
+                      {evt.queries && evt.queries.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {evt.queries.map((q, qidx) => (
+                            <span key={qidx} className="text-xs bg-surface border border-border rounded px-2 py-0.5 text-ink-soft font-mono flex items-center gap-1">
+                              <Search className="h-2.5 w-2.5 shrink-0 text-accent" />
+                              {q}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Render missing analysis and planned queries for eval_result */}
+                      {evt.step === "eval_result" && (
+                        <div className="mt-2 space-y-2 border-t border-border/50 pt-2 text-xs">
+                          {evt.missing_analysis && (
+                            <div className="bg-surface border border-border/40 rounded-lg p-2.5 text-ink-soft">
+                              <span className="font-semibold text-accent block mb-1">🔍 缺失信息分析:</span>
+                              <span className="italic leading-normal">{evt.missing_analysis}</span>
+                            </div>
+                          )}
+                          {evt.new_queries && evt.new_queries.length > 0 && (
+                            <div className="space-y-1 pt-1">
+                              <span className="font-semibold text-ink-soft">📋 规划补漏检索：</span>
+                              <div className="flex flex-wrap gap-1">
+                                {evt.new_queries.map((nq, nqidx) => (
+                                  <span key={nqidx} className="bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 text-[10px] text-amber-600 font-mono">
+                                    {nq.query}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -206,14 +371,29 @@ export default function CourseInfoPage() {
 
             {convo.messages.length > 0 && (
               <div className="mb-3 max-h-[28rem] overflow-y-auto rounded-2xl border border-border bg-surface/40 p-4">
-                <ChatThread messages={convo.messages} streaming={convo.streaming} onToggleThinking={convo.toggleThinking} onFork={convo.convId ? handleFork : undefined} />
+                <ChatThread
+                  messages={convo.messages}
+                  streaming={convo.streaming}
+                  onToggleThinking={convo.toggleThinking}
+                  onFork={convo.convId ? handleFork : undefined}
+                  ragMode={enableRag}
+                  enableThinking={enableThinking}
+                />
                 <div ref={bottomRef} />
               </div>
             )}
             {convo.messages.length === 0 && (
               <p className="mb-3 px-1 text-xs text-ink-faint">试着问："作业怎么提交？""期末什么时候考？""老师邮箱是多少？"</p>
             )}
-            <Composer onSend={send} disabled={convo.streaming} placeholder="问关于课程的任何问题…" enableThinking={enableThinking} onToggleThinking={setEnableThinking} />
+            <Composer
+              onSend={send}
+              disabled={convo.streaming}
+              placeholder="问关于课程的任何问题…"
+              enableThinking={enableThinking}
+              onToggleThinking={setEnableThinking}
+              enableRag={enableRag}
+              onToggleRag={setEnableRag}
+            />
           </div>
         )}
       </div>

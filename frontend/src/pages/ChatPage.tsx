@@ -32,6 +32,7 @@ export default function ChatPage() {
   const navigate = useNavigate()
   const convo = useConversation()
   const [enableThinking, setEnableThinking] = useState(false)
+  const [enableRag, setEnableRag] = useState(true)
   const [history, setHistory] = useState<ConversationInfo[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [preview, setPreview] = useState<PreviewState | null>(null)
@@ -80,7 +81,7 @@ export default function ChatPage() {
     const id = cid
     convo.start({
       optimisticUser: text,
-      starter: (h) => streamSend(id, text, { ragMode: true, topK: 5, enableThinking, ...h }),
+      starter: (h) => streamSend(id, text, { ragMode: enableRag, topK: 5, enableThinking, ...h }),
     })
   }
 
@@ -187,6 +188,8 @@ export default function ChatPage() {
             onFork={handleFork}
             onViewSource={openPreview}
             onDissectSource={openDissect}
+            ragMode={enableRag}
+            enableThinking={enableThinking}
             emptyState={
               <motion.div
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -216,6 +219,8 @@ export default function ChatPage() {
             placeholder="向知识库提问…（Enter 发送，Shift+Enter 换行）"
             enableThinking={enableThinking}
             onToggleThinking={setEnableThinking}
+            enableRag={enableRag}
+            onToggleRag={setEnableRag}
           />
         </div>
       </div>

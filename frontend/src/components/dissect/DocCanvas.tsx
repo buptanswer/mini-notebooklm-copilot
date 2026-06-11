@@ -58,6 +58,15 @@ export function DocCanvas({
 
   useEffect(() => { setRendered(false) }, [pageIdx, pdfUrl])
 
+  useEffect(() => {
+    if (rendered && selectedBlockId) {
+      const el = document.getElementById(`block-box-${selectedBlockId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" })
+      }
+    }
+  }, [rendered, selectedBlockId])
+
   // 当前页的父块并集大框（selected 父块突出，其余作结构带）
   const pageParentBoxes: Array<{ pid: string; box: Box; selected: boolean }> = []
   if (layers.parents) {
@@ -160,6 +169,7 @@ export function DocCanvas({
               return (
                 <motion.button
                   key={b.block_id}
+                  id={`block-box-${b.block_id}`}
                   initial={false}
                   onClick={() => onSelectBlock(b.block_id)}
                   onMouseEnter={() => onHoverBlock(b.block_id)}

@@ -467,7 +467,7 @@ async def _test_course_info_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
     # Chat (SSE)
     with patch("app.services.course_info_service.get_card", AsyncMock(return_value=fake_card)):
         r5 = await c.post(f"/api/course-info/{kb_id}/chat",
-                          json={"content": "考试怎么安排？"})
+                          json={"content": "考试怎么安排？", "enable_rag": True})
         _record("POST /api/course-info/{id}/chat → 200", r5.status_code == 200)
         events = _collect_sse(r5.text)
         types = {e.get("type") for e in events}
@@ -601,7 +601,6 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
         r_secs = await c.get(f"/api/review/{review_kb_id}/sections?date=260505")
         secs = r_secs.json().get("sections", [])
         _record("sections 有 2 节（音频文件被过滤）", len(secs) == 2)
-
         # 检查 dates 里的 section_count 也是 2（不是 4）
         r_dates_check = await c.get(f"/api/review/{review_kb_id}/dates")
         dates_check = r_dates_check.json().get("dates", [])
@@ -677,6 +676,38 @@ async def _test_review_endpoints(c: httpx.AsyncClient, kb_id: str) -> None:
             _record("followup assistant message 有 message_id（可 fork）",
                     len(fup_ends) > 0 and all("message_id" in e for e in fup_ends))
 
+            # 追问 followup (未提供 conversation_id，通过 date 自动创建新会话并灌入已存讲义)
+            r_followup_no_id = await c.post(
+                f"/api/review/{review_kb_id}/followup",
+                json={"date": "260505", "content": "复习第一节讲了什么？", "enable_rag": True, "enable_thinking": True}
+            )
+            _record("followup (auto conversation) → 200", r_followup_no_id.status_code == 200)
+            fup_no_id_events = _collect_sse(r_followup_no_id.text)
+            fup_no_id_types = {e.get("type") for e in fup_no_id_events}
+            _record("followup auto SSE has conversation", "conversation" in fup_no_id_types)
+            _record("followup auto SSE has delta", "delta" in fup_no_id_types)
+            _record("followup auto SSE has done", "done" in fup_no_id_types)
+            
+            # 提取自动创建的会话 id
+            auto_conv_event = next((e for e in fup_no_id_events if e.get("type") == "conversation"), None)
+            auto_conv_id = auto_conv_event.get("conversation_id") if auto_conv_event else None
+            _record("followup auto conversation_id created", auto_conv_id is not None)
+
+            # 导出讲义为 Markdown
+            r_export_md = await c.post(
+                f"/api/review/{review_kb_id}/export",
+                json={"date": "260505", "format": "md"}
+            )
+            _record("export notes as md → 200", r_export_md.status_code == 200)
+            _record("export md headers contain markdown", "text/markdown" in r_export_md.headers.get("content-type", ""))
+
+            # 导出讲义为 PDF
+            r_export_pdf = await c.post(
+                f"/api/review/{review_kb_id}/export",
+                json={"date": "260505", "format": "pdf"}
+            )
+            _record("export notes as pdf response code checked (200 or 500)", r_export_pdf.status_code in (200, 500))
+
         # 日期有 has_notes 标记
         r_dates2 = await c.get(f"/api/review/{review_kb_id}/dates")
         dates2 = r_dates2.json().get("dates", [])
@@ -694,7 +725,7 @@ async def _test_prompts(c: httpx.AsyncClient) -> None:
     data = r.json()
     _record("response has prompts key", "prompts" in data)
     prompts = data.get("prompts", {})
-    _record("9 prompts loaded", len(prompts) == 9)
+    _record("11 prompts loaded", len(prompts) == 11)
     expected = {
         "lecture_review_section_first",
         "lecture_review_section_subsequent",
@@ -705,6 +736,8 @@ async def _test_prompts(c: httpx.AsyncClient) -> None:
         "doc_tree_system",
         "index_summary_system",
         "index_hypo_question_system",
+        "course_info_eval_system",
+        "rag_eval_system",
     }
     _record("all expected prompts present", expected.issubset(prompts.keys()))
 

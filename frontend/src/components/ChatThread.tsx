@@ -10,21 +10,41 @@ import type { ThreadMessage } from "@/hooks/useConversation"
 import { cn } from "@/lib/utils"
 
 /** 流式生成状态指示器：展示 AI 正在做的事情 */
-function StreamingIndicator({ hasThinking, hasContent, hasCitations }: {
-  hasThinking: boolean; hasContent: boolean; hasCitations: boolean
+function StreamingIndicator({
+  thinking = "", hasContent, hasCitations, ragMode = true, enableThinking = false,
+}: {
+  thinking?: string; hasContent: boolean; hasCitations: boolean; ragMode?: boolean; enableThinking?: boolean
 }) {
-  const phases = [
-    { key: "plan", label: "规划检索策略", icon: Brain },
-    { key: "search", label: "混合检索中", icon: ScanSearch },
-    { key: "think", label: "深度思考中", icon: Brain },
-    { key: "write", label: "正在撰写回答", icon: Sparkles },
-  ]
+  const phases = []
+  if (ragMode) {
+    phases.push({ key: "plan", label: "规划检索策略", icon: Brain })
+    phases.push({ key: "search", label: "混合检索中", icon: ScanSearch })
+  }
+  const isRagDone = !ragMode || hasCitations || thinking.includes("结束检索") || thinking.includes("限制")
+  const cleanedThinking = thinking.replace(/【Agent.*?】.*?\n/g, "").trim()
+  if (enableThinking || (isRagDone && cleanedThinking.length > 0)) {
+    phases.push({ key: "think", label: "深度思考中", icon: Brain })
+  }
+  phases.push({ key: "write", label: "正在撰写回答", icon: Sparkles })
 
-  let activePhase: number
-  if (hasContent) activePhase = 3
-  else if (hasThinking) activePhase = 2
-  else if (hasCitations) activePhase = 1
-  else activePhase = 0
+  let activePhase = 0
+  if (hasContent) {
+    activePhase = phases.length - 1
+  } else if (!isRagDone) {
+    if (thinking.includes("评估") || thinking.includes("定向") || thinking.includes("规划")) {
+      activePhase = phases.findIndex((p) => p.key === "search")
+    } else {
+      activePhase = phases.findIndex((p) => p.key === "plan")
+    }
+    if (activePhase === -1) activePhase = 0
+  } else {
+    const thinkIdx = phases.findIndex((p) => p.key === "think")
+    if (thinkIdx !== -1) {
+      activePhase = thinkIdx
+    } else {
+      activePhase = phases.length - 1
+    }
+  }
 
   return (
     <motion.div
@@ -94,12 +114,12 @@ function ThinkingPanel({
         ) : (
           <span>{msg.showThinking ? "收起思维链" : "展开思维链"}</span>
         )}
-        {hasThinking && (
+        {(hasThinking || msg.streaming) && (
           <ChevronRight className={cn("h-3 w-3 transition-transform", msg.showThinking && "rotate-90")} />
         )}
       </button>
       <AnimatePresence initial={false}>
-        {msg.showThinking && hasThinking && (
+        {msg.showThinking && (hasThinking || msg.streaming) && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -108,7 +128,7 @@ function ThinkingPanel({
             className="overflow-hidden"
           >
             <div className="mt-2 whitespace-pre-wrap rounded-md border border-border bg-surface-2/60 p-3 font-mono text-xs leading-relaxed text-ink-soft">
-              {msg.thinking}
+              {msg.thinking || <span className="text-ink-faint">正在初始化检索与分析规划...</span>}
             </div>
           </motion.div>
         )}
@@ -200,12 +220,14 @@ export interface ChatThreadProps {
   onDissectSource?: (c: CitationItem) => void
   emptyState?: React.ReactNode
   className?: string
+  ragMode?: boolean
+  enableThinking?: boolean
 }
 
 /** 统一会话线程渲染：讲义 section（reader 卡片）/ 普通问答 / 用户消息，全在一条线程。 */
 export function ChatThread({
   messages, streaming, onToggleThinking, onFork, docName, onViewSource, onDissectSource,
-  emptyState, className,
+  emptyState, className, ragMode = true, enableThinking = false,
 }: ChatThreadProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -271,9 +293,11 @@ export function ChatThread({
                   </div>
                 ) : m.streaming ? (
                   <StreamingIndicator
-                    hasThinking={!!m.thinking}
+                    thinking={m.thinking}
                     hasContent={!!m.content}
                     hasCitations={m.citations.length > 0}
+                    ragMode={ragMode}
+                    enableThinking={enableThinking}
                   />
                 ) : null}
 
@@ -302,11 +326,14 @@ export interface ComposerProps {
   placeholder?: string
   enableThinking?: boolean
   onToggleThinking?: (v: boolean) => void
+  enableRag?: boolean
+  onToggleRag?: (v: boolean) => void
   autoFocus?: boolean
 }
 
 export function Composer({
-  onSend, disabled, placeholder = "继续提问…", enableThinking, onToggleThinking, autoFocus,
+  onSend, disabled, placeholder = "继续提问…", enableThinking, onToggleThinking,
+  enableRag, onToggleRag, autoFocus,
 }: ComposerProps) {
   const [text, setText] = useState("")
   const submit = () => {
@@ -327,6 +354,20 @@ export function Composer({
           )}
         >
           <Brain className="h-4 w-4" />
+          <span className="hidden sm:inline text-xs font-medium">深度思考</span>
+        </button>
+      )}
+      {onToggleRag && (
+        <button
+          onClick={() => onToggleRag(!enableRag)}
+          title="开启知识库检索"
+          className={cn(
+            "flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-sm transition-colors",
+            enableRag ? "bg-accent-soft text-accent" : "text-ink-faint hover:text-ink-soft",
+          )}
+        >
+          <ScanSearch className="h-4 w-4" />
+          <span className="hidden sm:inline text-xs font-medium">知识库检索</span>
         </button>
       )}
       <textarea
