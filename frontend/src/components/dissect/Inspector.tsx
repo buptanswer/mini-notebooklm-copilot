@@ -12,7 +12,7 @@ import {
   Trash2, Type, X, Zap, type LucideIcon,
 } from "lucide-react"
 import type {
-  ChildChunkRow, ExtraIndex, ExtraIndexKind, IRBlock, IRResponse, IRSection, ParentChunkRow,
+  ChildChunkRow, ExtraIndex, ExtraIndexKind, IRBlock, IRResponse, ParentChunkRow,
 } from "@/api/types"
 import {
   createDocIndex, deleteDocIndex, getAssetUrl, patchDocIndex,
@@ -20,15 +20,15 @@ import {
 } from "@/api/client"
 import { cn } from "@/lib/utils"
 import {
-  crumb, isImageType, legendItems, sectionLabel, truncate, typeMeta,
+  crumb, isImageType, legendItems, truncate, typeMeta,
   type DerivedMaps,
 } from "./helpers"
-import { BlockTypeBadge, LevelTag, TypeDot } from "./badges"
+import { BlockTypeBadge, TypeDot } from "./badges"
 
 export function Inspector({
   ir, maps, kbId, docId, parentCount, childCount,
-  selectedBlock, selectedSection, selectedParentId, indexesByParent,
-  onSelectBlock, onSelectSection, onSelectParent, onRefreshIndexes, onCollapse,
+  selectedBlock, selectedParentId, indexesByParent,
+  onSelectBlock, onSelectParent, onRefreshIndexes, onCollapse,
 }: {
   ir: IRResponse
   maps: DerivedMaps
@@ -37,11 +37,9 @@ export function Inspector({
   parentCount: number
   childCount: number
   selectedBlock: IRBlock | null
-  selectedSection: IRSection | null
   selectedParentId: string | null
   indexesByParent: Record<string, ExtraIndex[]>
   onSelectBlock: (id: string) => void
-  onSelectSection: (id: string) => void
   onSelectParent: (id: string) => void
   onRefreshIndexes: () => void
   onCollapse?: () => void
@@ -65,18 +63,13 @@ export function Inspector({
           <BlockView
             ir={ir} maps={maps} kbId={kbId} docId={docId}
             block={selectedBlock} onSelectBlock={onSelectBlock}
-            onSelectSection={onSelectSection} onSelectParent={onSelectParent}
-          />
-        ) : selectedSection ? (
-          <SectionView
-            maps={maps} section={selectedSection}
-            onSelectBlock={onSelectBlock} onSelectSection={onSelectSection} onSelectParent={onSelectParent}
+            onSelectParent={onSelectParent}
           />
         ) : selectedParent ? (
           <ParentView
             ir={ir} maps={maps} kbId={kbId} docId={docId} parent={selectedParent}
             indexes={indexesByParent[selectedParent.parent_chunk_id] ?? []}
-            onSelectBlock={onSelectBlock} onSelectSection={onSelectSection}
+            onSelectBlock={onSelectBlock}
             onRefreshIndexes={onRefreshIndexes}
           />
         ) : (
@@ -198,7 +191,7 @@ function ActionBtn({ icon: Icon, busy, onClick, className, children }: {
 // ── ① 块解析详情 ────────────────────────────────────────────
 
 function BlockView({
-  ir, maps, kbId, docId, block, onSelectBlock, onSelectSection, onSelectParent,
+  ir, maps, kbId, docId, block, onSelectBlock, onSelectParent,
 }: {
   ir: IRResponse
   maps: DerivedMaps
@@ -206,7 +199,6 @@ function BlockView({
   docId: string
   block: IRBlock
   onSelectBlock: (id: string) => void
-  onSelectSection: (id: string) => void
   onSelectParent: (id: string) => void
 }) {
   const parent = maps.parentByBlock.get(block.block_id) ?? null
@@ -229,7 +221,7 @@ function BlockView({
         </div>
         <CrumbLine
           path={block.header_path}
-          onClick={block.section_id ? () => onSelectSection(block.section_id) : undefined}
+          onClick={undefined}
         />
         {hasBox && (
           <p className="mt-1.5 px-1 font-mono text-[10px] text-ink-faint">
@@ -321,120 +313,14 @@ function BlockView({
   )
 }
 
-// ── ② 小节归属 ──────────────────────────────────────────────
+// SectionView removed in v1.6.0 — clicking doc tree selects the title block (BlockView).
 
-function SectionView({
-  maps, section, onSelectBlock, onSelectSection, onSelectParent,
-}: {
-  maps: DerivedMaps
-  section: IRSection
-  onSelectBlock: (id: string) => void
-  onSelectSection: (id: string) => void
-  onSelectParent: (id: string) => void
-}) {
-  const members = maps.blocksBySection.get(section.section_id) ?? []
-  const parent = [...maps.parentById.values()].find((p) => p.section_id === section.section_id) ?? null
-  const childList = parent ? (maps.childrenByParent.get(parent.parent_chunk_id) ?? []) : []
-  const typeCounts = new Map<string, number>()
-  for (const b of members) typeCounts.set(b.type, (typeCounts.get(b.type) ?? 0) + 1)
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <LevelTag level={section.level || 1} />
-          {section.synthetic && (
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] italic text-ink-faint">synthetic</span>
-          )}
-          {section.page_span?.length >= 1 && (
-            <span className="font-mono text-[11px] text-ink-faint">
-              p.{section.page_span[0] + 1}{section.page_span.length > 1 && section.page_span[1] !== section.page_span[0] ? `–${section.page_span[1] + 1}` : ""}
-            </span>
-          )}
-        </div>
-        <h3 className="font-display text-base font-semibold leading-snug text-ink">{sectionLabel(section)}</h3>
-        <div className="mt-2"><CrumbLine path={section.header_path} /></div>
-      </div>
-
-      {/* 成员块类型分布 */}
-      {typeCounts.size > 0 && (
-        <div>
-          <SectionTitle icon={Boxes}>成员块（{members.length}）</SectionTitle>
-          <div className="flex flex-wrap gap-1.5">
-            {[...typeCounts.entries()].map(([t, n]) => (
-              <span key={t} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-soft">
-                <TypeDot type={t} />{typeMeta(t).label} <span className="font-mono text-ink-faint">{n}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 父切片 */}
-      <div>
-        <SectionTitle icon={Layers}>父切片</SectionTitle>
-        {parent ? (
-          <ParentCard parent={parent} childCount={childList.length}
-            onClick={() => onSelectParent(parent.parent_chunk_id)} />
-        ) : (
-          <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-xs text-ink-faint">
-            该小节不单独成父切片（纯标题容器 / 无正文内容）
-          </p>
-        )}
-      </div>
-
-      {/* 子切片 */}
-      {childList.length > 0 && (
-        <div>
-          <SectionTitle icon={Boxes}>子切片（{childList.length}）</SectionTitle>
-          <div className="space-y-1.5">
-            {childList.map((c) => (
-              <ChildCard key={c.child_chunk_id} child={c} sourceBlocks={c.source_block_ids.length}
-                onSelectBlock={onSelectBlock} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 成员块清单 */}
-      {members.length > 0 && (
-        <div>
-          <SectionTitle icon={ListTree}>逐块</SectionTitle>
-          <div className="space-y-1">
-            {members.map((b) => (
-              <button
-                key={b.block_id}
-                onClick={() => onSelectBlock(b.block_id)}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-left transition-colors hover:border-border-strong"
-              >
-                <TypeDot type={b.type} />
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-soft">
-                  {b.text ? truncate(b.text, 50) : `（${typeMeta(b.type).label}）`}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {section.child_section_ids.length > 0 && (
-        <button
-          onClick={() => onSelectSection(section.child_section_ids[0])}
-          className="flex items-center gap-1.5 text-xs text-accent transition-colors hover:text-accent-strong"
-        >
-          <GitBranch className="h-3.5 w-3.5" /> 含 {section.child_section_ids.length} 个子小节
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── ③ 父块视图（点中间父块大框）─────────────────────────────
+// ── ② 父块视图（点中间父块大框）─────────────────────────────
 
 const ASSET_TYPES = new Set(["image", "table", "code", "equation"])
 
 function ParentView({
-  ir, maps, kbId, docId, parent, indexes, onSelectBlock, onSelectSection, onRefreshIndexes,
+  ir, maps, kbId, docId, parent, indexes, onSelectBlock, onRefreshIndexes,
 }: {
   ir: IRResponse
   maps: DerivedMaps
@@ -443,7 +329,6 @@ function ParentView({
   parent: ParentChunkRow
   indexes: ExtraIndex[]
   onSelectBlock: (id: string) => void
-  onSelectSection: (id: string) => void
   onRefreshIndexes: () => void
 }) {
   const members = (parent.block_ids ?? [])
@@ -472,7 +357,7 @@ function ParentView({
         </div>
         <h3 className="font-display text-base font-semibold leading-snug text-ink">{title}</h3>
         <div className="mt-2">
-          <CrumbLine path={parent.header_path} onClick={parent.section_id ? () => onSelectSection(parent.section_id) : undefined} />
+          <CrumbLine path={parent.header_path} />
         </div>
         <div className="mt-2.5 grid grid-cols-3 gap-1.5">
           <Stat label="成员块" value={members.length} />

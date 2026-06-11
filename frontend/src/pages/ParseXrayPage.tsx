@@ -47,7 +47,6 @@ export default function ParseXrayPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null)
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null)
   const [pageIdx, setPageIdx] = useState(0)
@@ -83,7 +82,7 @@ export default function ParseXrayPage() {
     setIr(null)
     setChunks(null)
     setSelectedBlockId(null)
-    setSelectedSectionId(null)
+    // selectedSectionId removed in v1.6.0
     setSelectedParentId(null)
     setPageIdx(0)
     Promise.all([
@@ -128,29 +127,42 @@ export default function ParseXrayPage() {
   )
 
   const selectedBlock = (maps && selectedBlockId && maps.blockById.get(selectedBlockId)) || null
-  const selectedSection = (maps && selectedSectionId && maps.sectionById.get(selectedSectionId)) || null
-  const activeSectionId = selectedBlock?.section_id ?? selectedSectionId
+  const activeSectionId = selectedBlock?.section_id
+    ?? (selectedParentId ? maps?.parentById.get(selectedParentId)?.section_id ?? null : null)
 
   const selectBlock = (id: string) => {
     setSelectedBlockId(id)
-    setSelectedSectionId(null)
+    // selectedSectionId removed in v1.6.0
     const b = maps?.blockById.get(id)
     if (b && canRenderPdf) setPageIdx(b.page_idx)
     const p = maps?.parentByBlock.get(id)
     setSelectedParentId(p?.parent_chunk_id ?? null)
   }
-  const selectSection = (id: string) => {
-    setSelectedSectionId(id)
+  // 点击文档树 → 找该 section 第一个 title 块并选中（展示 MinerU 块信息面板）
+  const selectTreeSection = (sectionId: string) => {
+    const sec = maps?.sectionById.get(sectionId)
+    if (!sec) return
+    // selectedSectionId removed in v1.6.0
     setSelectedBlockId(null)
-    const p = maps ? [...maps.parentById.values()].find((pp) => pp.section_id === id) : null
-    setSelectedParentId(p?.parent_chunk_id ?? null)
-    const s = maps?.sectionById.get(id)
-    if (s && canRenderPdf && s.page_span?.length) setPageIdx(s.page_span[0])
+    const sorted = sec.block_ids
+      .map((bid: string) => maps?.blockById.get(bid))
+      .filter(Boolean)
+      .sort((a, b) => (a!.order_in_doc ?? 0) - (b!.order_in_doc ?? 0))
+    const titleBlock = sorted.find((b) => b!.type === "title") ?? sorted[0]
+    if (titleBlock) {
+      setSelectedBlockId(titleBlock.block_id)
+      if (canRenderPdf) setPageIdx(titleBlock.page_idx)
+      const p = maps?.parentByBlock.get(titleBlock.block_id)
+      setSelectedParentId(p?.parent_chunk_id ?? null)
+    } else {
+      const p = [...maps!.parentById.values()].find((pp) => pp.section_id === sectionId) ?? null
+      setSelectedParentId(p?.parent_chunk_id ?? null)
+    }
   }
   const selectParent = useCallback((pid: string) => {
     setSelectedParentId(pid)
     setSelectedBlockId(null)
-    setSelectedSectionId(null)
+    // selectedSectionId removed in v1.6.0
     if (!maps || !canRenderPdf) return
     const entries = maps.parentBoxes.get(pid)
     if (entries?.length) setPageIdx(entries[0].page_idx)
@@ -262,10 +274,10 @@ export default function ParseXrayPage() {
             <aside className="hidden w-60 shrink-0 border-r border-border bg-surface/40 md:block">
               <DocTree
                 tree={tree}
-                selectedSectionId={selectedSectionId}
+                selectedSectionId={activeSectionId}
                 activeSectionId={activeSectionId}
                 blockCount={(sid) => (maps.blocksBySection.get(sid) ?? []).length}
-                onSelectSection={selectSection}
+                onSelectSection={selectTreeSection}
                 onCollapse={() => setTreeOpen(false)}
               />
             </aside>
@@ -318,11 +330,9 @@ export default function ParseXrayPage() {
                 parentCount={chunks?.counts.parents ?? 0}
                 childCount={chunks?.counts.children ?? 0}
                 selectedBlock={selectedBlock}
-                selectedSection={selectedSection}
                 selectedParentId={selectedParentId}
                 indexesByParent={indexesByParent}
                 onSelectBlock={selectBlock}
-                onSelectSection={selectSection}
                 onSelectParent={selectParent}
                 onRefreshIndexes={refreshIndexes}
                 onCollapse={() => setInspectorOpen(false)}
