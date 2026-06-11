@@ -73,9 +73,6 @@ class Settings(BaseSettings):
 
     # ── MinerU API ────────────────────────────────────────
     mineru_api_key: str = Field(default="", validation_alias="MINERU_API_KEY")
-
-    # ── MinerU API ────────────────────────────────────────
-    mineru_api_key: str = Field(default="", validation_alias="MINERU_API_KEY")
     mineru_api_base: str = "https://mineru.net/api/v4"
     mineru_model_version: str = "vlm"
     # Office 文档(doc/ppt/xls 系列)默认走 MinerU 的 office backend：无版面坐标、不产出 PDF。

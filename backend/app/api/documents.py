@@ -762,8 +762,8 @@ async def rename_document(kb_id: str, doc_id: str, body: RenameBody):
 
         now = datetime.now(timezone.utc).isoformat()
         await db.execute(
-            "UPDATE documents SET filename=?, upload_path=?, updated_at=? WHERE doc_id=?",
-            (new_name, new_upload, now, doc_id),
+            "UPDATE documents SET filename=?, upload_path=?, bound_file_path=?, updated_at=? WHERE doc_id=?",
+            (new_name, new_upload, new_upload, now, doc_id),
         )
         await db.commit()
         return {"detail": "已重命名", "new_name": new_name}
@@ -869,8 +869,8 @@ async def move_document(kb_id: str, doc_id: str, body: MoveBody):
                 new_upload = str(dest)
 
         await db.execute(
-            "UPDATE documents SET kb_id=?, relative_path=?, upload_path=?, updated_at=? WHERE doc_id=?",
-            (target_kb, new_rel, new_upload, now, doc_id),
+            "UPDATE documents SET kb_id=?, relative_path=?, upload_path=?, bound_file_path=?, updated_at=? WHERE doc_id=?",
+            (target_kb, new_rel, new_upload, new_upload, now, doc_id),
         )
         await db.commit()
         return {"detail": "已移动", "target_kb_id": target_kb}

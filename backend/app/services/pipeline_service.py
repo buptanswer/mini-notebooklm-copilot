@@ -346,7 +346,7 @@ async def _run_parse_pipeline_impl(
             # 富化文本存入 metadata.retrieval_text_override 供子块检索使用。
             if eb.enrichment.code and eb.enrichment.code.embedding_text:
                 blk.metadata.retrieval_text_override = eb.enrichment.code.embedding_text
-            if eb.enrichment.equation and eb.enrichment.equation.embedding_text:
+            elif eb.enrichment.equation and eb.enrichment.equation.embedding_text:
                 blk.metadata.retrieval_text_override = eb.enrichment.equation.embedding_text
 
         # 写出 document_ir_enriched.json

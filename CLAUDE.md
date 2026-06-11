@@ -1,6 +1,6 @@
 # Mini-NotebookLM Copilot — 项目开发指南
 
-迷你版 NotebookLM：本地 AI 知识库系统（本科课程设计）。当前 v1.5.0（开发中，待用户验收）。
+迷你版 NotebookLM：本地 AI 知识库系统（本科课程设计）。当前 v1.6.0（开发中，待用户验收）。
 
 ## 技术栈
 - **后端**：FastAPI + aiosqlite + Qdrant（本地文件模式，单进程文件锁）+ httpx + openai SDK。包管理 **uv**（不是 pip）；Python ≥ 3.11。

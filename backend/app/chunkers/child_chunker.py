@@ -127,7 +127,7 @@ def _make_atomic_child(
         parent_chunk_id=parent.parent_chunk_id,
         doc_id=parent.doc_id,
         section_id=parent.section_id,
-        header_path=list(parent.header_path),
+        header_path=list(blk.header_path or parent.header_path),
         chunk_type=blk.type if blk.type in {"list", "code", "image", "table", "equation"} else "paragraph",  # type: ignore
         page_span=[blk.page_idx, blk.page_idx],
         source_block_ids=[blk.block_id],
