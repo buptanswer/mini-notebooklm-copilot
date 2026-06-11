@@ -335,10 +335,9 @@ async def stream_turn(
                 sources = evt["sources"]
                 has_image = evt["has_image"]
 
-    # 思维链与多模态视觉模型互斥：qwen-vl 系列不返回 reasoning_content。
-    # 用户显式开启"深度思考"时优先走文本路（图片以 VLM 描述在原位注入），确保思维链可用。
+    # qwen-plus 多模态可边看图边输出思维链，故思考与多模态可同时启用（不再互斥降级）。
     use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
-    use_multimodal = has_image and settings.qa_enable_multimodal and not use_thinking
+    use_multimodal = has_image and settings.qa_enable_multimodal
 
     # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
     msgs = await list_messages(conversation_id)

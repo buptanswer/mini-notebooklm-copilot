@@ -336,7 +336,7 @@ table.t tr:last-child td{border-bottom:none}
         <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">结构感知父子切片 + 多模态富化<span class="starflag">自研</span></div><div class="ps">Parent（喂模型）/ Child（做检索）</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">向量 + BM25 双路混合召回</div><div class="ps">text-embedding-v4 ‖ FTS5+jieba → RRF 融合</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">qwen3-rerank 重排 → Small-to-Big</div><div class="ps">命中子块 → 回填父块全文</div></div></div>
-        <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">多模态大模型问答 + 高亮溯源</div><div class="ps">qwen-vl 系列 · 引用回原文坐标</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">多模态大模型问答 + 高亮溯源</div><div class="ps">qwen-plus 多模态 · 引用回原文坐标</div></div></div>
       </div>
       <div data-reveal style="--i:3">
         <div class="card" style="background:#23201b;border-color:#3a3328">
@@ -576,7 +576,7 @@ table.t tr:last-child td{border-bottom:none}
           <ul class="list sm">
             <li><b>后端</b> FastAPI · Pydantic v2 · SQLite+FTS5 · Qdrant · httpx · openai SDK · 包管理 uv</li>
             <li><b>前端</b> React 19 · Vite 7 · TS strict · Tailwind v4 · shadcn/ui · framer-motion · react-pdf</li>
-            <li><b>云端</b> MinerU 解析 · 百炼 embedding/rerank/VLM · 多 Provider 问答（可切 DeepSeek/OpenAI）</li>
+            <li><b>云端</b> MinerU 解析 · 百炼 embedding/rerank/qwen-plus 多模态 · 多 Provider 问答<b>一键切换</b>（DeepSeek/OpenAI/Kimi）</li>
           </ul>
         </div>
         <div class="card jade" style="margin-top:14px">

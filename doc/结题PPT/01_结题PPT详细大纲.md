@@ -93,7 +93,7 @@ Parent Chunks（喂大模型） / Child Chunks（做检索）
    │
    ▼  qwen3-rerank 重排 → Small-to-Big（命中子块喂父块全文）
    │
-   ▼  多模态大模型问答（qwen-vl 系列）+ 高亮溯源
+   ▼  多模态大模型问答（qwen-plus，多模态 + 思考）+ 高亮溯源
 ```
 
 **视觉建议**：竖向时间线或横向泳道；带 ★ 的两步用主色重点标注（这是自研核心）。
@@ -268,7 +268,7 @@ Parent Chunks（喂大模型） / Child Chunks（做检索）
 **技术栈（两栏表）**：
 - 后端：FastAPI + Uvicorn · Pydantic v2 · aiosqlite(SQLite+FTS5) · Qdrant 本地文件模式 · httpx · openai SDK · 包管理 **uv**
 - 前端：React 19 + Vite 7 + TypeScript(strict) · Tailwind CSS v4 · shadcn/ui · React Router v7 · framer-motion · react-pdf · react-markdown
-- 云端能力：MinerU 在线 API（解析）· 阿里云百炼（embedding / rerank / VLM）· 多 Provider 问答（默认 qwen-plus，可切 DeepSeek/OpenAI/Moonshot）
+- 云端能力：MinerU 在线 API（解析）· 阿里云百炼（embedding / rerank / qwen-plus 多模态）· 多 Provider 问答**一键切换**（默认 qwen-plus，可切 DeepSeek V4 / GPT-5.5 / Kimi K2.6）
 
 **工程结构（后端分层）**：`adapters / api / services / chunkers / enrichers / models / prompts / validators / writers / db`
 

@@ -4,6 +4,18 @@ import { listPrompts, reloadPrompts } from "@/api/client"
 import { Btn, Field } from "@/components/Modal"
 import { cn } from "@/lib/utils"
 
+// QA Provider 一键预设：点击填入 Base URL + 模型名（API Key 仍需各自填写）。
+// 多模态/向量/重排始终走百炼，不受此切换影响（图片问答永远可用）。
+// 模型名为 2026-06 当前版本；项目「深度思考」走 enable_thinking + 读 reasoning_content，
+// 对 qwen-plus / deepseek-reasoner 有效；其余 Provider 作普通对话（思考由各家专有参数控制）。
+const QA_PRESETS: Array<{ label: string; base_url: string; model: string }> = [
+  { label: "百炼 qwen-plus", base_url: "", model: "qwen-plus" },
+  { label: "DeepSeek V4", base_url: "https://api.deepseek.com", model: "deepseek-v4-flash" },
+  { label: "DeepSeek 思考", base_url: "https://api.deepseek.com", model: "deepseek-reasoner" },
+  { label: "OpenAI GPT-5.5", base_url: "https://api.openai.com/v1", model: "gpt-5.5" },
+  { label: "Kimi K2.6", base_url: "https://api.moonshot.cn/v1", model: "kimi-k2.6" },
+]
+
 interface AppConfig {
   qa_model: string
   qa_base_url: string
@@ -110,6 +122,28 @@ export default function SettingsPage() {
 
         {/* ── QA 模型配置 ── */}
         <Section title="问答模型 (QA)">
+          <div className="card mb-3 p-3">
+            <p className="mb-2 text-xs font-medium text-ink-soft">一键切换 Provider（填好后补对应 API Key → 保存 → 重启后端生效）</p>
+            <div className="flex flex-wrap gap-2">
+              {QA_PRESETS.map((p) => {
+                const active = (edit.qa_model ?? cfg?.qa_model) === p.model
+                  && (edit.qa_base_url ?? cfg?.qa_base_url ?? "") === p.base_url
+                return (
+                  <button
+                    key={p.label}
+                    onClick={() => { updateEdit("qa_base_url", p.base_url); updateEdit("qa_model", p.model) }}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs transition-colors",
+                      active ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface text-ink-soft hover:border-accent hover:text-accent",
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-ink-faint">向量化 / 重排 / 多模态图片问答始终走百炼，不受此切换影响。</p>
+          </div>
           <div className="card divide-y divide-[color:var(--c-border)]">
             <EditableRow label="模型名称" env="QA_MODEL" value={cfg?.qa_model ?? ""} editVal={edit.qa_model} onChange={(v) => updateEdit("qa_model", v)} />
             <EditableRow label="Base URL" env="QA_BASE_URL" value={cfg?.qa_base_url ?? ""} editVal={edit.qa_base_url} onChange={(v) => updateEdit("qa_base_url", v)} placeholder="留空使用百炼" />

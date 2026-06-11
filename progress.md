@@ -46,8 +46,23 @@
 
 第 2 轮改动文件：后端 `conversation_service.py`/`retrieval_trace.py`；前端 `components/AgentTimeline.tsx`（重写折叠）、`pages/ReviewPage.tsx`（客户端打印）、`pages/CourseInfoPage.tsx`（视角跟随）、`index.css`（打印样式）。
 
-### Phase 3 — 定稿（⏳ 待用户验收后）
-代码验收通过后：用改进界面录视频 + 回填 PPT 截图 + 更新 `项目当前情况.md`/README/RELEASE_NOTES。
+### 验收反馈 · 第 3 轮（✅ 已完成，静态全绿）
+> 注：用户中途换机器，仓库经 git 同步到 `C:\Users\14044\Desktop\PyProject\mini-notebooklm-copilot`（旧机为 `C:\Users\Alan\Desktop\PyProj\...`，已弃用）。提交 `85f2665 v1.7.9` 含 round 1+2 全部改动。
+
+1. ✅ **全面改用 qwen-plus**（实测探针 + 阿里云官方文档双重确认：qwen-plus 现为多模态，且可"边看图边输出思维链"）：
+   - `config.py`：`vlm_model` 与 `qa_multimodal_model` 默认 `qwen-vl-plus`/`qwen-vl-max` → **`qwen-plus`**。
+   - `qa_service.stream_llm_completion`：多模态分支不再无条件关思考；仅 `qwen-vl` 系列才关（qwen-plus 保留思考）。
+   - `conversation_service.stream_turn`：**撤销第 2 轮"开思考就降级文本路"**——qwen-plus 多模态+思考可兼得，`use_multimodal = has_image and qa_enable_multimodal`。
+2. ✅ **Provider 切换加分项**：原已实现（设置页可编辑 `QA_MODEL`/`QA_BASE_URL`/`QA_API_KEY` → `.user_config.json` → 重启生效）。本轮在设置页加 **Provider 一键预设**（百炼/DeepSeek V3/DeepSeek R1/GPT-4o/Kimi），点击自动填 base_url+模型。
+
+第 3 轮改动文件：后端 `config.py`/`services/qa_service.py`/`services/conversation_service.py`；前端 `pages/SettingsPage.tsx`（Provider 预设）。
+质量：basedpyright 0 / tsc 0 / eslint 0 / build ✓；config 运行时加载确认 vlm=mm=qa=qwen-plus。
+
+### Phase 3 — 定稿（✅ 文档已同步；待用户录视频 + 提交）
+- ✅ 代码体检：用户已验收；basedpyright 0 / tsc 0 / eslint 0 / build ✓；回归 `test_v120` 130/130 + `test_v140` 86/86 全过；无回归。
+- ✅ 项目文档同步：`README.md`（Provider 表更新到 2026-06 当前型号 + 一键预设说明、qwen-vl→qwen-plus）、`doc/项目当前情况.md`（顶部新增 v1.8.0 结题版快照 + 模型名统一）、`RELEASE_NOTES.md`（新增 v1.8.0 结题版条目）。
+- ✅ 结题 PPT 材料回填：`结题PPT.html` / `01_详细大纲` / `04_工程文件说明` 模型名 qwen-vl→qwen-plus + 强化"多 Provider 一键切换"加分项；`02_演讲稿` 新增「多 Provider 一键切换」可延展段落。
+- ⏳ 待用户：① 用改进后界面录 ≤2 分钟效果视频（分镜见 `03_效果视频分镜脚本.md`）；② 把 PPT 占位框替换为真实截图；③ 按提交清单打包工程文件（删 .venv/node_modules/data/.env）。
 
 ---
 

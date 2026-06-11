@@ -4,6 +4,42 @@
 
 ---
 
+## v1.8.0（2026-06，结题版）— 结题前体验打磨 · 模型统一 qwen-plus · 多 Provider 一键切换
+
+> 在 v1.7.x 基础上，围绕"结题演示与验收"完成统一对话体验修复、Agent 决策透视统一与折叠、
+> 全面改用多模态 qwen-plus、多 Provider 快捷切换加分项，以及一批真机验收反馈修复。
+
+### 多轮检索 Agent 决策透视（统一 + 折叠）
+- 新建共享组件 `frontend/src/components/AgentTimeline.tsx`，问答（内联）与课程管家卡片生成（卡片）共用一套精美决策时间线，取代原命令行式日志。
+- 后端 `conversation_service.py` 新增结构化 `agent` SSE 通道，把"检索 Agent 决策过程"与"模型自身思维链(`thinking`)"**彻底分离**——修复「开深度思考却在思维链里看到检索进度」的串味 bug。
+- 内联折叠：流式时只显当前阶段一行，多轮检索完成后自动收起为"N 步决策"按钮，可像思维链一样展开查看全过程。
+- 透视实际检索词：`RetrievalResult` 增加 `plan` 字段，时间线展示 LLM 规划出的关键词 chips + HyDE 语义查询（简略版"检索透视"）。
+
+### 统一对话体验修复（三模块复用 ChatThread / Composer，一处修全处好）
+- **流式抖动修复**：移除 `ChatThread` 消息上的逐字 `layout` 重排动画；新增 `hooks/useStickToBottom.ts`，仅"用户已在底部时"瞬时跟随，思维链展开/收起等 UI 切换不再强制吸底。
+- **深度思考可用性**：真机探针定位 + 修复——命中图片时旧版会切多模态视觉模型而静默关思考；现统一用 qwen-plus（多模态可同时输出思维链），深度思考与图片问答可兼得。
+- **Composer 两行布局**：输入框独占一行，深度思考 / 知识库检索开关下沉为工具条，不再挤压输入框。
+- **来源溯源补全**：抽出可复用 `components/SourcePreview.tsx`（`usePdfPreview`），课后复习 / 课程管家问答补齐「查看原文 + 跳解析透视」。
+- **课程管家生成视角跟随**：卡片生成时页面跟随最新 Agent 决策步骤。
+
+### 模型统一 qwen-plus（实测 + 阿里云官方文档双重确认）
+- qwen-plus 现为多模态模型且可"边看图边输出思维链"。`config.py` 将 `VLM_MODEL` 与 `QA_MULTIMODAL_MODEL` 默认从 `qwen-vl-plus`/`qwen-vl-max` 统一为 **`qwen-plus`**（VLM 富化 / 多模态问答 / 文本问答全用 plus，弃 qwen-vl）。
+- `qa_service.stream_llm_completion` 多模态分支不再无条件关思考（仅 `qwen-vl` 系列才关）；`conversation_service.stream_turn` 撤销"开思考即降级文本路"，思考与多模态可同时启用。
+
+### 多 Provider 一键切换（加分项）
+- 设置页「问答模型」新增 Provider 预设按钮：百炼 qwen-plus / DeepSeek V4(`deepseek-v4-flash`) / DeepSeek 思考(`deepseek-reasoner`) / OpenAI(`gpt-5.5`) / Kimi(`kimi-k2.6`)，点击自动填 `QA_BASE_URL`+`QA_MODEL`（2026-06 当前型号）。
+- 多模态 / 向量 / 重排恒走百炼，与可切换的文本 QA Provider 解耦——切到纯文本 Provider 后图片问答仍可用。
+
+### 课后复习导出 PDF + 检索透视收纳
+- 导出 PDF 改为**客户端打印**（`#review-print` 屏外容器 + `@media print` 隔离 + `window.print()`）：零引擎依赖、中文排版完美，绕开"未装 xelatex/wkhtmltopdf"问题；导出 MD 仍走后端。
+- 检索透视「检索历史」由常驻左侧栏收纳为头部「历史」按钮 + 下拉，内容区信息密度更高。
+
+### 质量基线
+- `basedpyright` 0 错 · 前端 `tsc` 0 错 · `eslint` 0 错 · `npm run build` 通过。
+- 回归测试 `test_v120` 130/130 + `test_v140` 86/86 全过。
+
+---
+
 ## v1.7.0（2026-06-11 开发，待用户验收）— RAG Agent 多轮检索透视与前端可视化
 
 > 在 v1.6.0 稳定交付的基础上，针对场景 Agent 模块（课程管家）在多轮迭代检索上的不透明体验进行深度优化，

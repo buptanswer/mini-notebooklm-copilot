@@ -294,14 +294,16 @@ async def stream_llm_completion(
     conversation_service 与 stream_answer 共用此函数。
 
     multimodal=True：消息含图片（content 为多模态数组），强制走 DashScope 的视觉模型
-      （qa_multimodal_model，默认 qwen-vl-max），与可切换的文本 QA Provider 解耦；
-      视觉模型不返回 reasoning_content，故关闭 thinking。
+      （qa_multimodal_model，默认 qwen-plus），与可切换的文本 QA Provider 解耦。
+      qwen-plus 多模态可边看图边思考；仅旧版纯视觉的 qwen-vl 系列不返回 reasoning_content，故关闭 thinking。
     """
     if multimodal:
         use_model = model or settings.qa_multimodal_model
         base_url = settings.dashscope_base_url.rstrip("/")
         api_key = settings.dashscope_api_key
-        enable_thinking = False
+        # 仅纯视觉的 qwen-vl 系列不支持思考；qwen-plus 等多模态可保留 thinking
+        if "qwen-vl" in use_model:
+            enable_thinking = False
     else:
         use_model = model or settings.qa_model
         base_url = settings.effective_qa_base_url

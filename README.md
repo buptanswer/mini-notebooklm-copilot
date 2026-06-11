@@ -30,7 +30,7 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | MinerU 异步解析 | 调用 MinerU 在线 API（vlm 精准模式），下载 zip，解析 content_list_v2.json + layout.json |
 | 自研 IR 标准化 | DOM 重建、header_path 注入、多模态块建模、坐标锚点保留 |
 | 结构感知切片 | Parent/Child 双层切片，不跨标题边界，list/code 保留原子性 |
-| 多模态富化 | 图片/表格调用 VLM（默认 qwen-vl-plus）生成描述/摘要，用于检索增强 |
+| 多模态富化 | 图片/表格调用 VLM（默认 qwen-plus）生成描述/摘要，用于检索增强 |
 | 混合向量索引 | text-embedding-v4（1024维）向量存入 Qdrant；SQLite FTS5 关键词索引 |
 | 混合检索 + RRF | 向量召回 + BM25 关键词召回并行，Reciprocal Rank Fusion 融合排序 |
 | 重排序 | qwen3-rerank 对候选结果二次打分 |
@@ -51,7 +51,7 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | **「研读室」设计系统（v1.3.0）** | 暖纸阅读器质感 + 精致 AI 动效；浅 / 暗 / 护眼(sepia) 三主题；Fraunces×Hanken 字体；`motion` 流式光标 / 思维链 shimmer，尊重 reduced-motion |
 | **检索透视（v1.4.0）** | LLM 查询规划（关键词 + HyDE 语义查询）→ 双路召回 → RRF → 重排，全链路结构化 trace；演示态六阶段动画（含向量空间 / 重排连线 SVG）+ 开发态数据表两态可视化（`/kb/:id/xray`） |
 | **解析透视（v1.4.0）** | MinerU 解析 → LLM 文档树重建 → 坐标锚定 → 父子切片 → 图片 VLM 适配，全程可视化：左文档树 / 中 PDF bbox 画布（Office 降级结构化块流）/ 右解析检视（块/切片/图片 VLM 描述），可收起侧栏聚焦（`/kb/:id/dissect`） |
-| **检索/切片正确性（v1.4.0）** | Small-to-Big（命中 child 喂 parent 全文）；多模态最终问答（命中图片传原图给 qwen-vl-max）；LLM 文档树重建（修 MinerU 扁平树）；纯标题容器不出父块、title 不单列 child；重解析幂等清旧数据 |
+| **检索/切片正确性（v1.4.0）** | Small-to-Big（命中 child 喂 parent 全文）；多模态最终问答（命中图片传原图给 qwen-plus）；LLM 文档树重建（修 MinerU 扁平树）；纯标题容器不出父块、title 不单列 child；重解析幂等清旧数据 |
 | **演示模式（v1.4.0）** | 对话页「透视检索」一键透视本次检索；每条来源「解析透视」直达答案出处的版面块——一个问题揭示整条隐藏链路 |
 | **父块自定义索引（v1.5.0）** | 解析透视父块视图内的检索索引管理台：摘要 / 推测问题（可预答，默认关）/ 自定义文本，可开关（启用＝物化为虚拟子块并入混合检索）、行内编辑、重生成、删除；图/表描述已由基础管线按 VLM 描述各自成块索引 |
 | **父块粒度可调（v1.5.0）** | 文档级选「几级标题=1 父块」（一/二/三级），一键重切片+重索引（不重新解析 MinerU）；另有「重新解析」入口为已索引文档取 Office 版面坐标 / 适配格式更新 |
@@ -94,7 +94,7 @@ Mini-NotebookLM 是一款运行在本地 Windows 环境的 **知识库工作台*
 | 文档解析 | MinerU 在线 API（vlm） | PDF/PPT/Word/图片 → content_list_v2.json + layout.json |
 | 向量模型 | text-embedding-v4（阿里云百炼） | 1024维，纯文本嵌入 |
 | 重排序 | qwen3-rerank（阿里云百炼） | 候选 chunk 二次打分 |
-| 视觉模型 | qwen-vl-plus（阿里云百炼，可配置） | 图片描述 / 表格摘要 |
+| 视觉模型 | qwen-plus（阿里云百炼，可配置） | 图片描述 / 表格摘要 |
 | 问答模型 | 多 Provider 可切换（默认 qwen-plus/DashScope） | 最终问答，SSE 流式输出 |
 | HTTP 客户端 | httpx | 与 MinerU / DashScope API 通信 |
 | 包管理 | uv | 替代 pip，速度更快 |
@@ -361,24 +361,27 @@ MINERU_API_KEY=your_mineru_key
 # 阿里云百炼 DashScope（必填，用于嵌入/重排序/VLM）
 ALIBABA_CLOUD_ACCESS_KEY_SECRET=your_dashscope_key
 
-# QA 问答模型（可选，不填则自动使用 DashScope qwen-plus）
-# 切换到 DeepSeek 示例：
-# QA_BASE_URL=https://api.deepseek.com/v1
+# QA 问答模型（可选，不填则自动使用 DashScope qwen-plus；qwen-plus 现为多模态 + 混合思考模型）
+# 切换到 DeepSeek 示例（2026-06 当前型号）：
+# QA_BASE_URL=https://api.deepseek.com
 # QA_API_KEY=sk-xxxxxxxx
-# QA_MODEL=deepseek-chat
+# QA_MODEL=deepseek-v4-flash      # 思考版用 deepseek-reasoner
 ```
 
 ### 多 Provider QA 支持
 
-问答模型支持通过环境变量切换到任意 OpenAI 兼容 Provider：
+问答模型支持通过环境变量、或**设置页「问答模型」里的一键预设**切换到任意 OpenAI 兼容 Provider（切换后需重启后端生效）。
+向量化 / 重排 / 多模态图片问答始终走百炼，不受影响——切到纯文本 Provider 后图片问答仍可用。
 
 | Provider | QA_BASE_URL | QA_MODEL |
 |----------|------------|---------|
-| 阿里云百炼（默认） | 不填 | 不填（默认 qwen-plus） |
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| DeepSeek 思维链 | `https://api.deepseek.com/v1` | `deepseek-reasoner` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
-| 月之暗面 | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
+| 阿里云百炼（默认） | 不填 | 不填（默认 `qwen-plus`，多模态+思考） |
+| DeepSeek V4 | `https://api.deepseek.com` | `deepseek-v4-flash` |
+| DeepSeek 思考 | `https://api.deepseek.com` | `deepseek-reasoner` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.5` |
+| 月之暗面 Kimi | `https://api.moonshot.cn/v1` | `kimi-k2.6` |
+
+> 注：项目「深度思考」走 `enable_thinking` + 读 `reasoning_content`，对 `qwen-plus` / `deepseek-reasoner` 有效；其余 Provider 作普通对话（思考由各家专有参数控制）。`deepseek-chat`/`deepseek-reasoner` 官方 2026-07-24 弃用。
 
 ---
 

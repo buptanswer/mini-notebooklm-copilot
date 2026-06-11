@@ -94,8 +94,9 @@ class Settings(BaseSettings):
     rerank_model: str = "qwen3-rerank"
 
     # ── VLM 模型（图片描述 / 表格摘要，固定使用 DashScope）
-    # 注：若模型已更新，请在 .env 中设置 VLM_MODEL=新模型名
-    vlm_model: str = Field(default="qwen-vl-plus", validation_alias="VLM_MODEL")
+    # qwen-plus 现已多模态（文/图/视频），多模态能力优于旧 qwen-vl 系列，差价不大故统一用 plus。
+    # 注：若模型已更新，可在 .env 设置 VLM_MODEL=新模型名（如 qwen3.5-plus / qwen3.6-plus）
+    vlm_model: str = Field(default="qwen-plus", validation_alias="VLM_MODEL")
 
     # ── QA 问答模型（支持多 Provider，见文件头说明）────────
     # 默认使用 DashScope；可通过 QA_BASE_URL + QA_API_KEY 切换
@@ -108,9 +109,10 @@ class Settings(BaseSettings):
 
     # ── 多模态最终问答（v1.4.0）─────────────────────────────
     # 命中图片类切片时，把原图 base64 一并传给多模态模型作答（而非只用文字描述）。
-    # 多模态模型走 DashScope（与 QA Provider 解耦）；qa_enable_multimodal=False 则回退纯文本。
+    # 多模态模型走 DashScope（与可切换的 QA Provider 解耦，保证切到 DeepSeek 等纯文本 Provider 后图片仍可答）。
+    # 默认 qwen-plus：多模态 + 思考兼得（可边看图边输出思维链）；qa_enable_multimodal=False 则回退纯文本。
     qa_enable_multimodal: bool = Field(default=True, validation_alias="QA_ENABLE_MULTIMODAL")
-    qa_multimodal_model: str = Field(default="qwen-vl-max", validation_alias="QA_MULTIMODAL_MODEL")
+    qa_multimodal_model: str = Field(default="qwen-plus", validation_alias="QA_MULTIMODAL_MODEL")
     # 多模态问答图片数量上限（仅旧 /chat 端点使用；主对话路径不限数量，按位注入所有图片）
     qa_multimodal_max_images: int = Field(default=50, validation_alias="QA_MULTIMODAL_MAX_IMAGES")
 
