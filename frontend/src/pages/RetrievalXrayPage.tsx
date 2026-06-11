@@ -42,6 +42,7 @@ export default function RetrievalXrayPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const stageRefs = useRef<(HTMLDivElement | null)[]>([])
   const [history, setHistory] = useState<string[]>([])
+  const [showHistory, setShowHistory] = useState(false)
 
   useEffect(() => {
     if (!kbId) return
@@ -49,7 +50,9 @@ export default function RetrievalXrayPage() {
     if (raw) {
       try {
         setHistory(JSON.parse(raw))
-      } catch (e) {}
+      } catch {
+        setHistory([])
+      }
     } else {
       setHistory([])
     }
@@ -127,68 +130,85 @@ export default function RetrievalXrayPage() {
   const empty = trace && trace.counts.final === 0
 
   return (
-    <div className="flex h-full">
-      {/* 左：检索历史 */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface/40 p-3.5 sm:flex">
-        <div className="mb-3 flex items-center justify-between px-1">
-          <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-            <History className="h-3.5 w-3.5" />
-            检索历史
-          </h2>
-          {history.length > 0 && (
-            <button
-              onClick={() => {
-                if (confirm("确定清除所有检索历史吗？")) {
-                  setHistory([])
-                  localStorage.removeItem(`xray_history_${kbId}`)
-                }
-              }}
-              className="text-[10px] text-ink-faint hover:text-accent"
-            >
-              清空
-            </button>
-          )}
-        </div>
-        {history.length === 0 ? (
-          <p className="px-1 py-6 text-center text-xs text-ink-faint">暂无检索历史</p>
-        ) : (
-          <div className="space-y-1 overflow-y-auto pr-0.5">
-            {history.map((h, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  setQuery(h)
-                  runQuery(h, topK)
-                }}
-                className={cn(
-                  "block w-full truncate rounded-xl px-3 py-2 text-left text-xs transition-all",
-                  query === h ? "bg-accent-soft text-accent font-medium" : "text-ink-soft hover:bg-surface-2",
-                )}
-                title={h}
-              >
-                {h}
-              </button>
-            ))}
-          </div>
-        )}
-      </aside>
-
-      {/* 右：内容 */}
-      <div className="flex-1 overflow-y-auto">
+    <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-4xl px-5 py-7 sm:px-8">
         {/* 标题 */}
         <header className="mb-6">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <ScanSearch className="h-5 w-5" />
-            </span>
-            <div>
-              <h1 className="font-display text-2xl font-semibold text-ink">检索透视</h1>
-              <p className="text-sm text-ink-soft">
-                看清一个问题如何被拆解、双路召回、融合与重排 —— 不是「调个 API」那么简单
-              </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                <ScanSearch className="h-5 w-5" />
+              </span>
+              <div>
+                <h1 className="font-display text-2xl font-semibold text-ink">检索透视</h1>
+                <p className="text-sm text-ink-soft">
+                  看清一个问题如何被拆解、双路召回、融合与重排 —— 不是「调个 API」那么简单
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors",
+                showHistory ? "bg-accent-soft text-accent" : "bg-surface text-ink-soft hover:text-accent",
+              )}
+              title="检索历史"
+            >
+              <History className="h-3.5 w-3.5" />
+              历史{history.length > 0 ? ` (${history.length})` : ""}
+            </button>
           </div>
+
+          {/* 检索历史下拉（收纳，不再常驻占地，信息密度更高） */}
+          <AnimatePresence initial={false}>
+            {showHistory && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22 }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 rounded-xl border border-border bg-surface-2/40 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium text-ink-faint">检索历史</span>
+                    {history.length > 0 && (
+                      <button
+                        onClick={() => {
+                          if (confirm("确定清除所有检索历史吗？")) {
+                            setHistory([])
+                            localStorage.removeItem(`xray_history_${kbId}`)
+                          }
+                        }}
+                        className="text-[11px] text-ink-faint hover:text-accent"
+                      >
+                        清空
+                      </button>
+                    )}
+                  </div>
+                  {history.length === 0 ? (
+                    <p className="py-3 text-center text-xs text-ink-faint">暂无检索历史</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {history.map((h, i) => (
+                        <button
+                          key={i}
+                          onClick={() => { setShowHistory(false); setQuery(h); runQuery(h, topK) }}
+                          className={cn(
+                            "max-w-[220px] truncate rounded-lg border px-2.5 py-1 text-left text-xs transition-all",
+                            query === h ? "border-accent/40 bg-accent-soft text-accent font-medium" : "border-border text-ink-soft hover:bg-surface-2",
+                          )}
+                          title={h}
+                        >
+                          {h}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </header>
 
         {/* 查询条 */}
@@ -343,7 +363,6 @@ export default function RetrievalXrayPage() {
         )}
       </div>
     </div>
-  </div>
   )
 }
 

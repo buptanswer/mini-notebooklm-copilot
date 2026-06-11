@@ -7,84 +7,26 @@ import {
 } from "lucide-react"
 import type { CitationItem } from "@/api/types"
 import type { ThreadMessage } from "@/hooks/useConversation"
+import { AgentTimeline } from "./AgentTimeline"
 import { cn } from "@/lib/utils"
 
-/** 流式生成状态指示器：展示 AI 正在做的事情 */
-function StreamingIndicator({
-  thinking = "", hasContent, hasCitations, ragMode = true, enableThinking = false,
-}: {
-  thinking?: string; hasContent: boolean; hasCitations: boolean; ragMode?: boolean; enableThinking?: boolean
-}) {
-  const phases = []
-  if (ragMode) {
-    phases.push({ key: "plan", label: "规划检索策略", icon: Brain })
-    phases.push({ key: "search", label: "混合检索中", icon: ScanSearch })
-  }
-  const isRagDone = !ragMode || hasCitations || thinking.includes("结束检索") || thinking.includes("限制")
-  const cleanedThinking = thinking.replace(/【Agent.*?】.*?\n/g, "").trim()
-  if (enableThinking || (isRagDone && cleanedThinking.length > 0)) {
-    phases.push({ key: "think", label: "深度思考中", icon: Brain })
-  }
-  phases.push({ key: "write", label: "正在撰写回答", icon: Sparkles })
-
-  let activePhase = 0
-  if (hasContent) {
-    activePhase = phases.length - 1
-  } else if (!isRagDone) {
-    if (thinking.includes("评估") || thinking.includes("定向") || thinking.includes("规划")) {
-      activePhase = phases.findIndex((p) => p.key === "search")
-    } else {
-      activePhase = phases.findIndex((p) => p.key === "plan")
-    }
-    if (activePhase === -1) activePhase = 0
-  } else {
-    const thinkIdx = phases.findIndex((p) => p.key === "think")
-    if (thinkIdx !== -1) {
-      activePhase = thinkIdx
-    } else {
-      activePhase = phases.length - 1
-    }
-  }
-
+/** 流式等待指示器：仅用于"无 agent 决策、无思维链"的纯撰写等待态。 */
+function StreamingIndicator({ label }: { label: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 py-2"
+      className="flex items-center gap-2.5 py-1.5"
     >
-      {/* 旋转图标 */}
-      <div className="relative flex h-7 w-7 items-center justify-center">
+      <div className="relative flex h-6 w-6 items-center justify-center">
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
           className="absolute inset-0 rounded-full border-2 border-accent/30 border-t-accent"
         />
-        <Sparkles className="h-3.5 w-3.5 text-accent" />
+        <Sparkles className="h-3 w-3 text-accent" />
       </div>
-      {/* 阶段指示 */}
-      <div className="flex items-center gap-1.5">
-        {phases.map((p, i) => {
-          const isActive = i === activePhase
-          const isDone = i < activePhase
-          const Icon = p.icon
-          return (
-            <span key={p.key} className="flex items-center gap-1">
-              {i > 0 && <span className="mx-0.5 h-3 w-px bg-border" />}
-              <span
-                className={cn(
-                  "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
-                  isActive && "bg-accent-soft text-accent",
-                  isDone && "text-ink-faint line-through",
-                  !isActive && !isDone && "text-ink-faint/40",
-                )}
-              >
-                {isActive ? <Icon className="h-3 w-3" /> : isDone ? <span className="text-[10px]">✓</span> : null}
-                {isActive && p.label}
-              </span>
-            </span>
-          )
-        })}
-      </div>
+      <span className="thinking-shimmer text-sm font-medium text-ink-soft">{label}</span>
     </motion.div>
   )
 }
@@ -101,7 +43,9 @@ function ThinkingPanel({
   msg, onToggle,
 }: { msg: ThreadMessage; onToggle: (id: string) => void }) {
   const hasThinking = !!msg.thinking
-  if (!hasThinking && !(msg.streaming && msg.content === "")) return null
+  // 仅当存在真正的模型思维链（reasoning）时才显示该面板。
+  // 检索 Agent 的决策过程走 <AgentTimeline>，不再混入思维链。
+  if (!hasThinking) return null
   return (
     <div className="mb-2">
       <button
@@ -241,12 +185,13 @@ export function ChatThread({
         {messages.map((m) => {
           const isSection = m.role === "assistant" && (m.metadata as { kind?: string }).kind === "section"
           const sectionNum = (m.metadata as { section_num?: number }).section_num
+          // 是否展示「多轮检索 Agent 决策透视」：已有决策步骤，或 rag 路刚开始流式（先占位初始化态）
+          const showAgent = m.agentSteps.length > 0 || (ragMode && m.streaming && !m.content)
 
           if (m.role === "user") {
             return (
               <motion.div
                 key={m.id}
-                layout
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
@@ -263,7 +208,6 @@ export function ChatThread({
           return (
             <motion.div
               key={m.id}
-              layout
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
@@ -285,20 +229,20 @@ export function ChatThread({
               )}
 
               <div className={cn(isSection ? "px-5 py-4" : "")}>
+                {showAgent && (
+                  <div className="mb-3">
+                    <AgentTimeline steps={m.agentSteps} active={m.streaming && !m.content} variant="inline" />
+                  </div>
+                )}
+
                 <ThinkingPanel msg={m} onToggle={onToggleThinking} />
 
                 {m.content ? (
                   <div className={m.streaming ? "stream-caret" : ""}>
                     <Md content={m.content} compact={!isSection} />
                   </div>
-                ) : m.streaming ? (
-                  <StreamingIndicator
-                    thinking={m.thinking}
-                    hasContent={!!m.content}
-                    hasCitations={m.citations.length > 0}
-                    ragMode={ragMode}
-                    enableThinking={enableThinking}
-                  />
+                ) : m.streaming && !showAgent && !m.thinking ? (
+                  <StreamingIndicator label={enableThinking ? "正在深度思考…" : "正在撰写回答…"} />
                 ) : null}
 
                 <Citations items={m.citations} docName={docName} onView={onViewSource} onDissect={onDissectSource} />
@@ -342,52 +286,66 @@ export function Composer({
     setText("")
     onSend(q)
   }
+  const hasToolbar = !!onToggleThinking || !!onToggleRag
   return (
-    <div className="flex items-end gap-2 rounded-2xl border border-border bg-surface p-2 shadow-card">
-      {onToggleThinking && (
+    <div className="rounded-2xl border border-border bg-surface p-2 shadow-card focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/15 transition-colors">
+      {/* 第一行：输入框占满整行 + 发送 */}
+      <div className="flex items-end gap-2">
+        <textarea
+          autoFocus={autoFocus}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit() }
+          }}
+          rows={1}
+          placeholder={placeholder}
+          className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-2 font-sans text-[15px] leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
+        />
         <button
-          onClick={() => onToggleThinking(!enableThinking)}
-          title="深度思考（思维链）"
-          className={cn(
-            "flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-sm transition-colors",
-            enableThinking ? "bg-accent-soft text-accent" : "text-ink-faint hover:text-ink-soft",
-          )}
+          onClick={submit}
+          disabled={disabled || !text.trim()}
+          title="发送"
+          className="flex h-9 w-9 shrink-0 items-center justify-center self-end rounded-xl bg-accent text-accent-ink transition-all hover:brightness-105 disabled:opacity-40"
         >
-          <Brain className="h-4 w-4" />
-          <span className="hidden sm:inline text-xs font-medium">深度思考</span>
+          {disabled ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </button>
-      )}
-      {onToggleRag && (
-        <button
-          onClick={() => onToggleRag(!enableRag)}
-          title="开启知识库检索"
-          className={cn(
-            "flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-sm transition-colors",
-            enableRag ? "bg-accent-soft text-accent" : "text-ink-faint hover:text-ink-soft",
+      </div>
+
+      {/* 第二行：开关工具条（独立成行，不再挤压输入框） */}
+      {hasToolbar && (
+        <div className="mt-1.5 flex items-center gap-1.5 px-1">
+          {onToggleThinking && (
+            <button
+              onClick={() => onToggleThinking(!enableThinking)}
+              title="深度思考：让模型先输出推理思维链，再作答（仅支持的模型生效）"
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+                enableThinking
+                  ? "border-accent/40 bg-accent-soft text-accent"
+                  : "border-border text-ink-faint hover:text-ink-soft",
+              )}
+            >
+              <Brain className="h-3.5 w-3.5" />深度思考
+            </button>
           )}
-        >
-          <ScanSearch className="h-4 w-4" />
-          <span className="hidden sm:inline text-xs font-medium">知识库检索</span>
-        </button>
+          {onToggleRag && (
+            <button
+              onClick={() => onToggleRag(!enableRag)}
+              title="知识库检索：作答前先从知识库做多轮混合检索并溯源"
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+                enableRag
+                  ? "border-accent/40 bg-accent-soft text-accent"
+                  : "border-border text-ink-faint hover:text-ink-soft",
+              )}
+            >
+              <ScanSearch className="h-3.5 w-3.5" />知识库检索
+            </button>
+          )}
+          <span className="ml-auto hidden select-none text-[11px] text-ink-faint sm:inline">Enter 发送 · Shift+Enter 换行</span>
+        </div>
       )}
-      <textarea
-        autoFocus={autoFocus}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit() }
-        }}
-        rows={1}
-        placeholder={placeholder}
-        className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 font-sans text-[15px] leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
-      />
-      <button
-        onClick={submit}
-        disabled={disabled || !text.trim()}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-ink transition-all hover:brightness-105 disabled:opacity-40"
-      >
-        {disabled ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-      </button>
     </div>
   )
 }

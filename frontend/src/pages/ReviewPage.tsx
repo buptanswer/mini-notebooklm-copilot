@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { motion } from "motion/react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   Brain, CalendarDays, CheckCircle2, FileText, Play, Printer, RefreshCw, Save, Sparkles,
 } from "lucide-react"
@@ -9,15 +11,25 @@ import {
   listReviewSections, loadReviewNotes, saveReviewNotes, streamReviewFollowup, streamReviewGenerate,
   exportReviewNotes,
 } from "@/api/client"
-import type { ConversationInfo, ReviewDateInfo, ReviewSectionInfo } from "@/api/types"
+import type { CitationItem, ConversationInfo, ReviewDateInfo, ReviewSectionInfo } from "@/api/types"
 import { threadFromHistory, useConversation, type ThreadMessage } from "@/hooks/useConversation"
+import { streamSignature, useStickToBottom } from "@/hooks/useStickToBottom"
 import { ChatThread, Composer } from "@/components/ChatThread"
+import { usePdfPreview } from "@/components/SourcePreview"
 import { cn } from "@/lib/utils"
 
 export default function ReviewPage() {
   const { kbId, conversationId: urlConvId } = useParams<{ kbId: string; conversationId?: string }>()
   const navigate = useNavigate()
   const convo = useConversation()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { openPreview, previewNode } = usePdfPreview(kbId)
+  useStickToBottom(scrollRef, streamSignature(convo.messages))
+
+  const openDissect = (c: CitationItem) => {
+    if (!kbId) return
+    navigate(`/kb/${kbId}/dissect?doc=${c.doc_id}&child=${encodeURIComponent(c.child_chunk_id)}`)
+  }
 
   const [dates, setDates] = useState<ReviewDateInfo[]>([])
   const [selectedDate, setSelectedDate] = useState("")
@@ -32,6 +44,9 @@ export default function ReviewPage() {
   const [isGenerating, setIsGenerating] = useState(false)
 
   const hasSections = convo.messages.some((m) => (m.metadata as { kind?: string }).kind === "section")
+  const printSections = convo.messages.filter(
+    (m) => m.role === "assistant" && (m.metadata as { kind?: string }).kind === "section",
+  )
   const sectionsDone = hasSections && !convo.streaming
   const readOnly = !convo.convId // 磁盘只读视图（无会话）
   const hasFollowup = convo.messages.some(
@@ -134,17 +149,25 @@ export default function ReviewPage() {
     const notes = await loadReviewNotes(kbId, selectedDate).catch(() => [])
     if (!notes.length) return
     const thread: ThreadMessage[] = notes.map((n) => ({
-      id: `disk-${n.section_num}`, role: "assistant", content: n.content_md, thinking: "",
+      id: `disk-${n.section_num}`, role: "assistant", content: n.content_md, thinking: "", agentSteps: [],
       citations: [], metadata: { kind: "section", section_num: n.section_num }, streaming: false, showThinking: false,
     }))
     convo.reset(thread, null)
     setSavedMsg("已加载磁盘讲义（只读）")
   }
 
+  // 导出 PDF：走浏览器「打印 → 另存为 PDF」（客户端，无需 pandoc/LaTeX 引擎，中文排版完美）。
+  // 导出 MD：后端直接下载 Markdown 原文。
   const handleExport = async (format: "pdf" | "md") => {
     if (!kbId) return
+    if (format === "pdf") {
+      if (printSections.length === 0) { setSavedMsg("没有可导出的讲义内容"); return }
+      setSavedMsg("已打开打印对话框：在「目标」中选择「另存为 PDF」即可导出带中文排版的 PDF。")
+      setTimeout(() => window.print(), 60)
+      return
+    }
     try {
-      setSavedMsg(format === "pdf" ? "正在编译导出 PDF (通过 Pandoc)..." : "正在导出 Markdown...")
+      setSavedMsg("正在导出 Markdown...")
       const blob = await exportReviewNotes(kbId, {
         conversationId: convo.convId,
         date: selectedDate,
@@ -158,11 +181,11 @@ export default function ReviewPage() {
       a.click()
       a.remove()
       window.URL.revokeObjectURL(url)
-      setSavedMsg(`讲义 ${format.toUpperCase()} 导出成功！`)
+      setSavedMsg("讲义 Markdown 导出成功！")
     } catch (e) {
       const msg = (e as Error).message
       setSavedMsg("导出失败：" + msg)
-      alert(`讲义 ${format.toUpperCase()} 导出失败！\n` + msg)
+      alert("讲义 Markdown 导出失败！\n" + msg)
     }
   }
 
@@ -251,7 +274,7 @@ export default function ReviewPage() {
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto">
               <div className="mx-auto max-w-3xl px-6 py-6">
                 {savedMsg && (
                   <div
@@ -304,6 +327,8 @@ export default function ReviewPage() {
                   streaming={convo.streaming}
                   onToggleThinking={convo.toggleThinking}
                   onFork={readOnly ? undefined : handleFork}
+                  onViewSource={openPreview}
+                  onDissectSource={openDissect}
                   ragMode={hasSections ? enableRag : false}
                   enableThinking={enableThinking}
                 />
@@ -332,6 +357,21 @@ export default function ReviewPage() {
           </>
         )}
       </div>
+
+      {/* 打印 / 导出 PDF 容器（屏幕外，仅打印时全宽显示） */}
+      {printSections.length > 0 && (
+        <div id="review-print">
+          <div className="rp-title">{selectedDate} · 课后复习讲义</div>
+          <div className="rp-meta">共 {printSections.length} 节 · 由 Mini-NotebookLM 生成</div>
+          {printSections.map((m) => (
+            <div key={m.id} className="rp-section md-prose">
+              <h2>第 {(m.metadata as { section_num?: number }).section_num} 节 · 课堂要点</h2>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+            </div>
+          ))}
+        </div>
+      )}
+      {previewNode}
     </div>
   )
 }

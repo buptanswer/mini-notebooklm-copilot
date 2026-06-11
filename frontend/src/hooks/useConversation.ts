@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react"
-import type { ChatEvent, CitationItem, MessageInfo } from "@/api/types"
+import type { AgentStepData, ChatEvent, CitationItem, MessageInfo } from "@/api/types"
 import type { StreamHandlers } from "@/api/client"
 
 /** 线程中的一条消息（统一模型，供所有场景复用）。 */
@@ -8,6 +8,8 @@ export interface ThreadMessage {
   role: "user" | "assistant"
   content: string
   thinking: string
+  /** 多轮检索 Agent 的决策步骤（实时，非持久化）。 */
+  agentSteps: AgentStepData[]
   citations: CitationItem[]
   metadata: Record<string, unknown>
   streaming: boolean
@@ -15,7 +17,7 @@ export interface ThreadMessage {
 }
 
 function newAssistant(id: string, metadata: Record<string, unknown>): ThreadMessage {
-  return { id, role: "assistant", content: "", thinking: "", citations: [], metadata, streaming: true, showThinking: true }
+  return { id, role: "assistant", content: "", thinking: "", agentSteps: [], citations: [], metadata, streaming: true, showThinking: true }
 }
 
 /** 把最后一条 assistant 消息（当前流式目标）应用 patch。 */
@@ -42,6 +44,7 @@ export function threadFromHistory(msgs: MessageInfo[]): ThreadMessage[] {
       role: m.role as "user" | "assistant",
       content: m.content,
       thinking: m.thinking || "",
+      agentSteps: [],
       citations: m.citations || [],
       metadata: m.metadata || {},
       streaming: false,
@@ -117,6 +120,9 @@ export function useConversation(initial: ThreadMessage[] = []): UseConversation 
       case "citations":
         setMessages((prev) => patchLastAssistant(prev, (m) => ({ ...m, citations: ev.citations })))
         break
+      case "agent":
+        setMessages((prev) => patchLastAssistant(prev, (m) => ({ ...m, agentSteps: [...m.agentSteps, ev] })))
+        break
       case "thinking":
         setMessages((prev) => patchLastAssistant(prev, (m) => ({ ...m, thinking: m.thinking + ev.content })))
         break
@@ -139,7 +145,7 @@ export function useConversation(initial: ThreadMessage[] = []): UseConversation 
       if (opts.optimisticUser != null) {
         const tmp: ThreadMessage = {
           id: `tmp-${Date.now()}`, role: "user", content: opts.optimisticUser,
-          thinking: "", citations: [], metadata: {}, streaming: false, showThinking: false,
+          thinking: "", agentSteps: [], citations: [], metadata: {}, streaming: false, showThinking: false,
         }
         setMessages((prev) => [...prev, tmp])
       }

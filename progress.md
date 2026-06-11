@@ -1,6 +1,53 @@
 # progress.md — Mini-NotebookLM 开发进度
 
 > v1.8.0 功能优化与 Bug 修复全部交付，测试通过。
+> **当前进行中：结题（明天结题）—— 见下方「结题任务」。**
+
+---
+
+## 结题任务（2026-06，进行中）
+
+单人结题。老师要求（`doc/结题PPT/` 内两份文档）：项目总结 PPT（计 10 分）+ 每人 5 分钟汇报
+（单人做总体总结可适当延长至 ~8 分钟）+ 效果视频 ≤2 分钟 + 工程文件（删公共库留结构）+ 工程说明。
+
+### Phase 0 — 结题材料（✅ 已交付，在 `doc/结题PPT/`）
+- `01_结题PPT详细大纲.md` — 15 主页 + 6 附录页逐页内容 + 给 AI PPT 应用的生成提示
+- `02_结题演讲稿.md` — 5 分钟核心稿 + 【可延展】段落（→7~8 分钟）
+- `03_效果视频分镜脚本.md` — ≤2 分钟分镜（一个问题串起三套透视）
+- `04_工程文件说明.md` — 工具/结构/文件→模块映射/代码量(≈2.47 万行)/运行环境/如何运行/打包删库清单
+- `结题PPT.html` — **HTML 成品 deck**（1280×720 逐页，键盘翻页/进度条/打印导出 PDF；暖纸赤陶橙「研读室」风）
+
+关键事实基线（已核对代码）：当前代码=v1.8.0 级（HEAD 提交标 v1.7.0 但含 v1.8.0）；
+真实模型 `text-embedding-v4`/`qwen3-rerank`/`qwen-vl-plus`/`qwen-vl-max`/QA `qwen-plus`(多 Provider)；
+自研代码后端 60 文件 12745 行 + 测试 8 文件 3199 行 + 前端 45 文件 8740 行 + 11 提示词模板。
+
+### Phase 1 — 代码加分项（✅ 已完成，静态全绿；待真机验收）
+统一对话组件「通病」（三模块复用 `ChatThread`/`Composer`，改一处全好）：
+1. ✅ 多轮检索动效「命令行」→ 新建共享 `components/AgentTimeline.tsx` 决策时间线（问答 + 课程管家复用）
+2. ✅ **深度思考串味**：后端 `conversation_service` 新增结构化 `agent` SSE 通道，RAG agent 决策不再走 `thinking`；前端 `ThinkingPanel` 只渲染模型 reasoning，agent 决策走 `AgentTimeline`
+3. ✅ 思维链展开/收起自动滚动 → 新建 `hooks/useStickToBottom.ts`（signature 用内容长度，UI 切换不触发）
+4. ✅ 深度思考/知识库检索挤输入框 → `Composer` 改两行布局（输入框整行 + 工具条独立行）
+5. ✅ 流式抖动 + 不跟随底部 → 移除 `ChatThread` 消息上的 `layout` 动画 + 仅"在底部时"跟随
+6. ✅ 来源无「查看原文/跳解析透视」→ 新建 `components/SourcePreview.tsx`（usePdfPreview），ReviewPage/CourseInfoPage 接 onViewSource/onDissectSource
+7. ✅ **Agent 决策时间线**：课程管家卡片生成的内联时间线重构为共享 `AgentTimeline`（结构化 round/step/status/queries/missing_analysis/new_queries）
+
+### Phase 2 — 独立 bug（✅ 已完成）
+- ✅ 讲义导出 PDF：`api/review.py::export_notes` 两个 pandoc 命令加 `-f markdown-yaml_metadata_block`（修 YAML alias 崩溃），顺手删未用 `import os`
+- ✅ 检索透视「检索历史」→ 由常驻左栏改为头部「历史」按钮 + 下拉收纳（`RetrievalXrayPage.tsx`），并修了该文件一处 `catch(e){}` lint error
+
+**改动文件**：后端 `services/conversation_service.py`、`api/review.py`；前端新建 `components/AgentTimeline.tsx`/`components/SourcePreview.tsx`/`hooks/useStickToBottom.ts`，改 `api/types.ts`/`hooks/useConversation.ts`/`components/ChatThread.tsx`/`pages/ChatPage.tsx`/`pages/ReviewPage.tsx`/`pages/CourseInfoPage.tsx`/`pages/RetrievalXrayPage.tsx`。
+**质量基线**：basedpyright 0 err（改动文件）· tsc 0 err · eslint 0 err · `npm run build` ✓。
+### 验收反馈 · 第 2 轮修复（✅ 已完成，静态全绿）
+1. ✅ **深度思考完全没出来**：真机探针证明 `qwen-plus` 开 thinking 会返回 `reasoning_content`；真凶是 `stream_turn` 里**命中图片→走 qwen-vl 多模态模型（不返回 reasoning）→ 思维链被静默关**。修：用户显式开"深度思考"时强制走文本路（图片以 VLM 描述在原位注入），`use_multimodal = has_image and qa_enable_multimodal and not use_thinking`。
+2. ✅ **展示实际检索关键词/语义查询**：`RetrievalResult` 加 `plan` 字段；`_fetch_rag_context` 新增 `queries` 步骤，展示 LLM 规划的关键词 chips + HyDE 语义查询（简略版"检索透视"）。
+3. ✅ **只显当前阶段 + 完成后自动收起、可展开**：`AgentTimeline` inline 变体重做为折叠式——流式时只显当前阶段一行，完成后自动收成"N 步决策"按钮，点击像思维链一样展开全程。
+4. ✅ **导出 PDF 仍失败（无 xelatex/wkhtmltopdf 引擎）**：改为**客户端打印导出**（`#review-print` 屏外容器 + `@media print` 隔离 + `window.print()`），零安装、中文排版完美、浏览器"另存为 PDF"得文件。
+5. ✅ **课程管家生成视角跟随**：page scroller 加 `useStickToBottom(pageScrollRef, progressEvents.length)`。
+
+第 2 轮改动文件：后端 `conversation_service.py`/`retrieval_trace.py`；前端 `components/AgentTimeline.tsx`（重写折叠）、`pages/ReviewPage.tsx`（客户端打印）、`pages/CourseInfoPage.tsx`（视角跟随）、`index.css`（打印样式）。
+
+### Phase 3 — 定稿（⏳ 待用户验收后）
+代码验收通过后：用改进界面录视频 + 回填 PPT 截图 + 更新 `项目当前情况.md`/README/RELEASE_NOTES。
 
 ---
 

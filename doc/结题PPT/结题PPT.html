@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mini-NotebookLM · 结题汇报 · 李宇 2022210347</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#F4EDE0; --paper-2:#FAF5EB; --paper-3:#EFE6D5;
+  --ink:#2A241E; --ink-soft:#6E6557; --ink-faint:#9A9082;
+  --terra:#C2410C; --terra-deep:#9A3412; --terra-soft:#E8C9B4;
+  --jade:#3F6B5E; --jade-soft:#CFE0D5;
+  --gold:#B0832F;
+  --line:#DCCFB8; --line-soft:#E7DDC9;
+  --w:1280px; --h:720px;
+  --scale:1;
+  --serif:'Fraunces','Noto Serif SC','Microsoft YaHei','STSong',serif;
+  --sans:'Hanken Grotesk','Noto Sans SC','Microsoft YaHei',sans-serif;
+  --mono:'Spline Sans Mono','Cascadia Code',ui-monospace,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#241F1A;color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow:hidden}
+body{background:
+  radial-gradient(1200px 600px at 20% -10%, #2f2922 0%, #201b16 60%, #1a1611 100%);}
+
+/* ===== Deck / Stage ===== */
+.deck{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.slide{
+  position:absolute;left:50%;top:50%;width:var(--w);height:var(--h);
+  transform:translate(-50%,-50%) scale(var(--scale));transform-origin:center center;
+  background:var(--paper);color:var(--ink);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .5s ease;
+  box-shadow:0 40px 120px -30px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.04);
+  overflow:hidden;
+}
+.slide.active{opacity:1;visibility:visible;pointer-events:auto}
+.slide-inner{position:absolute;inset:0;padding:64px 76px 70px}
+
+/* paper grain + edge */
+.slide::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");}
+.slide::after{content:"";position:absolute;inset:0;pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(140,110,70,.10), inset 0 0 120px rgba(120,90,50,.06);}
+
+/* ===== shared type ===== */
+.kicker{display:inline-flex;align-items:center;gap:10px;font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--terra-deep);font-family:var(--mono)}
+.kicker .kdot{width:9px;height:9px;border-radius:50%;background:var(--terra);box-shadow:0 0 0 4px var(--terra-soft)}
+.kicker .kcn{font-family:var(--sans);letter-spacing:.04em;color:var(--ink-soft);text-transform:none;font-weight:600}
+.title{font-family:var(--serif);font-weight:600;color:var(--ink);line-height:1.12;letter-spacing:-.01em}
+h2.title{font-size:48px;margin:18px 0 0}
+.lede{font-size:21px;color:var(--ink-soft);line-height:1.55;max-width:60ch}
+.rule{height:2px;background:linear-gradient(90deg,var(--terra) 0%,var(--terra) 64px,var(--line) 64px,var(--line) 100%);margin:22px 0 26px;border-radius:2px}
+.slide-foot{position:absolute;left:76px;right:76px;bottom:28px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink-faint);font-family:var(--mono);letter-spacing:.04em}
+.slide-foot .who{color:var(--terra-deep);font-weight:600}
+
+/* reveal */
+[data-reveal]{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1);transition-delay:calc(var(--i,0)*70ms + 120ms)}
+.slide.active [data-reveal]{opacity:1;transform:none}
+
+/* ===== components ===== */
+.tag{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;font-size:13.5px;font-weight:600;background:var(--paper-3);color:var(--ink-soft);border:1px solid var(--line)}
+.tag.tr{background:#F6E3D6;color:var(--terra-deep);border-color:var(--terra-soft)}
+.tag.jd{background:var(--jade-soft);color:#2c5247;border-color:#b9d3c5}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+
+.col2{display:grid;grid-template-columns:1fr 1fr;gap:34px}
+.col2.uneven{grid-template-columns:1.05fr .95fr}
+.card{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:24px 26px;box-shadow:0 1px 0 rgba(255,255,255,.5) inset}
+.card h3{font-family:var(--serif);font-size:23px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:11px}
+.card h3 .ic{width:30px;height:30px;border-radius:9px;background:var(--terra);color:#fff;display:grid;place-items:center;font-size:16px;flex:none}
+.card.jade h3 .ic{background:var(--jade)}
+
+ul.list{list-style:none;display:flex;flex-direction:column;gap:12px}
+ul.list li{position:relative;padding-left:26px;font-size:17.5px;line-height:1.5;color:var(--ink)}
+ul.list li::before{content:"";position:absolute;left:4px;top:11px;width:8px;height:8px;border-radius:2px;background:var(--terra);transform:rotate(45deg)}
+ul.list.jade li::before{background:var(--jade)}
+ul.list li b{color:var(--terra-deep);font-weight:700}
+ul.list.sm li{font-size:15.5px;gap:8px}
+.muted{color:var(--ink-soft)}
+
+/* pipeline */
+.pipe{display:flex;flex-direction:column;gap:0}
+.pnode{display:flex;align-items:stretch;gap:18px}
+.pnode .stalk{display:flex;flex-direction:column;align-items:center;width:34px;flex:none}
+.pnode .dot{width:18px;height:18px;border-radius:50%;background:var(--paper);border:3px solid var(--terra);margin-top:6px;flex:none;z-index:1}
+.pnode.star .dot{background:var(--terra);box-shadow:0 0 0 5px var(--terra-soft)}
+.pnode .bar{width:3px;flex:1;background:linear-gradient(var(--line),var(--line));margin:2px 0}
+.pnode:last-child .bar{display:none}
+.pbody{padding:0 0 20px}
+.pbody .pt{font-size:18px;font-weight:600;color:var(--ink)}
+.pbody .ps{font-size:14.5px;color:var(--ink-soft);font-family:var(--mono);margin-top:3px}
+.pnode.star .pt{color:var(--terra-deep)}
+.starflag{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:#fff;background:var(--terra);padding:2px 8px;border-radius:6px;vertical-align:middle;font-family:var(--sans)}
+
+/* number poster */
+.nums{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.num{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden}
+.num .big{font-family:var(--serif);font-size:52px;font-weight:700;color:var(--terra-deep);line-height:1}
+.num .lb{font-size:14.5px;color:var(--ink-soft);margin-top:8px;font-weight:600}
+.num::after{content:"";position:absolute;right:-20px;bottom:-20px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,var(--terra-soft),transparent 70%);opacity:.5}
+
+/* table */
+table.t{width:100%;border-collapse:collapse;font-size:16px}
+table.t th,table.t td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+table.t th{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+table.t td:first-child{font-weight:600}
+table.t tr:last-child td{border-bottom:none}
+.ok{color:var(--jade);font-weight:700}
+.todo{color:var(--gold);font-weight:700}
+
+/* mock frames */
+.shot{border:1.5px dashed var(--line);border-radius:14px;background:
+  repeating-linear-gradient(135deg,rgba(194,65,12,.03) 0 12px,transparent 12px 24px),var(--paper-3);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ink-faint);position:relative}
+.shot .lab{font-family:var(--mono);font-size:13px;letter-spacing:.05em}
+.shot .lab b{color:var(--terra-deep)}
+.shot .ph{font-size:12px}
+.winbar{position:absolute;top:0;left:0;right:0;height:30px;border-radius:13px 13px 0 0;background:var(--paper-2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 12px}
+.winbar i{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block}
+.winbar i:first-child{background:var(--terra-soft)}
+
+/* cover */
+.cover .slide-inner{padding:0}
+.cover{background:
+  radial-gradient(900px 500px at 84% 8%, rgba(194,65,12,.16), transparent 60%),
+  radial-gradient(700px 600px at 6% 96%, rgba(63,107,94,.13), transparent 60%),
+  linear-gradient(135deg,#F6F0E4,#EFE6D4);}
+.cv-wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 88px}
+.cv-kick{font-family:var(--mono);letter-spacing:.32em;font-size:15px;color:var(--terra-deep);text-transform:uppercase;font-weight:600;margin-bottom:22px}
+.cv-title{font-family:var(--serif);font-weight:700;font-size:118px;line-height:.96;letter-spacing:-.02em;color:var(--ink)}
+.cv-title .lm{color:var(--terra)}
+.cv-sub{font-family:var(--serif);font-size:32px;color:var(--ink);margin-top:24px;font-weight:500}
+.cv-tagline{font-size:19px;color:var(--ink-soft);margin-top:14px;max-width:52ch;line-height:1.5}
+.cv-meta{display:flex;gap:36px;margin-top:46px;align-items:flex-end}
+.cv-meta .m{font-size:16px;color:var(--ink)}
+.cv-meta .m .k{font-family:var(--mono);font-size:12px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:5px}
+.cv-meta .m b{font-weight:700;font-size:18px}
+.cv-badges{position:absolute;right:88px;bottom:74px;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+.cv-badges .b{font-family:var(--mono);font-size:13px;color:var(--ink-soft);background:rgba(255,255,255,.5);border:1px solid var(--line);padding:7px 14px;border-radius:999px;backdrop-filter:blur(4px)}
+.cv-rule{width:120px;height:5px;background:var(--terra);border-radius:3px;margin:34px 0}
+
+/* section divider (appendix) */
+.divider{background:radial-gradient(700px 500px at 78% 20%,#3a3026,#241f19 70%);color:#EDE3D2}
+.divider .slide-inner{display:flex;flex-direction:column;justify-content:center}
+.divider .kicker{color:var(--terra-soft)}
+.divider .kicker .kcn{color:#cabba2}
+.divider h2{color:#F4EBDA;font-size:60px}
+.divider .lede{color:#c3b69f}
+.divider::after{box-shadow:inset 0 0 160px rgba(0,0,0,.5)}
+
+/* three xray cards */
+.tri{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.xc{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.xc .xt{font-family:var(--serif);font-size:21px;font-weight:600;color:var(--terra-deep)}
+.xc .xs{font-size:14.5px;color:var(--ink-soft);line-height:1.45}
+.sketch{height:104px;border-radius:11px;background:var(--paper-3);border:1px solid var(--line-soft);position:relative;overflow:hidden}
+/* sketch: tree */
+.sk-tree::before{content:"";position:absolute;left:16px;top:14px;width:2px;height:74px;background:var(--terra)}
+.sk-row{position:absolute;height:9px;border-radius:3px;background:var(--ink-faint);opacity:.55}
+.sk-tree .r1{left:24px;top:16px;width:54px;background:var(--terra);opacity:1}
+.sk-tree .r2{left:34px;top:34px;width:40px}
+.sk-tree .r3{left:34px;top:50px;width:48px}
+.sk-tree .r4{left:24px;top:68px;width:50px;background:var(--terra);opacity:1}
+.sk-tree .bx{position:absolute;right:14px;top:14px;width:58px;height:76px;border:1.5px solid var(--terra);border-radius:6px;background:rgba(194,65,12,.06)}
+/* sketch: stages */
+.sk-stage{display:flex;align-items:center;justify-content:space-around;padding:0 10px}
+.sk-stage span{width:13px;height:13px;border-radius:50%;background:var(--ink-faint);opacity:.4;position:relative}
+.sk-stage span::after{content:"";position:absolute;left:13px;top:6px;width:24px;height:2px;background:var(--line)}
+.sk-stage span:last-child::after{display:none}
+.sk-stage span:nth-child(-n+3){background:var(--terra);opacity:1}
+/* sketch: timeline */
+.sk-tl::before{content:"";position:absolute;left:22px;top:12px;width:2px;height:80px;background:var(--jade)}
+.sk-tl .n{position:absolute;left:16px;width:14px;height:14px;border-radius:50%;background:var(--jade);border:2px solid var(--paper-2)}
+.sk-tl .n1{top:12px}.sk-tl .n2{top:42px}.sk-tl .n3{top:72px}
+.sk-tl .b{position:absolute;left:44px;height:10px;border-radius:3px;background:var(--ink-faint);opacity:.5}
+.sk-tl .b1{top:14px;width:64px}.sk-tl .b2{top:44px;width:48px;background:var(--gold);opacity:.8}.sk-tl .b3{top:74px;width:70px}
+
+/* agent timeline (slide 10) */
+.atl{display:flex;flex-direction:column;gap:0;margin-top:4px}
+.astep{display:flex;gap:16px;align-items:flex-start}
+.astep .sn{width:30px;height:30px;border-radius:9px;background:var(--jade);color:#fff;display:grid;place-items:center;font-family:var(--mono);font-size:14px;font-weight:600;flex:none;position:relative}
+.astep .sn::after{content:"";position:absolute;top:30px;left:50%;transform:translateX(-50%);width:2px;height:18px;background:var(--line)}
+.astep:last-child .sn::after{display:none}
+.astep .sb{padding-bottom:16px}
+.astep .sb .h{font-size:17px;font-weight:600}
+.astep .sb .d{font-size:14px;color:var(--ink-soft);margin-top:2px}
+.astep.eval .sn{background:var(--gold)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.tool{font-family:var(--mono);font-size:13px;padding:5px 11px;border-radius:8px;background:#23201b;color:#e9dcc6}
+.tool b{color:var(--terra-soft)}
+
+/* takeaway columns */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.tk{border-radius:16px;padding:22px;border:1px solid var(--line)}
+.tk.win{background:var(--jade-soft);border-color:#bcd6c8}
+.tk.cut{background:#F2E7D6;border-color:#e3d2b6}
+.tk.plus{background:#F6E3D6;border-color:var(--terra-soft)}
+.tk .th{font-family:var(--serif);font-size:20px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:9px}
+.tk .em{font-size:24px}
+.quote{margin-top:22px;font-family:var(--serif);font-size:22px;font-style:italic;color:var(--terra-deep);line-height:1.45;padding-left:22px;border-left:4px solid var(--terra)}
+
+/* end */
+.endgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:8px}
+.thanks{font-family:var(--serif);font-size:80px;font-weight:700;color:var(--terra);line-height:1;margin-top:30px}
+
+/* ===== chrome ===== */
+.progress{position:fixed;top:0;left:0;height:4px;background:var(--terra);width:0;z-index:50;transition:width .45s cubic-bezier(.2,.7,.2,1);box-shadow:0 0 14px rgba(194,65,12,.6)}
+.counter{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:50;font-family:var(--mono);font-size:13px;color:#cdbfa6;background:rgba(20,17,13,.5);padding:6px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(6px)}
+.counter b{color:#fff}
+.nav{position:fixed;bottom:14px;right:18px;z-index:50;display:flex;gap:8px}
+.nav button,.controls button{font-family:var(--mono);font-size:13px;color:#e9dcc6;background:rgba(20,17,13,.55);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 12px;cursor:pointer;transition:.2s;backdrop-filter:blur(6px)}
+.nav button:hover,.controls button:hover{background:var(--terra);color:#fff;border-color:var(--terra)}
+.controls{position:fixed;top:14px;right:18px;z-index:50;display:flex;gap:8px}
+.hint{position:fixed;bottom:16px;left:18px;z-index:50;font-family:var(--mono);font-size:12px;color:#9d917c}
+
+@media (prefers-reduced-motion:reduce){
+  [data-reveal]{transition:none!important;opacity:1!important;transform:none!important}
+  .slide{transition:none}
+}
+
+/* ===== print → PDF (one 16:9 page per slide) ===== */
+@media print{
+  @page{size:1280px 720px;margin:0}
+  html,body{background:#fff;overflow:visible;height:auto}
+  .deck{position:static;display:block;overflow:visible}
+  .progress,.counter,.nav,.controls,.hint{display:none!important}
+  .slide{position:relative;left:auto;top:auto;transform:none!important;opacity:1!important;visibility:visible!important;width:1280px;height:720px;page-break-after:always;break-after:page;box-shadow:none;margin:0 auto}
+  .slide::before{opacity:.4}
+  [data-reveal]{opacity:1!important;transform:none!important}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+<!-- ============ 1 · COVER ============ -->
+<section class="slide cover active">
+  <div class="cv-wrap">
+    <div class="cv-kick" data-reveal style="--i:0">程序设计综合实验 · 结题汇报 · 2026</div>
+    <h1 class="cv-title" data-reveal style="--i:1">Mini-<span class="lm">NotebookLM</span></h1>
+    <div class="cv-rule" data-reveal style="--i:2"></div>
+    <div class="cv-sub" data-reveal style="--i:3">面向大学生的多模态课程知识库与 AI 辅导系统</div>
+    <div class="cv-tagline" data-reveal style="--i:4">一个本地运行、把课程资料变成「看得见思考过程」的 AI 知识库</div>
+    <div class="cv-meta" data-reveal style="--i:5">
+      <div class="m"><span class="k">开发者</span><b>李宇</b></div>
+      <div class="m"><span class="k">学号</span><b>2022210347</b></div>
+      <div class="m"><span class="k">班级</span><b>2024211109</b></div>
+      <div class="m"><span class="k">学院</span><b>信息与通信工程学院</b></div>
+      <div class="m"><span class="k">组队</span><b>单人独立完成</b></div>
+    </div>
+  </div>
+  <div class="cv-badges" data-reveal style="--i:6">
+    <span class="b">MinerU 解析 · 自研 IR</span>
+    <span class="b">父子切片 · 多模态富化</span>
+    <span class="b">混合检索 + 重排 · 场景 Agent</span>
+  </div>
+</section>
+
+<!-- ============ 2 · 背景与目标 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>01 / Background<span class="kcn">选题背景与任务目标</span></div>
+    <h2 class="title" data-reveal style="--i:1">为什么做它 —— 大学生课程场景的空白</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">!</span>痛点</h3>
+        <ul class="list">
+          <li>主流 AI 知识库（<b>NotebookLM、腾讯 ima</b>）都定位「通用个人知识库」</li>
+          <li>并<b>没有为大学生课程学习场景</b>专门设计</li>
+          <li>课后复习、考前备考、教务信息整理是高频刚需，通用工具<b>上手门槛高、体验割裂</b></li>
+        </ul>
+      </div>
+      <div class="card jade" data-reveal style="--i:3">
+        <h3><span class="ic">→</span>我的任务目标</h3>
+        <ul class="list jade">
+          <li>做一个<b>本地化</b>的两层系统</li>
+          <li>下层：<b>通用多模态知识库底座</b>，效果对标一线大厂</li>
+          <li>上层：面向大学生的<b>场景 AI Agent</b> 辅学</li>
+        </ul>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:4;font-size:19px;margin-top:24px">立项验收标准：核心链路跑通 · 关键体验可靠 · 技术路线自洽 · 能演示、能解释、有真实价值</div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 3 · 两层架构 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>02 / Architecture<span class="kcn">系统两层架构</span></div>
+    <h2 class="title" data-reveal style="--i:1">九大模块，通用底座 + 场景 Agent</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+
+    <div data-reveal style="--i:2;margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:13px;color:var(--jade);letter-spacing:.1em;margin-bottom:10px">场景层 · 大学生 AI AGENT</div>
+      <div class="three">
+        <div class="tk win" style="padding:16px 18px"><div class="th" style="font-size:18px;margin-bottom:4px">⑦ AI 伴学 · 课后复盘</div><div class="muted" style="font-size:14px">录音→讲义，多轮答疑</div></div>
+        <div class="tk cut" style="padding:16px 18px;opacity:.6"><div class="th" style="font-size:18px;margin-bottom:4px">⑧ AI 考官 · 出卷判分</div><div class="muted" style="font-size:14px">主动取舍为提升项</div></div>
+        <div class="tk win" style="padding:16px 18px"><div class="th" style="font-size:18px;margin-bottom:4px">⑨ AI 管家 · 课程卡片</div><div class="muted" style="font-size:14px">多轮检索 Agent</div></div>
+      </div>
+    </div>
+
+    <div data-reveal style="--i:3">
+      <div style="font-family:var(--mono);font-size:13px;color:var(--terra-deep);letter-spacing:.1em;margin-bottom:10px">底座层 · 通用多模态知识库</div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">① 资料接入<br>异步解析</div></div>
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">② MinerU<br>标准化 IR</div></div>
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">③ 结构感知<br>切片富化</div></div>
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">④ 索引入库<br>混合检索</div></div>
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">⑤ 多模态<br>问答编排</div></div>
+        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">⑥ 前端交互<br>可视化溯源</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 4 · 技术主线 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>03 / Pipeline<span class="kcn">核心技术主线</span></div>
+    <h2 class="title" data-reveal style="--i:1">一条数据主线，串起全部技术难点</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven" style="align-items:center">
+      <div class="pipe" data-reveal style="--i:2">
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">原始文档</div><div class="ps">PDF / PPT / Word / 图片 / Markdown</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">MinerU 高保真解析</div><div class="ps">content_list_v2 + layout + origin.pdf</div></div></div>
+        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">自研 IR 标准化<span class="starflag">自研</span></div><div class="ps">重建文档树 · header_path · 坐标锚点 · 格式监控</div></div></div>
+        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">结构感知父子切片 + 多模态富化<span class="starflag">自研</span></div><div class="ps">Parent（喂模型）/ Child（做检索）</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">向量 + BM25 双路混合召回</div><div class="ps">text-embedding-v4 ‖ FTS5+jieba → RRF 融合</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">qwen3-rerank 重排 → Small-to-Big</div><div class="ps">命中子块 → 回填父块全文</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">多模态大模型问答 + 高亮溯源</div><div class="ps">qwen-vl 系列 · 引用回原文坐标</div></div></div>
+      </div>
+      <div data-reveal style="--i:3">
+        <div class="card" style="background:#23201b;border-color:#3a3328">
+          <h3 style="color:#f3e8d6"><span class="ic">★</span><span style="color:#f3e8d6">两步自研核心</span></h3>
+          <ul class="list" style="color:#e8dcc8">
+            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">IR 标准化</b>：把扁平、会漂移的解析结果重建成结构化文档树</li>
+            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">父子切片</b>：化解「检索要小、问答要全」的矛盾</li>
+          </ul>
+          <div style="margin-top:14px;font-size:14px;color:#b7a98f;font-family:var(--mono)">红星处 = 决定系统效果上限的难点</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 5 · 完成情况 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>04 / Status<span class="kcn">完成情况概述</span></div>
+    <h2 class="title" data-reveal style="--i:1">8 个核心模块全部落地</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div data-reveal style="--i:2">
+        <table class="t">
+          <tr><th>模块</th><th>功能</th><th>状态</th></tr>
+          <tr><td>一~六</td><td>通用多模态知识库底座</td><td class="ok">✅ 完成</td></tr>
+          <tr><td>七</td><td>AI 伴学 · 课后复盘</td><td class="ok">✅ 完成</td></tr>
+          <tr><td>九</td><td>AI 管家 · 多轮检索 Agent</td><td class="ok">✅ 完成</td></tr>
+          <tr><td>八</td><td>AI 考官 · 出卷判分</td><td class="todo">⏳ 提升项</td></tr>
+          <tr><td>—</td><td>音视频转写</td><td class="todo">⏳ 提升项</td></tr>
+        </table>
+        <div class="chips" style="margin-top:18px">
+          <span class="tag tr">单人独立完成</span>
+          <span class="tag jd">basedpyright 0 错</span>
+          <span class="tag jd">tsc 0 错</span>
+          <span class="tag">回归 122 + 86 全过</span>
+        </div>
+      </div>
+      <div class="nums" data-reveal style="--i:3">
+        <div class="num"><div class="big">2.47<span style="font-size:24px">万</span></div><div class="lb">自研代码行数</div></div>
+        <div class="num"><div class="big">8</div><div class="lb">版本迭代 v1.0→v1.8</div></div>
+        <div class="num"><div class="big">105+</div><div class="lb">自研源文件</div></div>
+        <div class="num"><div class="big">9</div><div class="lb">功能模块</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 6 · 成品总览 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>05 / Product<span class="kcn">完成效果总览</span></div>
+    <h2 class="title" data-reveal style="--i:1">做出来长什么样 ——「研读室」工作台</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div data-reveal style="--i:2;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:13px;height:384px">
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>知识库首页</b> · 书架卡片</div><div class="ph">↳ 替换为截图</div></div>
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>文件管理</b> · Explorer 风格</div><div class="ph">↳ 替换为截图</div></div>
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>问答</b> · 流式 + 引用溯源</div><div class="ph">↳ 替换为截图</div></div>
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>解析透视</b> · 树/坐标/检视</div><div class="ph">↳ 替换为截图</div></div>
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>检索透视</b> · 六阶段动画</div><div class="ph">↳ 替换为截图</div></div>
+      <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>Agent 决策透视</b> · 时间线</div><div class="ph">↳ 替换为截图</div></div>
+    </div>
+    <div class="chips" data-reveal style="--i:3;margin-top:14px">
+      <span class="tag">浅 / 暗 / 护眼 三主题</span><span class="tag">Fraunces × Hanken 字体</span><span class="tag">framer-motion 动效</span>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 7 · 难点1 IR ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>难点 ① / Hard Problem<span class="kcn">MinerU 解析 → 自研 IR 标准化</span></div>
+    <h2 class="title" data-reveal style="--i:1">把「扁平、会漂移」的解析，重建成结构化文档</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">!</span>真实的坑（不是想象的）</h3>
+        <ul class="list">
+          <li>输出<b>扁平</b>：标题层级永远 = 1，拿不到章节树</li>
+          <li>格式<b>会漂移</b>：字段增删、同名字段语义变</li>
+          <li>Office 文档<b>无坐标、无 origin.pdf</b></li>
+          <li>跨页拆分块、跨页表格「空幽灵块」污染检索</li>
+        </ul>
+      </div>
+      <div class="card jade" data-reveal style="--i:3">
+        <h3><span class="ic">✓</span>自研解法</h3>
+        <ul class="list jade">
+          <li><b>双层「宽进严出」IR</b>：脏数据绝不入库</li>
+          <li><b>LLM 文档树重建</b>：理解标题语义、注入面包屑</li>
+          <li><b>坐标锚点</b>：Office 自动 OCR 转 PDF 拿 bbox</li>
+          <li><b>格式漂移监控</b>：19 项语义校验，以实测为准</li>
+        </ul>
+      </div>
+    </div>
+    <div class="shot" data-reveal style="--i:4;height:120px;margin-top:20px"><div class="lab"><b>解析透视</b>截图：左文档树 · 中 PDF 坐标画布 · 右检视面板</div><div class="ph">↳ 替换为截图</div></div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 8 · 难点2 切片 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>难点 ② / Hard Problem<span class="kcn">结构感知父子切片 + 多模态富化</span></div>
+    <h2 class="title" data-reveal style="--i:1">切得准，才检索得准；多模态分轨处理</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">⛓</span>父子切片 · Small-to-Big</h3>
+        <ul class="list sm">
+          <li><b>父块</b>：按 N 级标题聚合，语义连贯，补全上下文</li>
+          <li><b>子块</b>：150–250 token 句界滑窗（15% 重叠）</li>
+          <li>不跨标题边界；list / code / 公式<b>原子保留</b></li>
+          <li>标题路径前置，解决小块「信息孤岛」</li>
+        </ul>
+      </div>
+      <div data-reveal style="--i:3">
+        <div style="font-family:var(--serif);font-size:19px;font-weight:600;margin-bottom:10px;color:var(--terra-deep)">多模态「双轨」策略</div>
+        <table class="t" style="font-size:14.5px">
+          <tr><th>类型</th><th>检索用（向量化）</th><th>问答用（喂模型）</th></tr>
+          <tr><td>图片</td><td>VLM 图像描述</td><td>原图 base64</td></tr>
+          <tr><td>表格</td><td>VLM 摘要</td><td>MinerU HTML</td></tr>
+          <tr><td>代码</td><td>功能说明+核心代码</td><td>原始完整代码</td></tr>
+          <tr><td>公式</td><td>自然语言含义</td><td>原始 LaTeX</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:4;font-size:19px;margin-top:20px">检索要「小而精」，问答要「全而准」—— 父子切片 + 双轨富化正是为化解这对矛盾。</div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 9 · 难点3 检索 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>难点 ③ / Hard Problem<span class="kcn">向量 + 关键词混合检索与重排</span></div>
+    <h2 class="title" data-reveal style="--i:1">不是「调个 API」，背后是一条多级检索链</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div class="pipe" data-reveal style="--i:2">
+        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">① LLM 查询规划</div><div class="ps">析出 关键词(BM25) + HyDE 陈述句(向量)</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">② 双路并行召回</div><div class="ps">Qdrant 向量 ‖ SQLite FTS5 关键词</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">③ RRF 融合（k=60）</div><div class="ps">两路排名融合成统一候选集</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">④ qwen3-rerank 重排</div><div class="ps">top_k 15 → top_n 5</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">⑤ Small-to-Big</div><div class="ps">命中子块 → 回填父块全文作上下文</div></div></div>
+      </div>
+      <div data-reveal style="--i:3">
+        <div class="card jade">
+          <h3 class="jade"><span class="ic" style="background:var(--jade)">↑</span>真机踩坑修复</h3>
+          <ul class="list jade sm">
+            <li>中文 BM25 <b>零召回</b> → jieba 预分词</li>
+            <li>关键词路召回 <b>0 → 20</b></li>
+          </ul>
+          <div style="margin-top:14px;font-size:14px;color:var(--ink-soft)">混合检索 + 重排是对标大厂的标准做法 —— 而且我把它<b style="color:var(--terra-deep)">可视化</b>了（见下一难点）。</div>
+        </div>
+        <div class="shot" style="height:110px;margin-top:14px"><div class="lab"><b>检索透视</b>六阶段动画截图</div><div class="ph">↳ 替换为截图</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 10 · 难点4 Agent ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>难点 ④ / Hard Problem<span class="kcn">场景 AI Agent · 课程管家</span></div>
+    <h2 class="title" data-reveal style="--i:1">会「自己查漏补缺」的多轮检索 Agent</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div class="atl" data-reveal style="--i:2">
+        <div class="astep"><div class="sn">1</div><div class="sb"><div class="h">首轮检索</div><div class="d">5 个信息槽（考核/作业/考试/联系方式/通知）并行双路检索 + 去重合并</div></div></div>
+        <div class="astep eval"><div class="sn">2</div><div class="sb"><div class="h">完整度自评</div><div class="d">LLM 评估「信息够不够」，输出缺口分析 + 置信度</div></div></div>
+        <div class="astep"><div class="sn">3</div><div class="sb"><div class="h">规划补检索</div><div class="d">对缺失项自动生成新检索词，第二轮、剔除已给片段</div></div></div>
+        <div class="astep"><div class="sn">4</div><div class="sb"><div class="h">收敛输出</div><div class="d">信息足够则停，整合两轮 → 结构化课程卡片 JSON</div></div></div>
+      </div>
+      <div data-reveal style="--i:3">
+        <div class="card" style="background:#23201b;border-color:#3a3328">
+          <h3 style="color:#f3e8d6"><span class="ic">⚙</span><span style="color:#f3e8d6">「工具调用」叙事</span></h3>
+          <div style="font-size:14.5px;color:#c5b89e;margin-bottom:12px">每步表达为 Agent 自主选用的工具，体现 ReAct 式「规划→行动→反思→再行动」闭环：</div>
+          <div class="tools">
+            <span class="tool"><b>keyword_search</b>()</span>
+            <span class="tool"><b>vector_search</b>()</span>
+            <span class="tool"><b>expand_query</b>()</span>
+            <span class="tool"><b>evaluate_coverage</b>()</span>
+          </div>
+        </div>
+        <div style="font-size:14.5px;color:var(--ink-soft);margin-top:14px;line-height:1.5">课后复盘亦含<b style="color:var(--terra-deep)">顺序 Agent</b>：一天连续生成多节讲义，前序提示词与已生成讲义滚动作上下文，保证风格语境一致。</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 11 · 难点5 三套透视 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>难点 ⑤ / Signature<span class="kcn">把隐藏链路「摊开给你看」</span></div>
+    <h2 class="title" data-reveal style="--i:1">让看不见的技术难度，变得看得见</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="quote" data-reveal style="--i:2;font-size:18px;margin:0 0 20px">普通 RAG 演示只看到「输入问题→找到来源→模型回答」，以为只是调了个 API。我把背后的解析、文档树、父子切片、双路检索、重排、Agent 决策<b style="font-style:normal;color:var(--terra-deep)">全部做成动效摊开演示</b>。</div>
+    <div class="tri" data-reveal style="--i:3">
+      <div class="xc">
+        <div class="sketch sk-tree"><span class="sk-row r1"></span><span class="sk-row r2"></span><span class="sk-row r3"></span><span class="sk-row r4"></span><span class="bx"></span></div>
+        <div class="xt">解析透视</div>
+        <div class="xs">左文档树 / 中 PDF 坐标画布（可点选块与父块大框）/ 右检视面板（类型·内容·VLM 描述·自定义索引）</div>
+      </div>
+      <div class="xc">
+        <div class="sketch"><div class="sk-stage" style="position:absolute;inset:0"><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+        <div class="xt">检索透视</div>
+        <div class="xs">六阶段动画：查询规划 → 关键词扫描 → 向量空间寻邻 → RRF 融合 → 重排连线 → Top-K</div>
+      </div>
+      <div class="xc">
+        <div class="sketch sk-tl"><span class="n n1"></span><span class="n n2"></span><span class="n n3"></span><span class="b b1"></span><span class="b b2"></span><span class="b b3"></span></div>
+        <div class="xt">Agent 决策透视</div>
+        <div class="xs">垂直时间线，实时展示多轮检索的规划、去重、完整度评估气泡</div>
+      </div>
+    </div>
+    <div class="chips" data-reveal style="--i:4;margin-top:18px;justify-content:center">
+      <span class="tag tr">一键串联：一个问题揭示整条隐藏链路 — 问答「透视检索」→ 检索透视；每条来源「解析透视」→ 定位版面块</span>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 12 · 工程实现 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>06 / Engineering<span class="kcn">工程实现说明</span></div>
+    <h2 class="title" data-reveal style="--i:1">技术栈 · 结构 · 规模 · 质量</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div data-reveal style="--i:2">
+        <div class="card">
+          <h3><span class="ic">⌗</span>技术栈</h3>
+          <ul class="list sm">
+            <li><b>后端</b> FastAPI · Pydantic v2 · SQLite+FTS5 · Qdrant · httpx · openai SDK · 包管理 uv</li>
+            <li><b>前端</b> React 19 · Vite 7 · TS strict · Tailwind v4 · shadcn/ui · framer-motion · react-pdf</li>
+            <li><b>云端</b> MinerU 解析 · 百炼 embedding/rerank/VLM · 多 Provider 问答（可切 DeepSeek/OpenAI）</li>
+          </ul>
+        </div>
+        <div class="card jade" style="margin-top:14px">
+          <h3 class="jade"><span class="ic" style="background:var(--jade)">✓</span>质量与工程化</h3>
+          <ul class="list jade sm">
+            <li>basedpyright 0 错 · tsc 0 错 · 回归 122+86 全过 · 生产构建通过</li>
+            <li>坚持 KISS：不引 LangChain，原生 SDK + 透明数据流</li>
+            <li>提示词外置热重载 · MinerU 格式漂移自动监控</li>
+          </ul>
+        </div>
+      </div>
+      <div data-reveal style="--i:3">
+        <div class="nums">
+          <div class="num"><div class="big">2.47<span style="font-size:22px">万</span></div><div class="lb">自研代码行</div></div>
+          <div class="num"><div class="big">60</div><div class="lb">后端源文件</div></div>
+          <div class="num"><div class="big">45</div><div class="lb">前端源文件</div></div>
+          <div class="num"><div class="big">14+1</div><div class="lb">业务表 + FTS5</div></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div style="font-family:var(--mono);font-size:13px;color:var(--ink-faint);letter-spacing:.06em;margin-bottom:8px">后端分层</div>
+          <div style="font-family:var(--mono);font-size:14px;color:var(--ink);line-height:1.7">adapters / api / services / chunkers /<br>enrichers / models / prompts / validators /<br>writers / db</div>
+        </div>
+        <div style="margin-top:12px;font-size:14px;color:var(--ink-soft)">运行环境：Windows 本地 · Python 3.11+ (uv) · Node 20+ · Chrome/Edge 120+</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 13 · 取舍 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>07 / Trade-offs<span class="kcn">设想 vs 落地</span></div>
+    <h2 class="title" data-reveal style="--i:1">从设想到落地 —— 我做了哪些取舍</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="three" data-reveal style="--i:2">
+      <div class="tk win">
+        <div class="th"><span class="em">✅</span>如约兑现</div>
+        <ul class="list jade sm">
+          <li>通用底座全链路</li>
+          <li>课后复盘</li>
+          <li>课程管家</li>
+        </ul>
+      </div>
+      <div class="tk cut">
+        <div class="th"><span class="em">✂️</span>主动取舍</div>
+        <ul class="list sm">
+          <li><b>模块八 AI 考官</b>：体量近一个毕设，时间风险过大</li>
+          <li>音视频转写：基础链路优先</li>
+          <li style="color:var(--terra-deep)">选择把已做的做扎实，而非铺大摊子</li>
+        </ul>
+      </div>
+      <div class="tk plus">
+        <div class="th"><span class="em">➕</span>反而超额</div>
+        <ul class="list sm">
+          <li>三套可视化透视</li>
+          <li>多 Provider 问答切换</li>
+          <li>父块自定义索引</li>
+          <li>格式漂移监控 · 中文检索修复</li>
+        </ul>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:3;margin-top:26px">工程能力不只是「全做完」，更是「在有限时间里做对取舍、把核心做到可靠」。</div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 14 · 效果视频 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>08 / Demo<span class="kcn">实机演示 ≤ 2 分钟</span></div>
+    <h2 class="title" data-reveal style="--i:1">一个问题，揭示整条隐藏链路</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div class="shot" data-reveal style="--i:2;height:340px"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>嵌入效果视频</b> 或 演示录屏首帧</div><div class="ph">↳ 见附带视频文件（≤ 2 分钟）</div></div>
+      <div data-reveal style="--i:3">
+        <div style="font-family:var(--serif);font-size:19px;font-weight:600;margin-bottom:14px;color:var(--terra-deep)">演示主线（对应设计目标）</div>
+        <ul class="list sm">
+          <li>上传/选择资料 → 一键解析 →（<b>解析透视</b>）文档树 + 坐标</li>
+          <li>提问 → 流式回答 + 引用 →「透视检索」看<b>检索透视</b></li>
+          <li>点来源「解析透视」→ 定位答案出处版面块</li>
+          <li>课程管家 →（<b>Agent 决策透视</b>）多轮查漏补缺</li>
+          <li>课后复盘 → 流式生成「老师口吻」讲义</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 15 · 总结 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>09 / Summary<span class="kcn">总结与收获</span></div>
+    <h2 class="title" data-reveal style="--i:1">一条完整链路，一次系统的工程训练</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="endgrid" data-reveal style="--i:2">
+      <div class="card"><h3><span class="ic">◆</span>技术</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">打通 RAG 全链路：解析→IR→切片→混合检索→重排→多模态问答→Agent，理解每环为何这么设计</div></div>
+      <div class="card jade"><h3 class="jade"><span class="ic" style="background:var(--jade)">◆</span>工程</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">需求→设计→8 版迭代→静态检查/回归测试→文档沉淀，走完真实软件工程闭环</div></div>
+      <div class="card"><h3><span class="ic">◆</span>判断</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">学会在有限时间里做取舍，识别高不确定模块并主动收口</div></div>
+    </div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between">
+      <div class="thanks" data-reveal style="--i:3">谢谢各位老师！</div>
+      <div data-reveal style="--i:4;text-align:right;font-family:var(--mono);font-size:13px;color:var(--ink-faint);line-height:1.8">
+        通用底座 + 场景 Agent + 可视化透视<br>李宇 · 2022210347 · 2026 春
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 16 · 附录分隔 ============ -->
+<section class="slide divider">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix<span class="kcn">备查资料</span></div>
+    <h2 class="title" data-reveal style="--i:1">附录 · 难点详细资料</h2>
+    <div class="lede" data-reveal style="--i:2;margin-top:18px">以下供老师细看；主讲时一句「详见附录 / 详细设计文档」带过即可。</div>
+  </div>
+  <div class="slide-foot" style="color:#8a7e69"><span class="who" style="color:var(--terra-soft)">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 17 · 附录资料索引 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix · Index<span class="kcn">资料索引</span></div>
+    <h2 class="title" data-reveal style="--i:1">详细资料分布</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <table class="t">
+        <tr><th>主题</th><th>位置</th></tr>
+        <tr><td>自研 IR Schema / 文档树重建</td><td>详细设计 · models_ir.py / dom_builder.py</td></tr>
+        <tr><td>父子切片参数 / 多模态富化</td><td>chunkers/ · enricher.py</td></tr>
+        <tr><td>混合检索 RRF / 重排打分</td><td>retrieval_service.py · rerank_service.py</td></tr>
+        <tr><td>数据库设计（14 表 + FTS5）</td><td>db/database.py</td></tr>
+      </table>
+      <table class="t">
+        <tr><th>主题</th><th>位置</th></tr>
+        <tr><td>MinerU 格式漂移监控（19 项）</td><td>format_checker.py · 推断文档 §10</td></tr>
+        <tr><td>SSE 统一词汇协议</td><td>conversation_service.py</td></tr>
+        <tr><td>多轮检索 Agent</td><td>course_info_service.py · rag_eval</td></tr>
+        <tr><td>运行 / 复现步骤</td><td>README.md · 工程文件说明</td></tr>
+      </table>
+    </div>
+    <div class="chips" data-reveal style="--i:3;margin-top:22px">
+      <span class="tag tr">项目文档体系</span>
+      <span class="tag">README.md</span>
+      <span class="tag">doc/项目当前情况.md</span>
+      <span class="tag">doc/MinerU to RAG Pipeline 架构设计</span>
+      <span class="tag">doc/在线API输出文件格式（SaaS推断版）</span>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+</div><!-- /deck -->
+
+<div class="counter" id="counter"><b>1</b> / 17</div>
+<div class="controls">
+  <button id="btnPrint" title="导出 PDF（在打印对话框选「另存为 PDF」，布局：横向）">⤓ 导出 PDF</button>
+  <button id="btnFs" title="全屏 (F)">⛶ 全屏</button>
+</div>
+<div class="nav">
+  <button id="btnPrev">‹ 上一页</button>
+  <button id="btnNext">下一页 ›</button>
+</div>
+<div class="hint">← → / 空格 翻页 · F 全屏 · P 打印导出 PDF</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var total = slides.length;
+  var cur = 0;
+  var prog = document.getElementById('prog');
+  var counter = document.getElementById('counter');
+
+  // page numbers
+  slides.forEach(function(s,i){
+    var p = s.querySelector('.pageno');
+    if(p) p.textContent = String(i+1).padStart(2,'0') + ' / ' + String(total).padStart(2,'0');
+  });
+
+  function fit(){
+    var pad = 0.94;
+    var sc = Math.min(window.innerWidth/1280, window.innerHeight/720) * pad;
+    document.documentElement.style.setProperty('--scale', sc);
+  }
+  function render(){
+    slides.forEach(function(s,i){ s.classList.toggle('active', i===cur); });
+    prog.style.width = (total<=1?100:(cur/(total-1)*100)) + '%';
+    counter.innerHTML = '<b>'+(cur+1)+'</b> / '+total;
+    if(location.hash !== '#'+(cur+1)) history.replaceState(null,'','#'+(cur+1));
+  }
+  function go(n){ cur = Math.max(0, Math.min(total-1, n)); render(); }
+  function next(){ go(cur+1); }
+  function prev(){ go(cur-1); }
+
+  document.addEventListener('keydown', function(e){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '||e.key==='PageDown'){ e.preventDefault(); next(); }
+    else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp'){ e.preventDefault(); prev(); }
+    else if(e.key==='Home'){ go(0); }
+    else if(e.key==='End'){ go(total-1); }
+    else if(e.key==='f'||e.key==='F'){ toggleFs(); }
+    else if(e.key==='p'||e.key==='P'){ window.print(); }
+  });
+
+  document.getElementById('btnNext').onclick = next;
+  document.getElementById('btnPrev').onclick = prev;
+  document.getElementById('btnPrint').onclick = function(){ window.print(); };
+  function toggleFs(){ if(!document.fullscreenElement){ document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen(); } else { document.exitFullscreen&&document.exitFullscreen(); } }
+  document.getElementById('btnFs').onclick = toggleFs;
+
+  // click zones (ignore clicks on buttons/links)
+  document.getElementById('deck').addEventListener('click', function(e){
+    if(e.target.closest('button,a')) return;
+    var x = e.clientX / window.innerWidth;
+    if(x > 0.62) next(); else if(x < 0.38) prev();
+  });
+
+  // touch swipe
+  var tx=0;
+  document.addEventListener('touchstart',function(e){ tx=e.touches[0].clientX; },{passive:true});
+  document.addEventListener('touchend',function(e){ var dx=e.changedTouches[0].clientX-tx; if(Math.abs(dx)>50){ dx<0?next():prev(); } },{passive:true});
+
+  window.addEventListener('resize', fit);
+  if(location.hash){ var n=parseInt(location.hash.slice(1),10); if(n>=1&&n<=total) cur=n-1; }
+  fit(); render();
+})();
+</script>
+</body>
+</html>

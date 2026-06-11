@@ -9,6 +9,7 @@ import {
 } from "@/api/client"
 import type { CitationItem, ConversationInfo } from "@/api/types"
 import { threadFromHistory, useConversation } from "@/hooks/useConversation"
+import { streamSignature, useStickToBottom } from "@/hooks/useStickToBottom"
 import { ChatThread, Composer } from "@/components/ChatThread"
 import { Dialog, DialogClose, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
@@ -61,9 +62,8 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kbId, urlConvId])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [convo.messages])
+  // 仅当用户已在底部时跟随流式输出滚动；展开/收起思维链等 UI 切换不触发（修复抖动与强制吸底）
+  useStickToBottom(scrollRef, streamSignature(convo.messages))
 
   const send = async (text: string) => {
     if (!kbId) return

@@ -88,9 +88,26 @@ export interface CitationItem {
 }
 
 /**
+ * 多轮检索 Agent 的一步决策（结构化），供「Agent 决策透视」时间线渲染。
+ * QA 路（conversation_service）走 `agent` 事件；课程管家卡片生成走 `progress` 事件，
+ * 两者字段对齐，复用同一 <AgentTimeline> 组件。
+ */
+export interface AgentStepData {
+  round: number | "final" | string
+  step: string                 // search / evaluating / eval_result / planning / searching / extracting / done
+  status?: string              // complete / incomplete / limit / empty
+  message: string
+  queries?: string[]
+  missing_analysis?: string
+  new_queries?: Array<{ query: string; keywords?: string[] }>
+  added_count?: number
+}
+
+/**
  * 统一 SSE 词汇（后端 conversation_service.stream_turn + 各场景编排共用）。
  * 一条流：conversation → (message_start[user] → message_start[assistant] →
- *   citations? → thinking* → delta* → message_end) → done
+ *   agent* → citations? → thinking* → delta* → message_end) → done
+ * agent  = 多轮检索 Agent 决策过程（结构化，独立于模型思维链 thinking）。
  * 讲义生成在同一条流内重复多个 message_start[assistant]/message_end（每节一个）。
  */
 export type ChatEvent =
@@ -102,6 +119,7 @@ export type ChatEvent =
       metadata?: Record<string, unknown>
     }
   | { type: "citations"; citations: CitationItem[] }
+  | ({ type: "agent" } & AgentStepData)
   | { type: "thinking"; content: string }
   | { type: "delta"; content: string }
   | { type: "message_end"; message_id: string }

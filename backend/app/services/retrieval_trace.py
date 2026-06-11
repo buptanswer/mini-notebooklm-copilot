@@ -67,6 +67,7 @@ class RetrievalResult:
     chunks: list[RetrievedChunk]            # 最终 top_k（重排后）
     parent_map: dict                         # parent_chunk_id -> {...}
     trace: RetrievalTrace | None = None
+    plan: object = None                      # QueryPlan（关键词 + 语义查询），供 Agent 透视展示实际检索词
 
 
 # ─────────────────────────────────────────────────────────────
@@ -162,7 +163,7 @@ async def run_retrieval_pipeline(
             },
         )
 
-    return RetrievalResult(chunks=final_chunks, parent_map=parent_map, trace=trace)
+    return RetrievalResult(chunks=final_chunks, parent_map=parent_map, trace=trace, plan=plan)
 
 
 # ─────────────────────────────────────────────────────────────

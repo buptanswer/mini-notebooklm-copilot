@@ -326,13 +326,19 @@ async def stream_turn(
     if rag_mode:
         async for evt in _fetch_rag_context(user_content, conv["kb_id"], top_k):
             if evt["type"] == "progress":
-                acc_thinking.append(evt["message"])
-                yield sse_line({"type": "thinking", "content": evt["message"]})
+                # 检索 Agent 的决策过程走独立的 `agent` 通道（结构化），
+                # 与模型自身的思维链(`thinking`)彻底分离，避免前端思维链面板串味。
+                agent_evt = {k: v for k, v in evt.items() if k != "type"}
+                yield sse_line({"type": "agent", **agent_evt})
             elif evt["type"] == "result":
                 citations = evt["citations"]
                 sources = evt["sources"]
                 has_image = evt["has_image"]
-    use_multimodal = has_image and settings.qa_enable_multimodal
+
+    # 思维链与多模态视觉模型互斥：qwen-vl 系列不返回 reasoning_content。
+    # 用户显式开启"深度思考"时优先走文本路（图片以 VLM 描述在原位注入），确保思维链可用。
+    use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
+    use_multimodal = has_image and settings.qa_enable_multimodal and not use_thinking
 
     # 3. 组装 OpenAI messages（含隐藏 user，供模型看到完整上下文）
     msgs = await list_messages(conversation_id)
@@ -361,7 +367,6 @@ async def stream_turn(
 
     # 6. 流式调用 LLM
     acc_content: list[str] = []
-    use_thinking = conv["enable_thinking"] if enable_thinking is None else enable_thinking
     async for evt in stream_llm_completion(
         openai_msgs, enable_thinking=use_thinking, multimodal=use_multimodal,
     ):
@@ -411,14 +416,31 @@ async def _fetch_rag_context(
                 t = "\n".join(lines).strip()
             return t
 
-        yield {"type": "progress", "message": "【Agent 检索首轮】正在执行双路混合检索，召回候选切片...\n"}
+        yield {
+            "type": "progress", "round": 1, "step": "search",
+            "message": "LLM 解析检索意图，执行关键词 + 语义向量双路混合检索…",
+        }
 
         result = await run_retrieval_pipeline(query, kb_id, top_k=top_k, build_trace=False)
         reranked = list(result.chunks) if result.chunks else []
         parent_map = dict(result.parent_map) if result.parent_map else {}
-        
+
+        # 透视：展示 LLM 实际生成的检索关键词 + HyDE 语义查询（简略版"检索透视"）
+        plan = getattr(result, "plan", None)
+        plan_keywords = [str(k) for k in (getattr(plan, "keywords", None) or [])]
+        plan_semantic = str(getattr(plan, "semantic_query", "") or "").strip()
+        if plan_keywords or plan_semantic:
+            yield {
+                "type": "progress", "round": 1, "step": "queries",
+                "queries": plan_keywords,
+                "message": f"语义查询：{plan_semantic}" if plan_semantic else "已提取检索关键词",
+            }
+
         if not reranked:
-            yield {"type": "progress", "message": "【Agent 检索首轮】未召回任何切片。\n"}
+            yield {
+                "type": "progress", "round": 1, "step": "done", "status": "empty",
+                "message": "知识库中未召回任何相关切片。",
+            }
             yield {"type": "result", "citations": None, "sources": None, "has_image": False}
             return
 
@@ -433,7 +455,11 @@ async def _fetch_rag_context(
                 context_parts.append(f"[来源{i}]\n{c.retrieval_text}")
             context_text = "\n---\n".join(context_parts)
 
-            yield {"type": "progress", "message": f"【Agent 评估中】已召回 {len(reranked)} 个相关切片，正在评估信息完整度...\n"}
+            yield {
+                "type": "progress", "round": current_round, "step": "evaluating",
+                "added_count": len(reranked),
+                "message": f"已召回 {len(reranked)} 个相关切片，LLM 正在评估信息完整度…",
+            }
 
             eval_system_prompt = load_prompt("rag_eval_system", query=query)
             eval_user_content = f"【当前已检索到的参考资料】\n{context_text}\n\n请评估以上资料，判断是否足以回答用户的原始问题？返回 JSON。"
@@ -449,23 +475,33 @@ async def _fetch_rag_context(
                 new_queries_spec = eval_data.get("new_queries") or []
 
                 yield {
-                    "type": "progress",
-                    "message": f"【Agent 评估结果】状态: {'完整' if status == 'complete' else '不完整'}\n"
-                               f"【Agent 缺失分析】{missing_analysis}\n"
+                    "type": "progress", "round": current_round, "step": "eval_result",
+                    "status": status if status in ("complete", "incomplete") else "complete",
+                    "missing_analysis": missing_analysis,
+                    "message": "信息完整，可以作答" if status == "complete" else "信息尚不完整，需要补充检索",
                 }
 
                 if status == "complete" or not new_queries_spec:
-                    yield {"type": "progress", "message": "【Agent 检索决策】现有信息已足够回答，结束检索。\n"}
+                    yield {
+                        "type": "progress", "round": "final", "step": "done", "status": "complete",
+                        "message": "现有信息已足够回答，结束检索。",
+                    }
                     break
 
                 if current_round == max_rounds:
-                    yield {"type": "progress", "message": "【Agent 检索决策】达到最大检索轮数限制，结束检索。\n"}
+                    yield {
+                        "type": "progress", "round": "final", "step": "done", "status": "limit",
+                        "message": "达到最大检索轮数限制，以当前资料作答。",
+                    }
                     break
 
                 yield {
-                    "type": "progress",
-                    "message": f"【Agent 规划补漏】发现关键事实缺失，启动第二轮查漏补缺检索，检索词:\n" +
-                               "\n".join([f"- {spec.get('query')}" for spec in new_queries_spec]) + "\n"
+                    "type": "progress", "round": current_round, "step": "planning",
+                    "new_queries": [
+                        {"query": spec.get("query"), "keywords": spec.get("keywords") or []}
+                        for spec in new_queries_spec
+                    ],
+                    "message": "发现关键事实缺失，规划第二轮查漏补缺检索。",
                 }
 
                 search_tasks = []
@@ -489,7 +525,10 @@ async def _fetch_rag_context(
                             reranked.append(c)
                             added_count += 1
 
-                yield {"type": "progress", "message": f"【Agent 定向检索完成】第二轮新增召回 {added_count} 个切片。\n"}
+                yield {
+                    "type": "progress", "round": 2, "step": "searching", "added_count": added_count,
+                    "message": f"第二轮定向检索完成，新增召回 {added_count} 个切片。",
+                }
 
                 if added_count == 0:
                     break
@@ -503,10 +542,19 @@ async def _fetch_rag_context(
 
             except Exception as e:
                 logger.warning(f"RAG 检索 Agent 评估迭代失败: {e}", exc_info=True)
-                yield {"type": "progress", "message": f"【Agent 评估异常】{str(e)}，跳过迭代。\n"}
+                yield {
+                    "type": "progress", "round": "final", "step": "done", "status": "limit",
+                    "message": "评估环节异常，以当前已召回资料作答。",
+                }
                 break
 
             current_round += 1
+
+        yield {
+            "type": "progress", "round": "final", "step": "extracting", "status": "complete",
+            "added_count": len(reranked),
+            "message": f"整合 {len(reranked)} 个切片的父块上下文，开始撰写回答…",
+        }
 
         # 整理 citations
         citations: list[dict] = []

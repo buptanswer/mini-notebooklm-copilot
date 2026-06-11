@@ -198,7 +198,6 @@ async def export_notes(kb_id: str, req: ExportRequest):
     将生成的课后复习讲义导出为 PDF 或 Markdown 文件。
     使用本地 pandoc 命令进行编译转换。
     """
-    import os
     import tempfile
     import subprocess
     import uuid
@@ -262,9 +261,15 @@ async def export_notes(kb_id: str, req: ExportRequest):
 
     try:
         # 优先使用 xelatex 并设置中文字体
+        # -f markdown-yaml_metadata_block：关闭 YAML 元数据块解析。
+        # 讲义正文里出现 `---` 分隔线后接 `*列表`/`*强调*` 时，pandoc 默认会把它
+        # 误当成 YAML front-matter 去解析，撞上 `*`（YAML alias 起始符）直接报错
+        # "scanning an alias"。禁用该扩展即可彻底修掉导出崩溃。
+        md_format = "markdown-yaml_metadata_block"
         cmd = [
             "pandoc",
             str(md_file),
+            "-f", md_format,
             "-o",
             str(pdf_file),
             "--pdf-engine=xelatex",
@@ -280,6 +285,7 @@ async def export_notes(kb_id: str, req: ExportRequest):
             cmd_wk = [
                 "pandoc",
                 str(md_file),
+                "-f", md_format,
                 "-o",
                 str(pdf_file),
                 "--pdf-engine=wkhtmltopdf",
