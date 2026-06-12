@@ -4,7 +4,41 @@
 
 ---
 
+## v1.8.1（2026-06-11 hotfix）— 多模态模型修正：qwen-plus → qwen3.7-plus
+
+> **纠正 v1.8.0 的一个错误判断。** v1.8.0「模型统一 qwen-plus」基于"裸 `qwen-plus` 已是多模态"的认定，
+> 经本次真机实测该认定**不成立**：阿里云「千问Plus」**品牌**虽已升级到 Qwen3.5 多模态，但 API 的裸 model id
+> `qwen-plus` 仍路由到旧的**纯文本**快照（当前 = `qwen-plus-2025-12-01`），传入 `image_url` 会被静默忽略。
+> 多模态必须显式用**带版本号**的 id（`qwen3.5-plus` / `qwen3.6-plus` / `qwen3.7-plus`）。
+
+### 现象与根因
+- **图片/表格富化失效**：`enricher` 已把图片 base64 正确传给模型，但裸 `qwen-plus` 不看图、只读文本 prompt
+  → 图片描述全部返回「请提供需要分析的图片…」（不是图片没上传成功，而是模型不处理图片）。
+- **QA 末尾「内部异常」**：`qa_service.stream_llm_completion` 旧代码 `chunk_obj.get("choices", [{}])[0]`
+  的默认值只防「键缺失」、不防「空列表」。思考模型流式返回末尾带一个 `choices:[]` 的 usage-only chunk
+  → 对空列表取 `[0]` → `IndexError: list index out of range`。
+
+### 修复
+- `config.py`：`vlm_model` / `qa_multimodal_model` 默认 `qwen-plus` → **`qwen3.7-plus`**（当前旗舰多模态）；
+  `qa_model`（纯文本问答）保持 `qwen-plus` 不变。
+- `qa_service.py`：流式解析对空 `choices` 跳过（`choices = chunk_obj.get("choices") or []; if not choices: continue`），并防 `delta` 为 null。
+- `enricher.py`：图片描述 / 表格摘要两个非流式 VLM 调用显式 `enable_thinking: False`（这类富化不需要思维链，省 token、更快）。
+
+### 实测验证（真机 DashScope，非占位）
+- 同一张课堂幻灯片照片：`qwen3.7-plus` 返回准确描述（连幕布文字都逐条转写）；裸 `qwen-plus` 当场复现
+  「请提供需要分析的图片…」——根因实锤（同代码同图，只换 model id）。
+- QA 流式修复后 `error=0`、答案完整；原始 SSE 实测 144 chunk 中正好 1 个 `choices:[]`（末尾 usage chunk）。
+- 旁证：`qwen3.7-plus` 非流式即便开思考也正常返回、不强制 stream（推翻「思考模型非流式会被拒」的猜测，
+  故 `enable_thinking:False` 定性为优化而非必需）。
+
+> **数据影响**：换模型只对**新解析**生效。已入库旧文档的图片描述仍是旧的错误文本，需**重新解析**才会刷新。
+
+---
+
 ## v1.8.0（2026-06，结题版）— 结题前体验打磨 · 模型统一 qwen-plus · 多 Provider 一键切换
+
+> ⚠️ 本节「模型统一 qwen-plus」的结论已被 **v1.8.1 修正**（裸 `qwen-plus` 实为纯文本快照、不看图）；
+> 当前正确默认为 `qwen3.7-plus`。下方原文保留作历史记录。
 
 > 在 v1.7.x 基础上，围绕"结题演示与验收"完成统一对话体验修复、Agent 决策透视统一与折叠、
 > 全面改用多模态 qwen-plus、多 Provider 快捷切换加分项，以及一批真机验收反馈修复。

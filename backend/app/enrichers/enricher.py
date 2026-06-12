@@ -1,7 +1,7 @@
 """
 Enricher Service — 多模态富化（图片描述 / 表格摘要）
 
-使用 Qwen-VL 视觉多模态模型（型号由 settings.vlm_model 控制，默认 qwen-vl-plus）
+使用多模态视觉模型（型号由 settings.vlm_model 控制，默认 qwen3.7-plus）
 为图片生成描述、为表格生成摘要，富化后的数据写入 IRBlockEnriched，
 提升检索阶段的召回质量。
 
@@ -377,6 +377,9 @@ async def _call_vision_api(image_path: str, prompt: str) -> str:
                 ],
             }
         ],
+        # 关闭思考：图片描述不需要思维链，关掉可省 thinking token、更快。
+        # （实测 qwen3.7-plus 非流式即便开思考也能正常返回、不强制 stream；故此处纯为优化。）
+        "enable_thinking": False,
     }
     headers = {
         "Authorization": f"Bearer {settings.dashscope_api_key}",
@@ -406,6 +409,8 @@ async def _call_text_summary(text: str, prompt: str) -> str:
         "messages": [
             {"role": "user", "content": f"{prompt}\n\n{text}"},
         ],
+        # 同上：关闭思考纯为优化（省 token / 更快），表格摘要不需要思维链。
+        "enable_thinking": False,
     }
     headers = {
         "Authorization": f"Bearer {settings.dashscope_api_key}",

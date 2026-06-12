@@ -294,8 +294,8 @@ async def stream_llm_completion(
     conversation_service 与 stream_answer 共用此函数。
 
     multimodal=True：消息含图片（content 为多模态数组），强制走 DashScope 的视觉模型
-      （qa_multimodal_model，默认 qwen-plus），与可切换的文本 QA Provider 解耦。
-      qwen-plus 多模态可边看图边思考；仅旧版纯视觉的 qwen-vl 系列不返回 reasoning_content，故关闭 thinking。
+      （qa_multimodal_model，默认 qwen3.7-plus），与可切换的文本 QA Provider 解耦。
+      qwen3.x-plus 多模态可边看图边思考；仅旧版纯视觉的 qwen-vl 系列不返回 reasoning_content，故关闭 thinking。
     """
     if multimodal:
         use_model = model or settings.qa_multimodal_model
@@ -346,7 +346,13 @@ async def stream_llm_completion(
                     except json.JSONDecodeError:
                         continue
 
-                    delta = chunk_obj.get("choices", [{}])[0].get("delta", {})
+                    # 思考模型（qwen3.x）流式返回里，部分 chunk 的 choices 为空列表
+                    # （如开头仅带 role 的 chunk、或仅携带 usage 统计的 chunk）→ 不能直接取 [0]，
+                    # 否则 IndexError。空 choices 直接跳过。
+                    choices = chunk_obj.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
                     thinking = delta.get("reasoning_content")
                     if thinking:
                         yield {"type": "thinking", "content": thinking}

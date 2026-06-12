@@ -2,6 +2,11 @@
 
 > v1.8.0 功能优化与 Bug 修复全部交付，测试通过。
 > **当前进行中：结题（明天结题）—— 见下方「结题任务」。**
+>
+> ⚠️ **v1.8.1 hotfix（2026-06-11）**：v1.8.0「全面改用 qwen-plus」的认定有误——裸 `qwen-plus` 是
+> 纯文本旧快照、不看图（多模态须用带版本号的 `qwen3.x-plus`）。已把 `vlm_model` / `qa_multimodal_model`
+> 默认改为 **`qwen3.7-plus`**，并修 QA 流式空 `choices` 的 `IndexError`，给 enricher 非流式 VLM 调用关思考。
+> 真机实测通过（图片描述准确 + QA error=0）。详见 RELEASE_NOTES v1.8.1。下方结题任务里的「qwen-plus」表述为历史记录。
 
 ---
 
