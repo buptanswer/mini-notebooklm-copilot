@@ -1,0 +1,110 @@
+[
+  {
+    "query": "这门课程的考核方式和各部分成绩占比是怎样的",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "2da7669d-1922-4916-b73b-ee7ac1e7bb35"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "项目需要提交哪些文档和成果",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "2da7669d-1922-4916-b73b-ee7ac1e7bb35"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "需求分析报告应该包含哪些部分",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "a4ce2911-1866-43b8-ba77-6e67ccb07fd4",
+      "bf155990-c631-4f14-b456-1e45d3965a8f",
+      "a2c4ae21-012b-460e-aafc-f44ca51bd80b",
+      "432267b1-3517-43ba-a0ef-eb3899e2c84a"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "父子切片 Parent Child Chunking 是怎么设计的",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "432267b1-3517-43ba-a0ef-eb3899e2c84a",
+      "c703b86b-c1d6-4acf-bfd9-081002cb24a7",
+      "4a36983b-10ce-445d-ab95-bc536b4bf720"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "MinerU 解析结果如何标准化为 IR 中间格式",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "c703b86b-c1d6-4acf-bfd9-081002cb24a7",
+      "4a36983b-10ce-445d-ab95-bc536b4bf720"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "向量检索和关键词混合检索加重排序的方案",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "c703b86b-c1d6-4acf-bfd9-081002cb24a7",
+      "4a36983b-10ce-445d-ab95-bc536b4bf720"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "系统的数据库表设计有哪些表",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "bc7c5dc7-1414-4e2c-9394-87ccedd96ceb",
+      "c703b86b-c1d6-4acf-bfd9-081002cb24a7",
+      "4a36983b-10ce-445d-ab95-bc536b4bf720"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "加入课程微信群的昵称格式要求",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "c6e4eea9-1c91-4e08-a285-d69752daca77"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "MOOC 慕课堂的课堂码是多少",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "931edca8-7d88-4b12-8175-e830d8c4439d",
+      "16c3cfe5-50c0-4a00-ba1f-aac04305dfaf"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "本课程的课程目标是什么",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "2da7669d-1922-4916-b73b-ee7ac1e7bb35",
+      "88256767-01b9-4cdd-a567-1887f047ae64"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "本课程的先修课程有哪些",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "2da7669d-1922-4916-b73b-ee7ac1e7bb35"
+    ],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "课程的参考资料有哪些书",
+    "kb_id": "62df2bdd-b65a-4af4-9b53-12c3815c672b",
+    "relevant_doc_ids": [
+      "ad7a371c-4fea-46c8-9a90-9aeb2b68d156",
+      "2da7669d-1922-4916-b73b-ee7ac1e7bb35"
+    ],
+    "relevant_child_chunk_ids": []
+  }
+]

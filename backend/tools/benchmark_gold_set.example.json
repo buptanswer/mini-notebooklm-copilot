@@ -1,0 +1,20 @@
+[
+  {
+    "query": "这门课的考核方式是什么",
+    "kb_id": "把这里替换成你的课程知识库 kb_id（前端 URL /kb/<kb_id> 里能看到）",
+    "relevant_doc_ids": ["填写应当被命中的文档 doc_id（可在解析透视/文件属性里查到）"],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "第一次作业的截止时间",
+    "kb_id": "<kb_id>",
+    "relevant_doc_ids": ["<doc_id_of_作业通知>"],
+    "relevant_child_chunk_ids": []
+  },
+  {
+    "query": "傅里叶变换的定义公式",
+    "kb_id": "<kb_id>",
+    "relevant_doc_ids": ["<doc_id_of_讲义>"],
+    "relevant_child_chunk_ids": ["可选：更精确时填命中的 child_chunk_id"]
+  }
+]

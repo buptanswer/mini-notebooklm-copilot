@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Mini-NotebookLM · 结题汇报 · 李宇 2022210347</title>
+<title>Mini-NotebookLM · 结题文档 / 总结 PPT · 李宇 2022210347</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -38,7 +38,7 @@ body{background:
   overflow:hidden;
 }
 .slide.active{opacity:1;visibility:visible;pointer-events:auto}
-.slide-inner{position:absolute;inset:0;padding:64px 76px 70px}
+.slide-inner{position:absolute;inset:0;padding:56px 72px 62px}
 
 /* paper grain + edge */
 .slide::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;mix-blend-mode:multiply;
@@ -47,81 +47,121 @@ body{background:
   box-shadow:inset 0 0 0 1px rgba(140,110,70,.10), inset 0 0 120px rgba(120,90,50,.06);}
 
 /* ===== shared type ===== */
-.kicker{display:inline-flex;align-items:center;gap:10px;font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--terra-deep);font-family:var(--mono)}
+.kicker{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--terra-deep);font-family:var(--mono)}
 .kicker .kdot{width:9px;height:9px;border-radius:50%;background:var(--terra);box-shadow:0 0 0 4px var(--terra-soft)}
 .kicker .kcn{font-family:var(--sans);letter-spacing:.04em;color:var(--ink-soft);text-transform:none;font-weight:600}
+.kicker.star{color:#fff}.kicker.star .kdot{background:var(--terra);box-shadow:0 0 0 4px var(--terra-soft)}
 .title{font-family:var(--serif);font-weight:600;color:var(--ink);line-height:1.12;letter-spacing:-.01em}
-h2.title{font-size:48px;margin:18px 0 0}
-.lede{font-size:21px;color:var(--ink-soft);line-height:1.55;max-width:60ch}
-.rule{height:2px;background:linear-gradient(90deg,var(--terra) 0%,var(--terra) 64px,var(--line) 64px,var(--line) 100%);margin:22px 0 26px;border-radius:2px}
-.slide-foot{position:absolute;left:76px;right:76px;bottom:28px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink-faint);font-family:var(--mono);letter-spacing:.04em}
+h2.title{font-size:40px;margin:14px 0 0}
+.lede{font-size:20px;color:var(--ink-soft);line-height:1.55;max-width:62ch}
+.rule{height:2px;background:linear-gradient(90deg,var(--terra) 0%,var(--terra) 64px,var(--line) 64px,var(--line) 100%);margin:16px 0 22px;border-radius:2px}
+.slide-foot{position:absolute;left:72px;right:72px;bottom:24px;display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--ink-faint);font-family:var(--mono);letter-spacing:.04em}
 .slide-foot .who{color:var(--terra-deep);font-weight:600}
 
 /* reveal */
-[data-reveal]{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1);transition-delay:calc(var(--i,0)*70ms + 120ms)}
+[data-reveal]{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1);transition-delay:calc(var(--i,0)*60ms + 100ms)}
 .slide.active [data-reveal]{opacity:1;transform:none}
 
 /* ===== components ===== */
-.tag{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;font-size:13.5px;font-weight:600;background:var(--paper-3);color:var(--ink-soft);border:1px solid var(--line)}
+.tag{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:600;background:var(--paper-3);color:var(--ink-soft);border:1px solid var(--line)}
 .tag.tr{background:#F6E3D6;color:var(--terra-deep);border-color:var(--terra-soft)}
 .tag.jd{background:var(--jade-soft);color:#2c5247;border-color:#b9d3c5}
-.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:9px}
 
-.col2{display:grid;grid-template-columns:1fr 1fr;gap:34px}
+.col2{display:grid;grid-template-columns:1fr 1fr;gap:30px}
 .col2.uneven{grid-template-columns:1.05fr .95fr}
-.card{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:24px 26px;box-shadow:0 1px 0 rgba(255,255,255,.5) inset}
-.card h3{font-family:var(--serif);font-size:23px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:11px}
-.card h3 .ic{width:30px;height:30px;border-radius:9px;background:var(--terra);color:#fff;display:grid;place-items:center;font-size:16px;flex:none}
+.col2.w6040{grid-template-columns:1.2fr .8fr}
+.card{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px 24px;box-shadow:0 1px 0 rgba(255,255,255,.5) inset}
+.card h3{font-family:var(--serif);font-size:21px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.card h3 .ic{width:28px;height:28px;border-radius:9px;background:var(--terra);color:#fff;display:grid;place-items:center;font-size:15px;flex:none}
 .card.jade h3 .ic{background:var(--jade)}
+.card.dark{background:#23201b;border-color:#3a3328}
+.card.dark h3,.card.dark h3 span{color:#f3e8d6}
 
-ul.list{list-style:none;display:flex;flex-direction:column;gap:12px}
-ul.list li{position:relative;padding-left:26px;font-size:17.5px;line-height:1.5;color:var(--ink)}
-ul.list li::before{content:"";position:absolute;left:4px;top:11px;width:8px;height:8px;border-radius:2px;background:var(--terra);transform:rotate(45deg)}
+ul.list{list-style:none;display:flex;flex-direction:column;gap:10px}
+ul.list li{position:relative;padding-left:24px;font-size:16.5px;line-height:1.48;color:var(--ink)}
+ul.list li::before{content:"";position:absolute;left:4px;top:10px;width:8px;height:8px;border-radius:2px;background:var(--terra);transform:rotate(45deg)}
 ul.list.jade li::before{background:var(--jade)}
 ul.list li b{color:var(--terra-deep);font-weight:700}
-ul.list.sm li{font-size:15.5px;gap:8px}
+ul.list.sm li{font-size:14.8px;gap:7px;padding-left:22px}
+ul.list.sm li::before{top:9px;width:7px;height:7px}
 .muted{color:var(--ink-soft)}
 
 /* pipeline */
 .pipe{display:flex;flex-direction:column;gap:0}
-.pnode{display:flex;align-items:stretch;gap:18px}
-.pnode .stalk{display:flex;flex-direction:column;align-items:center;width:34px;flex:none}
-.pnode .dot{width:18px;height:18px;border-radius:50%;background:var(--paper);border:3px solid var(--terra);margin-top:6px;flex:none;z-index:1}
+.pnode{display:flex;align-items:stretch;gap:16px}
+.pnode .stalk{display:flex;flex-direction:column;align-items:center;width:30px;flex:none}
+.pnode .dot{width:16px;height:16px;border-radius:50%;background:var(--paper);border:3px solid var(--terra);margin-top:5px;flex:none;z-index:1}
 .pnode.star .dot{background:var(--terra);box-shadow:0 0 0 5px var(--terra-soft)}
 .pnode .bar{width:3px;flex:1;background:linear-gradient(var(--line),var(--line));margin:2px 0}
 .pnode:last-child .bar{display:none}
-.pbody{padding:0 0 20px}
-.pbody .pt{font-size:18px;font-weight:600;color:var(--ink)}
-.pbody .ps{font-size:14.5px;color:var(--ink-soft);font-family:var(--mono);margin-top:3px}
+.pbody{padding:0 0 16px}
+.pbody .pt{font-size:16.5px;font-weight:600;color:var(--ink)}
+.pbody .ps{font-size:13.5px;color:var(--ink-soft);font-family:var(--mono);margin-top:2px}
 .pnode.star .pt{color:var(--terra-deep)}
-.starflag{display:inline-block;margin-left:8px;font-size:12px;font-weight:700;color:#fff;background:var(--terra);padding:2px 8px;border-radius:6px;vertical-align:middle;font-family:var(--sans)}
+.starflag{display:inline-block;margin-left:8px;font-size:11.5px;font-weight:700;color:#fff;background:var(--terra);padding:2px 7px;border-radius:6px;vertical-align:middle;font-family:var(--sans)}
 
 /* number poster */
-.nums{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.num{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden}
-.num .big{font-family:var(--serif);font-size:52px;font-weight:700;color:var(--terra-deep);line-height:1}
-.num .lb{font-size:14.5px;color:var(--ink-soft);margin-top:8px;font-weight:600}
+.nums{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.num{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:18px 20px;position:relative;overflow:hidden}
+.num .big{font-family:var(--serif);font-size:46px;font-weight:700;color:var(--terra-deep);line-height:1}
+.num .lb{font-size:14px;color:var(--ink-soft);margin-top:7px;font-weight:600}
 .num::after{content:"";position:absolute;right:-20px;bottom:-20px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,var(--terra-soft),transparent 70%);opacity:.5}
 
 /* table */
-table.t{width:100%;border-collapse:collapse;font-size:16px}
-table.t th,table.t td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
-table.t th{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+table.t{width:100%;border-collapse:collapse;font-size:15.5px}
+table.t th,table.t td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line-soft)}
+table.t th{font-family:var(--mono);font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
 table.t td:first-child{font-weight:600}
 table.t tr:last-child td{border-bottom:none}
 .ok{color:var(--jade);font-weight:700}
 .todo{color:var(--gold);font-weight:700}
 
+/* comparison matrix */
+table.cmp td,table.cmp th{font-size:14.5px;padding:8px 12px}
+table.cmp th:last-child,table.cmp td:last-child{background:#F6E3D6}
+table.cmp td:last-child{color:var(--ink);font-weight:600}
+table.cmp th:last-child{color:var(--terra-deep)}
+table.cmp .x{color:var(--ink-faint)}
+table.cmp td:not(:first-child):not(:last-child){color:var(--ink-soft)}
+
+/* delta before->after */
+.delta{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono)}
+.delta .from{color:var(--ink-faint)}.delta .ar{color:var(--terra);font-weight:700}.delta .to{color:var(--terra-deep);font-weight:700;font-size:1.12em}
+
+/* bug log */
+.log{display:flex;flex-direction:column;gap:9px}
+.logi{background:var(--paper-2);border:1px solid var(--line);border-left:3px solid var(--terra);border-radius:0 12px 12px 0;padding:9px 15px}
+.logi .lh{font-size:14.8px;font-weight:600;color:var(--ink)}
+.logi .ld{font-size:13px;color:var(--ink-soft);margin-top:2px;line-height:1.4}
+.logi .ld b{color:var(--terra-deep)}
+
+/* version pills */
+.vers{display:flex;flex-wrap:wrap;gap:7px}
+.vpill{font-family:var(--mono);font-size:12.5px;background:var(--paper-3);border:1px solid var(--line);border-radius:999px;padding:5px 11px;color:var(--ink-soft)}
+.vpill b{color:var(--terra-deep)}
+
+/* dense kv (appendix) */
+table.kv{width:100%;border-collapse:collapse;font-size:14px}
+table.kv td{padding:6px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top;line-height:1.45}
+table.kv td:first-child{font-family:var(--mono);font-size:12.5px;color:var(--terra-deep);white-space:nowrap;font-weight:600;width:1%}
+table.kv tr:last-child td{border-bottom:none}
+.note{font-size:12px;color:var(--ink-faint);font-style:italic;margin-top:10px;line-height:1.4}
+
 /* mock frames */
 .shot{border:1.5px dashed var(--line);border-radius:14px;background:
   repeating-linear-gradient(135deg,rgba(194,65,12,.03) 0 12px,transparent 12px 24px),var(--paper-3);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ink-faint);position:relative}
-.shot .lab{font-family:var(--mono);font-size:13px;letter-spacing:.05em}
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--ink-faint);position:relative}
+.shot .lab{font-family:var(--mono);font-size:12.5px;letter-spacing:.05em;text-align:center;padding:0 10px}
 .shot .lab b{color:var(--terra-deep)}
-.shot .ph{font-size:12px}
-.winbar{position:absolute;top:0;left:0;right:0;height:30px;border-radius:13px 13px 0 0;background:var(--paper-2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 12px}
+.shot .ph{font-size:11.5px}
+.winbar{position:absolute;top:0;left:0;right:0;height:28px;border-radius:13px 13px 0 0;background:var(--paper-2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 12px}
 .winbar i{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block}
 .winbar i:first-child{background:var(--terra-soft)}
+
+/* code-ish block */
+.codeblk{font-family:var(--mono);font-size:13px;background:#23201b;color:#e9dcc6;border-radius:11px;padding:13px 16px;line-height:1.6;overflow:hidden}
+.codeblk .c{color:#9d9079}.codeblk .k{color:var(--terra-soft)}.codeblk .g{color:#9fc6b4}
 
 /* cover */
 .cover .slide-inner{padding:0}
@@ -129,83 +169,80 @@ table.t tr:last-child td{border-bottom:none}
   radial-gradient(900px 500px at 84% 8%, rgba(194,65,12,.16), transparent 60%),
   radial-gradient(700px 600px at 6% 96%, rgba(63,107,94,.13), transparent 60%),
   linear-gradient(135deg,#F6F0E4,#EFE6D4);}
-.cv-wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 88px}
-.cv-kick{font-family:var(--mono);letter-spacing:.32em;font-size:15px;color:var(--terra-deep);text-transform:uppercase;font-weight:600;margin-bottom:22px}
-.cv-title{font-family:var(--serif);font-weight:700;font-size:118px;line-height:.96;letter-spacing:-.02em;color:var(--ink)}
+.cv-wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 86px}
+.cv-kick{font-family:var(--mono);letter-spacing:.3em;font-size:14px;color:var(--terra-deep);text-transform:uppercase;font-weight:600;margin-bottom:20px}
+.cv-title{font-family:var(--serif);font-weight:700;font-size:104px;line-height:.96;letter-spacing:-.02em;color:var(--ink)}
 .cv-title .lm{color:var(--terra)}
-.cv-sub{font-family:var(--serif);font-size:32px;color:var(--ink);margin-top:24px;font-weight:500}
-.cv-tagline{font-size:19px;color:var(--ink-soft);margin-top:14px;max-width:52ch;line-height:1.5}
-.cv-meta{display:flex;gap:36px;margin-top:46px;align-items:flex-end}
+.cv-sub{font-family:var(--serif);font-size:30px;color:var(--ink);margin-top:22px;font-weight:500}
+.cv-tagline{font-size:18px;color:var(--ink-soft);margin-top:12px;max-width:54ch;line-height:1.5}
+.cv-meta{display:flex;gap:32px;margin-top:40px;align-items:flex-end;flex-wrap:wrap}
 .cv-meta .m{font-size:16px;color:var(--ink)}
-.cv-meta .m .k{font-family:var(--mono);font-size:12px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:5px}
-.cv-meta .m b{font-weight:700;font-size:18px}
-.cv-badges{position:absolute;right:88px;bottom:74px;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
-.cv-badges .b{font-family:var(--mono);font-size:13px;color:var(--ink-soft);background:rgba(255,255,255,.5);border:1px solid var(--line);padding:7px 14px;border-radius:999px;backdrop-filter:blur(4px)}
-.cv-rule{width:120px;height:5px;background:var(--terra);border-radius:3px;margin:34px 0}
+.cv-meta .m .k{font-family:var(--mono);font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:5px}
+.cv-meta .m b{font-weight:700;font-size:17px}
+.cv-badges{position:absolute;right:86px;bottom:68px;display:flex;flex-direction:column;gap:9px;align-items:flex-end}
+.cv-badges .b{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);background:rgba(255,255,255,.5);border:1px solid var(--line);padding:6px 13px;border-radius:999px;backdrop-filter:blur(4px)}
+.cv-rule{width:120px;height:5px;background:var(--terra);border-radius:3px;margin:30px 0}
 
 /* section divider (appendix) */
 .divider{background:radial-gradient(700px 500px at 78% 20%,#3a3026,#241f19 70%);color:#EDE3D2}
 .divider .slide-inner{display:flex;flex-direction:column;justify-content:center}
 .divider .kicker{color:var(--terra-soft)}
 .divider .kicker .kcn{color:#cabba2}
-.divider h2{color:#F4EBDA;font-size:60px}
+.divider h2{color:#F4EBDA;font-size:54px}
 .divider .lede{color:#c3b69f}
 .divider::after{box-shadow:inset 0 0 160px rgba(0,0,0,.5)}
 
 /* three xray cards */
-.tri{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.xc{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
-.xc .xt{font-family:var(--serif);font-size:21px;font-weight:600;color:var(--terra-deep)}
-.xc .xs{font-size:14.5px;color:var(--ink-soft);line-height:1.45}
-.sketch{height:104px;border-radius:11px;background:var(--paper-3);border:1px solid var(--line-soft);position:relative;overflow:hidden}
-/* sketch: tree */
-.sk-tree::before{content:"";position:absolute;left:16px;top:14px;width:2px;height:74px;background:var(--terra)}
+.tri{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.xc{background:var(--paper-2);border:1px solid var(--line);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:11px}
+.xc .xt{font-family:var(--serif);font-size:20px;font-weight:600;color:var(--terra-deep)}
+.xc .xs{font-size:14px;color:var(--ink-soft);line-height:1.42}
+.sketch{height:96px;border-radius:11px;background:var(--paper-3);border:1px solid var(--line-soft);position:relative;overflow:hidden}
+.sk-tree::before{content:"";position:absolute;left:16px;top:12px;width:2px;height:68px;background:var(--terra)}
 .sk-row{position:absolute;height:9px;border-radius:3px;background:var(--ink-faint);opacity:.55}
-.sk-tree .r1{left:24px;top:16px;width:54px;background:var(--terra);opacity:1}
-.sk-tree .r2{left:34px;top:34px;width:40px}
-.sk-tree .r3{left:34px;top:50px;width:48px}
-.sk-tree .r4{left:24px;top:68px;width:50px;background:var(--terra);opacity:1}
-.sk-tree .bx{position:absolute;right:14px;top:14px;width:58px;height:76px;border:1.5px solid var(--terra);border-radius:6px;background:rgba(194,65,12,.06)}
-/* sketch: stages */
+.sk-tree .r1{left:24px;top:14px;width:54px;background:var(--terra);opacity:1}
+.sk-tree .r2{left:34px;top:31px;width:40px}
+.sk-tree .r3{left:34px;top:46px;width:48px}
+.sk-tree .r4{left:24px;top:63px;width:50px;background:var(--terra);opacity:1}
+.sk-tree .bx{position:absolute;right:14px;top:12px;width:56px;height:70px;border:1.5px solid var(--terra);border-radius:6px;background:rgba(194,65,12,.06)}
 .sk-stage{display:flex;align-items:center;justify-content:space-around;padding:0 10px}
-.sk-stage span{width:13px;height:13px;border-radius:50%;background:var(--ink-faint);opacity:.4;position:relative}
-.sk-stage span::after{content:"";position:absolute;left:13px;top:6px;width:24px;height:2px;background:var(--line)}
+.sk-stage span{width:12px;height:12px;border-radius:50%;background:var(--ink-faint);opacity:.4;position:relative}
+.sk-stage span::after{content:"";position:absolute;left:12px;top:5px;width:22px;height:2px;background:var(--line)}
 .sk-stage span:last-child::after{display:none}
 .sk-stage span:nth-child(-n+3){background:var(--terra);opacity:1}
-/* sketch: timeline */
-.sk-tl::before{content:"";position:absolute;left:22px;top:12px;width:2px;height:80px;background:var(--jade)}
-.sk-tl .n{position:absolute;left:16px;width:14px;height:14px;border-radius:50%;background:var(--jade);border:2px solid var(--paper-2)}
-.sk-tl .n1{top:12px}.sk-tl .n2{top:42px}.sk-tl .n3{top:72px}
-.sk-tl .b{position:absolute;left:44px;height:10px;border-radius:3px;background:var(--ink-faint);opacity:.5}
-.sk-tl .b1{top:14px;width:64px}.sk-tl .b2{top:44px;width:48px;background:var(--gold);opacity:.8}.sk-tl .b3{top:74px;width:70px}
+.sk-tl::before{content:"";position:absolute;left:22px;top:10px;width:2px;height:74px;background:var(--jade)}
+.sk-tl .n{position:absolute;left:16px;width:13px;height:13px;border-radius:50%;background:var(--jade);border:2px solid var(--paper-2)}
+.sk-tl .n1{top:10px}.sk-tl .n2{top:38px}.sk-tl .n3{top:66px}
+.sk-tl .b{position:absolute;left:42px;height:10px;border-radius:3px;background:var(--ink-faint);opacity:.5}
+.sk-tl .b1{top:12px;width:62px}.sk-tl .b2{top:40px;width:46px;background:var(--gold);opacity:.8}.sk-tl .b3{top:68px;width:68px}
 
-/* agent timeline (slide 10) */
+/* agent timeline */
 .atl{display:flex;flex-direction:column;gap:0;margin-top:4px}
-.astep{display:flex;gap:16px;align-items:flex-start}
-.astep .sn{width:30px;height:30px;border-radius:9px;background:var(--jade);color:#fff;display:grid;place-items:center;font-family:var(--mono);font-size:14px;font-weight:600;flex:none;position:relative}
-.astep .sn::after{content:"";position:absolute;top:30px;left:50%;transform:translateX(-50%);width:2px;height:18px;background:var(--line)}
+.astep{display:flex;gap:14px;align-items:flex-start}
+.astep .sn{width:28px;height:28px;border-radius:9px;background:var(--jade);color:#fff;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:600;flex:none;position:relative}
+.astep .sn::after{content:"";position:absolute;top:28px;left:50%;transform:translateX(-50%);width:2px;height:16px;background:var(--line)}
 .astep:last-child .sn::after{display:none}
-.astep .sb{padding-bottom:16px}
-.astep .sb .h{font-size:17px;font-weight:600}
-.astep .sb .d{font-size:14px;color:var(--ink-soft);margin-top:2px}
+.astep .sb{padding-bottom:14px}
+.astep .sb .h{font-size:16px;font-weight:600}
+.astep .sb .d{font-size:13.5px;color:var(--ink-soft);margin-top:2px}
 .astep.eval .sn{background:var(--gold)}
-.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-.tool{font-family:var(--mono);font-size:13px;padding:5px 11px;border-radius:8px;background:#23201b;color:#e9dcc6}
+.tools{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+.tool{font-family:var(--mono);font-size:12.5px;padding:5px 10px;border-radius:8px;background:#23201b;color:#e9dcc6}
 .tool b{color:var(--terra-soft)}
 
 /* takeaway columns */
-.three{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-.tk{border-radius:16px;padding:22px;border:1px solid var(--line)}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.tk{border-radius:16px;padding:18px 20px;border:1px solid var(--line)}
 .tk.win{background:var(--jade-soft);border-color:#bcd6c8}
 .tk.cut{background:#F2E7D6;border-color:#e3d2b6}
 .tk.plus{background:#F6E3D6;border-color:var(--terra-soft)}
-.tk .th{font-family:var(--serif);font-size:20px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:9px}
-.tk .em{font-size:24px}
-.quote{margin-top:22px;font-family:var(--serif);font-size:22px;font-style:italic;color:var(--terra-deep);line-height:1.45;padding-left:22px;border-left:4px solid var(--terra)}
+.tk .th{font-family:var(--serif);font-size:19px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.tk .em{font-size:22px}
+.quote{font-family:var(--serif);font-size:20px;font-style:italic;color:var(--terra-deep);line-height:1.42;padding-left:20px;border-left:4px solid var(--terra)}
 
 /* end */
-.endgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:8px}
-.thanks{font-family:var(--serif);font-size:80px;font-weight:700;color:var(--terra);line-height:1;margin-top:30px}
+.endgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:6px}
+.thanks{font-family:var(--serif);font-size:72px;font-weight:700;color:var(--terra);line-height:1;margin-top:24px}
 
 /* ===== chrome ===== */
 .progress{position:fixed;top:0;left:0;height:4px;background:var(--terra);width:0;z-index:50;transition:width .45s cubic-bezier(.2,.7,.2,1);box-shadow:0 0 14px rgba(194,65,12,.6)}
@@ -242,7 +279,7 @@ table.t tr:last-child td{border-bottom:none}
 <!-- ============ 1 · COVER ============ -->
 <section class="slide cover active">
   <div class="cv-wrap">
-    <div class="cv-kick" data-reveal style="--i:0">程序设计综合实验 · 结题汇报 · 2026</div>
+    <div class="cv-kick" data-reveal style="--i:0">程序设计综合实验 · 项目总结（结题文档 / PPT）· 2026</div>
     <h1 class="cv-title" data-reveal style="--i:1">Mini-<span class="lm">NotebookLM</span></h1>
     <div class="cv-rule" data-reveal style="--i:2"></div>
     <div class="cv-sub" data-reveal style="--i:3">面向大学生的多模态课程知识库与 AI 辅导系统</div>
@@ -251,78 +288,108 @@ table.t tr:last-child td{border-bottom:none}
       <div class="m"><span class="k">开发者</span><b>李宇</b></div>
       <div class="m"><span class="k">学号</span><b>2022210347</b></div>
       <div class="m"><span class="k">班级</span><b>2024211109</b></div>
-      <div class="m"><span class="k">学院</span><b>信息与通信工程学院</b></div>
+      <div class="m"><span class="k">学院</span><b>信息与通信工程</b></div>
       <div class="m"><span class="k">组队</span><b>单人独立完成</b></div>
     </div>
   </div>
   <div class="cv-badges" data-reveal style="--i:6">
-    <span class="b">MinerU 解析 · 自研 IR</span>
-    <span class="b">父子切片 · 多模态富化</span>
-    <span class="b">混合检索 + 重排 · 场景 Agent</span>
+    <span class="b">单人 · 约 2.5 万行 · 8 版迭代</span>
+    <span class="b">父子切片 · 多模态四类双轨</span>
+    <span class="b">混合检索 + 重排 · 三套可视化透视</span>
   </div>
 </section>
 
-<!-- ============ 2 · 背景与目标 ============ -->
+<!-- ============ 2 · 阅读说明 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>01 / Background<span class="kcn">选题背景与任务目标</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>00 / How to read<span class="kcn">本文档定位与阅读说明</span></div>
+    <h2 class="title" data-reveal style="--i:1">本 PPT = 结题文档：写得多，讲得少</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">▤</span>这是一份「可阅读的总结文档」</h3>
+        <ul class="list sm">
+          <li>按老师《结项 PPT 编写原则》编排：封面 → 任务目标 → 完成情况 → 重点/难点 → 工程实现 → 效果视频</li>
+          <li>内容详尽到可<b>当作详细设计的延续</b>来读；正文 P3–P21，附录 P22–P29 备查</li>
+          <li>每页右下角标注「源文件 / 代码位置」，可逐条核到实现</li>
+        </ul>
+      </div>
+      <div class="card jade" data-reveal style="--i:3">
+        <h3><span class="ic">▶</span>这也是一份「放映稿」</h3>
+        <ul class="list jade sm">
+          <li>现场讲述 <b>5 分钟核心</b>（单人做总体总结，可延展到 8~10 分钟）</li>
+          <li>难点<b>只精讲一个</b>（★ 父子切片，P7–P9），其余难点文档详写、口头一句带过</li>
+          <li>详细讲解稿见 <b>02_结题演讲稿.md</b>；效果视频 ≤ 2 分钟另附</li>
+        </ul>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:4;font-size:18px;margin-top:22px">讲清楚：课题名称 · 开发者 · 设计目标 · 实现效果 · 至少一个难点 —— 难点深讲「★ 父子切片」。</div>
+  </div>
+  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 3 · 背景与目标 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>01 / Goal<span class="kcn">选题背景与任务目标（总结需求分析 / 概要设计）</span></div>
     <h2 class="title" data-reveal style="--i:1">为什么做它 —— 大学生课程场景的空白</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2">
       <div class="card" data-reveal style="--i:2">
-        <h3><span class="ic">!</span>痛点</h3>
-        <ul class="list">
+        <h3><span class="ic">!</span>痛点（立项时的判断）</h3>
+        <ul class="list sm">
           <li>主流 AI 知识库（<b>NotebookLM、腾讯 ima</b>）都定位「通用个人知识库」</li>
-          <li>并<b>没有为大学生课程学习场景</b>专门设计</li>
+          <li><b>没有为大学生课程学习场景</b>专门设计</li>
           <li>课后复习、考前备考、教务信息整理是高频刚需，通用工具<b>上手门槛高、体验割裂</b></li>
         </ul>
       </div>
       <div class="card jade" data-reveal style="--i:3">
-        <h3><span class="ic">→</span>我的任务目标</h3>
-        <ul class="list jade">
+        <h3><span class="ic">→</span>我设定的任务目标</h3>
+        <ul class="list jade sm">
           <li>做一个<b>本地化</b>的两层系统</li>
-          <li>下层：<b>通用多模态知识库底座</b>，效果对标一线大厂</li>
-          <li>上层：面向大学生的<b>场景 AI Agent</b> 辅学</li>
+          <li>底座：<b>通用多模态知识库</b>（解析→切片→混合检索→多模态问答），效果对标大厂</li>
+          <li>场景层：面向大学生的<b>三大 AI Agent</b> 辅学（伴学 / 考官 / 管家）</li>
         </ul>
       </div>
     </div>
-    <div class="quote" data-reveal style="--i:4;font-size:19px;margin-top:24px">立项验收标准：核心链路跑通 · 关键体验可靠 · 技术路线自洽 · 能演示、能解释、有真实价值</div>
+    <div class="quote" data-reveal style="--i:4;font-size:17.5px;margin-top:20px">立项验收标准（需求分析报告 §1.3）：核心链路跑通 · 关键体验可靠 · 技术路线自洽 · 能演示、能解释、有真实价值。</div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">需求分析报告 / 概要设计文档</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 3 · 两层架构 ============ -->
+<!-- ============ 4 · 两层架构 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>02 / Architecture<span class="kcn">系统两层架构</span></div>
-    <h2 class="title" data-reveal style="--i:1">九大模块，通用底座 + 场景 Agent</h2>
+    <div class="kicker" data-reveal><span class="kdot"></span>02 / Architecture<span class="kcn">系统两层架构 · 九大模块</span></div>
+    <h2 class="title" data-reveal style="--i:1">通用底座 + 场景 Agent，模块一一对应概要设计</h2>
     <div class="rule" data-reveal style="--i:1"></div>
 
-    <div data-reveal style="--i:2;margin-bottom:18px">
-      <div style="font-family:var(--mono);font-size:13px;color:var(--jade);letter-spacing:.1em;margin-bottom:10px">场景层 · 大学生 AI AGENT</div>
+    <div data-reveal style="--i:2;margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:12.5px;color:var(--jade);letter-spacing:.1em;margin-bottom:9px">场景层 · 大学生 AI AGENT（建立在统一底座之上，复用同一套检索/问答原语）</div>
       <div class="three">
-        <div class="tk win" style="padding:16px 18px"><div class="th" style="font-size:18px;margin-bottom:4px">⑦ AI 伴学 · 课后复盘</div><div class="muted" style="font-size:14px">录音→讲义，多轮答疑</div></div>
-        <div class="tk cut" style="padding:16px 18px;opacity:.6"><div class="th" style="font-size:18px;margin-bottom:4px">⑧ AI 考官 · 出卷判分</div><div class="muted" style="font-size:14px">主动取舍为提升项</div></div>
-        <div class="tk win" style="padding:16px 18px"><div class="th" style="font-size:18px;margin-bottom:4px">⑨ AI 管家 · 课程卡片</div><div class="muted" style="font-size:14px">多轮检索 Agent</div></div>
+        <div class="tk win" style="padding:14px 16px"><div class="th" style="font-size:17px;margin-bottom:3px">⑦ AI 伴学 · 课后复盘</div><div class="muted" style="font-size:13.5px">录音转写 → 老师口吻讲义，多轮答疑（顺序 Agent）</div></div>
+        <div class="tk cut" style="padding:14px 16px;opacity:.62"><div class="th" style="font-size:17px;margin-bottom:3px">⑧ AI 考官 · 出卷判分</div><div class="muted" style="font-size:13.5px">主动取舍为提升项（见 P18）</div></div>
+        <div class="tk win" style="padding:14px 16px"><div class="th" style="font-size:17px;margin-bottom:3px">⑨ AI 管家 · 课程卡片</div><div class="muted" style="font-size:13.5px">多轮检索 Agent，自评+补检索</div></div>
       </div>
     </div>
 
     <div data-reveal style="--i:3">
-      <div style="font-family:var(--mono);font-size:13px;color:var(--terra-deep);letter-spacing:.1em;margin-bottom:10px">底座层 · 通用多模态知识库</div>
-      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">① 资料接入<br>异步解析</div></div>
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">② MinerU<br>标准化 IR</div></div>
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">③ 结构感知<br>切片富化</div></div>
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">④ 索引入库<br>混合检索</div></div>
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">⑤ 多模态<br>问答编排</div></div>
-        <div class="card" style="padding:14px 12px;text-align:center"><div style="font-family:var(--serif);font-size:15px;font-weight:600">⑥ 前端交互<br>可视化溯源</div></div>
+      <div style="font-family:var(--mono);font-size:12.5px;color:var(--terra-deep);letter-spacing:.1em;margin-bottom:9px">底座层 · 通用多模态知识库</div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px">
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">① 资料接入<br>异步解析</div></div>
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">② MinerU<br>标准化 IR</div></div>
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">③ 结构感知<br>切片富化</div></div>
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">④ 索引入库<br>混合检索</div></div>
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">⑤ 多模态<br>问答编排</div></div>
+        <div class="card" style="padding:13px 10px;text-align:center"><div style="font-family:var(--serif);font-size:14.5px;font-weight:600">⑥ 前端交互<br>可视化溯源</div></div>
       </div>
     </div>
+    <div class="note" data-reveal style="--i:4">五层实现结构：表现层 / 应用层 / 核心处理层 / 数据层（SQLite + Qdrant + 文件系统）/ 外部服务层（MinerU · 阿里云百炼）。</div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">概要设计 §2 总体结构</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 4 · 技术主线 ============ -->
+<!-- ============ 5 · 技术主线 ============ -->
 <section class="slide">
   <div class="slide-inner">
     <div class="kicker" data-reveal><span class="kdot"></span>03 / Pipeline<span class="kcn">核心技术主线</span></div>
@@ -331,69 +398,69 @@ table.t tr:last-child td{border-bottom:none}
     <div class="col2 uneven" style="align-items:center">
       <div class="pipe" data-reveal style="--i:2">
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">原始文档</div><div class="ps">PDF / PPT / Word / 图片 / Markdown</div></div></div>
-        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">MinerU 高保真解析</div><div class="ps">content_list_v2 + layout + origin.pdf</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">MinerU 高保真解析（vlm 精准模式）</div><div class="ps">content_list_v2 + layout + origin.pdf</div></div></div>
         <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">自研 IR 标准化<span class="starflag">自研</span></div><div class="ps">重建文档树 · header_path · 坐标锚点 · 格式监控</div></div></div>
-        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">结构感知父子切片 + 多模态富化<span class="starflag">自研</span></div><div class="ps">Parent（喂模型）/ Child（做检索）</div></div></div>
+        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">结构感知父子切片 + 多模态富化<span class="starflag">★ 最难</span></div><div class="ps">Parent（喂模型）/ Child（做检索）+ 四类双轨</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">向量 + BM25 双路混合召回</div><div class="ps">text-embedding-v4 ‖ FTS5+jieba → RRF 融合</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">qwen3-rerank 重排 → Small-to-Big</div><div class="ps">命中子块 → 回填父块全文</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">多模态大模型问答 + 高亮溯源</div><div class="ps">qwen-plus 多模态 · 引用回原文坐标</div></div></div>
       </div>
       <div data-reveal style="--i:3">
-        <div class="card" style="background:#23201b;border-color:#3a3328">
-          <h3 style="color:#f3e8d6"><span class="ic">★</span><span style="color:#f3e8d6">两步自研核心</span></h3>
+        <div class="card dark">
+          <h3><span class="ic">★</span><span>自研核心都在中段</span></h3>
           <ul class="list" style="color:#e8dcc8">
-            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">IR 标准化</b>：把扁平、会漂移的解析结果重建成结构化文档树</li>
-            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">父子切片</b>：化解「检索要小、问答要全」的矛盾</li>
+            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">IR 标准化</b>：把扁平、会漂移的解析结果重建成结构化文档树（次难点，P10）</li>
+            <li style="color:#e8dcc8"><b style="color:var(--terra-soft)">父子切片 + 双轨富化</b>：化解「检索要小、问答要全」的矛盾（★ 最难点，P7–P9）</li>
           </ul>
-          <div style="margin-top:14px;font-size:14px;color:#b7a98f;font-family:var(--mono)">红星处 = 决定系统效果上限的难点</div>
+          <div style="margin-top:12px;font-size:13.5px;color:#b7a98f;font-family:var(--mono)">检索/问答只是把现成 API 用对；地基在中段两步。</div>
         </div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">pipeline_service.py（16 步异步编排）</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 5 · 完成情况 ============ -->
+<!-- ============ 6 · 完成情况 ============ -->
 <section class="slide">
   <div class="slide-inner">
     <div class="kicker" data-reveal><span class="kdot"></span>04 / Status<span class="kcn">完成情况概述</span></div>
-    <h2 class="title" data-reveal style="--i:1">8 个核心模块全部落地</h2>
+    <h2 class="title" data-reveal style="--i:1">8 个核心模块全部落地，工作量可量化</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2 uneven">
       <div data-reveal style="--i:2">
         <table class="t">
-          <tr><th>模块</th><th>功能</th><th>状态</th></tr>
-          <tr><td>一~六</td><td>通用多模态知识库底座</td><td class="ok">✅ 完成</td></tr>
-          <tr><td>七</td><td>AI 伴学 · 课后复盘</td><td class="ok">✅ 完成</td></tr>
-          <tr><td>九</td><td>AI 管家 · 多轮检索 Agent</td><td class="ok">✅ 完成</td></tr>
-          <tr><td>八</td><td>AI 考官 · 出卷判分</td><td class="todo">⏳ 提升项</td></tr>
-          <tr><td>—</td><td>音视频转写</td><td class="todo">⏳ 提升项</td></tr>
+          <tr><th>模块</th><th>功能</th><th>完成效果</th><th>状态</th></tr>
+          <tr><td>一~六</td><td>通用多模态知识库底座</td><td class="muted" style="font-weight:400">全链路可用</td><td class="ok">✅</td></tr>
+          <tr><td>七</td><td>AI 伴学 · 课后复盘</td><td class="muted" style="font-weight:400">讲义生成+答疑</td><td class="ok">✅</td></tr>
+          <tr><td>九</td><td>AI 管家 · 课程卡片</td><td class="muted" style="font-weight:400">多轮检索 Agent</td><td class="ok">✅</td></tr>
+          <tr><td>八</td><td>AI 考官 · 出卷判分</td><td class="muted" style="font-weight:400">仅建表</td><td class="todo">⏳ 提升项</td></tr>
+          <tr><td>—</td><td>音视频转写</td><td class="muted" style="font-weight:400">未接入</td><td class="todo">⏳ 提升项</td></tr>
         </table>
-        <div class="chips" style="margin-top:18px">
+        <div class="chips" style="margin-top:16px">
           <span class="tag tr">单人独立完成</span>
           <span class="tag jd">basedpyright 0 错</span>
           <span class="tag jd">tsc 0 错</span>
-          <span class="tag">回归 122 + 86 全过</span>
+          <span class="tag">回归 130 + 86 全过</span>
         </div>
       </div>
       <div class="nums" data-reveal style="--i:3">
-        <div class="num"><div class="big">2.47<span style="font-size:24px">万</span></div><div class="lb">自研代码行数</div></div>
+        <div class="num"><div class="big">2.5<span style="font-size:22px">万</span></div><div class="lb">自研代码行（实测 25,091）</div></div>
         <div class="num"><div class="big">8</div><div class="lb">版本迭代 v1.0→v1.8</div></div>
-        <div class="num"><div class="big">105+</div><div class="lb">自研源文件</div></div>
-        <div class="num"><div class="big">9</div><div class="lb">功能模块</div></div>
+        <div class="num"><div class="big">116</div><div class="lb">自研源文件 + 11 提示词</div></div>
+        <div class="num"><div class="big">9</div><div class="lb">功能模块 · 30 commits</div></div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">完成情况全表见附录 A（P22）</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 6 · 成品总览 ============ -->
+<!-- ============ 7 · 成品总览 ============ -->
 <section class="slide">
   <div class="slide-inner">
     <div class="kicker" data-reveal><span class="kdot"></span>05 / Product<span class="kcn">完成效果总览</span></div>
     <h2 class="title" data-reveal style="--i:1">做出来长什么样 ——「研读室」工作台</h2>
     <div class="rule" data-reveal style="--i:1"></div>
-    <div data-reveal style="--i:2;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:13px;height:384px">
+    <div data-reveal style="--i:2;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:12px;height:376px">
       <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>知识库首页</b> · 书架卡片</div><div class="ph">↳ 替换为截图</div></div>
       <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>文件管理</b> · Explorer 风格</div><div class="ph">↳ 替换为截图</div></div>
       <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>问答</b> · 流式 + 引用溯源</div><div class="ph">↳ 替换为截图</div></div>
@@ -401,110 +468,172 @@ table.t tr:last-child td{border-bottom:none}
       <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>检索透视</b> · 六阶段动画</div><div class="ph">↳ 替换为截图</div></div>
       <div class="shot"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>Agent 决策透视</b> · 时间线</div><div class="ph">↳ 替换为截图</div></div>
     </div>
-    <div class="chips" data-reveal style="--i:3;margin-top:14px">
-      <span class="tag">浅 / 暗 / 护眼 三主题</span><span class="tag">Fraunces × Hanken 字体</span><span class="tag">framer-motion 动效</span>
+    <div class="chips" data-reveal style="--i:3;margin-top:13px">
+      <span class="tag">浅 / 暗 / 护眼 三主题</span><span class="tag">Fraunces × Hanken 字体</span><span class="tag">framer-motion 动效</span><span class="tag tr">长时间阅读舒适性 + 克制 AI 科技感</span>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">frontend/src/pages · components</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 7 · 难点1 IR ============ -->
+<!-- ============ 8 · ★难点 切片 1/3 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>难点 ① / Hard Problem<span class="kcn">MinerU 解析 → 自研 IR 标准化</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>★ 最难难点 ① / 3<span class="kcn">结构感知父子切片 · 为什么最难 + 父块</span></div>
+    <h2 class="title" data-reveal style="--i:1">检索要「小而精」、问答要「全而准」—— 这对矛盾怎么破</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">!</span>为什么这是全场最难的一步</h3>
+        <ul class="list sm">
+          <li>切片质量<b>直接决定检索召回的上限</b>——切错，后面再强也白搭（地基）</li>
+          <li>要同时满足<b>相互冲突</b>的目标：小块利检索精度、大块利问答完整</li>
+          <li>组合复杂：结构感知（依赖 IR 树）× 多模态分类 × 中文句界 × 原子性保护</li>
+          <li>业界<b>无标准答案</b>，参数与边界全靠自己实测调</li>
+        </ul>
+      </div>
+      <div class="card jade" data-reveal style="--i:3">
+        <h3><span class="ic">▣</span>父块 Parent · 给问答补全上下文</h3>
+        <ul class="list jade sm">
+          <li>按 <b>parent_level=N</b> 在 section 树聚合（默认 L1，<b>文档级可调粒度</b>）</li>
+          <li>分界线上的标题块<b>归入紧随其后的父块</b>，不单独成块</li>
+          <li>连续空标题（无正文）<b>累积前置到下一父块</b>，防上级标题信息丢失</li>
+          <li>纯标题容器不出父块；<b>text_full</b> 落库供 Small-to-Big 回填</li>
+        </ul>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:4;font-size:17px;margin-top:18px">真机实测：同一份 34 页设计文档，粒度可调 —— L1 = <b style="font-style:normal">25</b> 父块 · L2 = <b style="font-style:normal">61</b> · L3 = <b style="font-style:normal">111</b>；用户嫌父块太长可在解析透视里手动细分。</div>
+  </div>
+  <div class="slide-foot"><span class="who">chunkers/parent_chunker.py</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 9 · ★难点 切片 2/3 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>★ 最难难点 ② / 3<span class="kcn">结构感知父子切片 · 子块 + 标题前置</span></div>
+    <h2 class="title" data-reveal style="--i:1">子块 Child —— 把向量检索的精度榨到极限</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">⛏</span>子块切分（做检索的小粒度块）</h3>
+        <ul class="list sm">
+          <li><b>句界滑动窗口</b>：max 250 / min 150 token，15% overlap，按 。！？\n 切——<b>拒绝定长硬切</b>（避免切断句意、向量失真）</li>
+          <li><b>原子块整体保留</b>：list / code / image / table / 公式不拆，保语义完整</li>
+          <li>title 块<b>不单列子块</b>（已在 header_path 前缀里）</li>
+          <li>长句<b>兜底硬切</b>——曾因「单句长度落在 (max−overlap, max]」反复重试陷死循环、冻结事件循环，改逐句消费 + 长句硬切 + 回归用例（见 P16）</li>
+        </ul>
+      </div>
+      <div data-reveal style="--i:3">
+        <div style="font-family:var(--serif);font-size:18px;font-weight:600;margin-bottom:9px;color:var(--terra-deep)">标题路径前置 · 解决「信息孤岛」</div>
+        <div class="codeblk"><span class="c"># 仅用于生成向量入库，不改展示</span><br>embedding_text =<br>&nbsp;&nbsp;<span class="k">"{header_path}\n{retrieval_text}"</span></div>
+        <ul class="list sm" style="margin-top:12px">
+          <li>原子块「企业客户 30 天内可申请」缺「退款」语境 → 漏召回</li>
+          <li>前置面包屑 <span style="font-family:var(--mono);font-size:13px;color:var(--terra-deep)">[产品手册&gt;售后&gt;退款政策]</span> 后再向量化</li>
+          <li>极大增强小块的<b>语义特征 + 关键词匹配</b></li>
+        </ul>
+      </div>
+    </div>
+    <div class="note" data-reveal style="--i:4">方法论参考业界 Small-to-Big / Context-Prepending 最佳实践，落地参数与边界处理为本人按真机实测确定。</div>
+  </div>
+  <div class="slide-foot"><span class="who">chunkers/child_chunker.py（_build_windows）</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 10 · ★难点 切片 3/3 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>★ 最难难点 ③ / 3<span class="kcn">多模态四类双轨 + 设计权衡</span></div>
+    <h2 class="title" data-reveal style="--i:1">一块内容，两种身份 —— 检索用富化文本，问答用原始资产</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2 uneven">
+      <div data-reveal style="--i:2">
+        <table class="t" style="font-size:14.5px">
+          <tr><th>类型</th><th>检索用（向量化）</th><th>问答用（喂大模型）</th></tr>
+          <tr><td>图片</td><td>VLM 图像描述 + 转写图中文字</td><td>原图 base64（多模态路）</td></tr>
+          <tr><td>表格</td><td>VLM 摘要（利检索）</td><td>MinerU 原始 HTML（信息更全）</td></tr>
+          <tr><td>代码</td><td>功能说明 + 核心函数/类</td><td>原始完整代码</td></tr>
+          <tr><td>公式</td><td>自然语言含义解释</td><td>原始 LaTeX</td></tr>
+        </table>
+        <div class="note">这些结构化富化文本是<b style="font-style:normal;color:var(--terra-deep)">原子块</b>，切子块时不可拆，必须整体保留完整性。检索基底弃用 MinerU 的纯 OCR（仅识字、不理解图意）。</div>
+      </div>
+      <div data-reveal style="--i:3">
+        <div class="card">
+          <h3><span class="ic">⚖</span>设计权衡（体现判断）</h3>
+          <ul class="list sm">
+            <li>语义切片（逐句 embedding）上限高但算力贵 → 选「句累加 + 标题前置」<b>够用且省钱</b></li>
+            <li>推测问题索引最耗 API → <b>默认关闭</b>，按需开启</li>
+            <li>跨页表格「空幽灵块」污染检索 → normalizer 源头丢弃 + 兜底，<span class="delta"><span class="from">10</span><span class="ar">→</span><span class="to">0</span></span> 垃圾子块</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="quote" data-reveal style="--i:4;font-size:17px;margin-top:16px">用户搜「标准差公式」不会手写 LaTeX，搜类名不想读注释 —— 所以检索用「人话」、问答给「原件」。</div>
+  </div>
+  <div class="slide-foot"><span class="who">enrichers/enricher.py（并发 3 · qwen-plus）</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 11 · 次难点 IR ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>次难点 · A<span class="kcn">MinerU 解析 → 自研 IR 标准化与文档树重建（详写 · 略讲）</span></div>
     <h2 class="title" data-reveal style="--i:1">把「扁平、会漂移」的解析，重建成结构化文档</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2">
       <div class="card" data-reveal style="--i:2">
         <h3><span class="ic">!</span>真实的坑（不是想象的）</h3>
-        <ul class="list">
+        <ul class="list sm">
           <li>输出<b>扁平</b>：标题层级永远 = 1，拿不到章节树</li>
-          <li>格式<b>会漂移</b>：字段增删、同名字段语义变</li>
+          <li>格式<b>会漂移</b>：字段增删、同名字段语义变（实测出现 reference_list / simple_table·complex_table / Office title.level=2）</li>
           <li>Office 文档<b>无坐标、无 origin.pdf</b></li>
-          <li>跨页拆分块、跨页表格「空幽灵块」污染检索</li>
+          <li>官网文档<b>更新滞后且有误</b> → 以实际调用实测为准</li>
         </ul>
       </div>
       <div class="card jade" data-reveal style="--i:3">
         <h3><span class="ic">✓</span>自研解法</h3>
-        <ul class="list jade">
-          <li><b>双层「宽进严出」IR</b>：脏数据绝不入库</li>
-          <li><b>LLM 文档树重建</b>：理解标题语义、注入面包屑</li>
-          <li><b>坐标锚点</b>：Office 自动 OCR 转 PDF 拿 bbox</li>
-          <li><b>格式漂移监控</b>：19 项语义校验，以实测为准</li>
+        <ul class="list jade sm">
+          <li><b>双层「宽进严出」IR</b>：Raw 层 extra=allow 容错，IR 层严格 Pydantic 校验，脏数据绝不入库</li>
+          <li><b>LLM 文档树重建</b>：理解标题语义、重建多级 DOM、注入 header_path 面包屑</li>
+          <li><b>坐标锚点</b>：保留 bbox 供高亮溯源；Office 自动 OCR 转 PDF 拿坐标</li>
+          <li><b>格式漂移监控</b>：每次解析跑 <b>19 项语义校验</b> + 探针日志（附录 E）</li>
         </ul>
       </div>
     </div>
-    <div class="shot" data-reveal style="--i:4;height:120px;margin-top:20px"><div class="lab"><b>解析透视</b>截图：左文档树 · 中 PDF 坐标画布 · 右检视面板</div><div class="ph">↳ 替换为截图</div></div>
+    <div class="note" data-reveal style="--i:4">「官网文档不可信、靠实测反推格式 + 持续监控」是本项目最能体现工程较真的地方 —— 详见附录 B / E、《在线 API 输出文件格式（SaaS 推断版）》。</div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">adapters/normalizer.py · dom_builder.py · format_checker.py</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 8 · 难点2 切片 ============ -->
+<!-- ============ 12 · 次难点 混合检索 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>难点 ② / Hard Problem<span class="kcn">结构感知父子切片 + 多模态富化</span></div>
-    <h2 class="title" data-reveal style="--i:1">切得准，才检索得准；多模态分轨处理</h2>
-    <div class="rule" data-reveal style="--i:1"></div>
-    <div class="col2 uneven">
-      <div class="card" data-reveal style="--i:2">
-        <h3><span class="ic">⛓</span>父子切片 · Small-to-Big</h3>
-        <ul class="list sm">
-          <li><b>父块</b>：按 N 级标题聚合，语义连贯，补全上下文</li>
-          <li><b>子块</b>：150–250 token 句界滑窗（15% 重叠）</li>
-          <li>不跨标题边界；list / code / 公式<b>原子保留</b></li>
-          <li>标题路径前置，解决小块「信息孤岛」</li>
-        </ul>
-      </div>
-      <div data-reveal style="--i:3">
-        <div style="font-family:var(--serif);font-size:19px;font-weight:600;margin-bottom:10px;color:var(--terra-deep)">多模态「双轨」策略</div>
-        <table class="t" style="font-size:14.5px">
-          <tr><th>类型</th><th>检索用（向量化）</th><th>问答用（喂模型）</th></tr>
-          <tr><td>图片</td><td>VLM 图像描述</td><td>原图 base64</td></tr>
-          <tr><td>表格</td><td>VLM 摘要</td><td>MinerU HTML</td></tr>
-          <tr><td>代码</td><td>功能说明+核心代码</td><td>原始完整代码</td></tr>
-          <tr><td>公式</td><td>自然语言含义</td><td>原始 LaTeX</td></tr>
-        </table>
-      </div>
-    </div>
-    <div class="quote" data-reveal style="--i:4;font-size:19px;margin-top:20px">检索要「小而精」，问答要「全而准」—— 父子切片 + 双轨富化正是为化解这对矛盾。</div>
-  </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
-</section>
-
-<!-- ============ 9 · 难点3 检索 ============ -->
-<section class="slide">
-  <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>难点 ③ / Hard Problem<span class="kcn">向量 + 关键词混合检索与重排</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>次难点 · B<span class="kcn">向量 + 关键词混合检索与重排（详写 · 略讲）</span></div>
     <h2 class="title" data-reveal style="--i:1">不是「调个 API」，背后是一条多级检索链</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2 uneven">
       <div class="pipe" data-reveal style="--i:2">
-        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">① LLM 查询规划</div><div class="ps">析出 关键词(BM25) + HyDE 陈述句(向量)</div></div></div>
+        <div class="pnode star"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">① LLM 查询规划</div><div class="ps">不拿原话检索：析出 关键词(BM25) + HyDE 陈述句(向量)</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">② 双路并行召回</div><div class="ps">Qdrant 向量 ‖ SQLite FTS5 关键词</div></div></div>
-        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">③ RRF 融合（k=60）</div><div class="ps">两路排名融合成统一候选集</div></div></div>
-        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">④ qwen3-rerank 重排</div><div class="ps">top_k 15 → top_n 5</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">③ RRF 融合（k=60）</div><div class="ps">两路排名融合成统一候选集，top_k=15</div></div></div>
+        <div class="pnode"><div class="stalk"><div class="dot"></div><div class="bar"></div></div><div class="pbody"><div class="pt">④ qwen3-rerank 重排</div><div class="ps">候选二次精排 top_n=5</div></div></div>
         <div class="pnode"><div class="stalk"><div class="dot"></div></div><div class="pbody"><div class="pt">⑤ Small-to-Big</div><div class="ps">命中子块 → 回填父块全文作上下文</div></div></div>
       </div>
       <div data-reveal style="--i:3">
         <div class="card jade">
           <h3 class="jade"><span class="ic" style="background:var(--jade)">↑</span>真机踩坑修复</h3>
           <ul class="list jade sm">
-            <li>中文 BM25 <b>零召回</b> → jieba 预分词</li>
-            <li>关键词路召回 <b>0 → 20</b></li>
+            <li>中文 BM25 <b>零召回</b>（FTS5 unicode61 不切中文词）</li>
+            <li>jieba 预分词 + fts_text 列 → 关键词路召回 <span class="delta"><span class="from">0</span><span class="ar">→</span><span class="to">20</span></span></li>
           </ul>
-          <div style="margin-top:14px;font-size:14px;color:var(--ink-soft)">混合检索 + 重排是对标大厂的标准做法 —— 而且我把它<b style="color:var(--terra-deep)">可视化</b>了（见下一难点）。</div>
+          <div style="margin-top:12px;font-size:13.5px;color:var(--ink-soft)">混合检索 + 重排是对标大厂的<b style="color:var(--terra-deep)">标准做法</b>，本身用现成算法 —— 但我把它<b style="color:var(--terra-deep)">可视化</b>了（P13），并做了可复现评测（P15）。</div>
         </div>
-        <div class="shot" style="height:110px;margin-top:14px"><div class="lab"><b>检索透视</b>六阶段动画截图</div><div class="ph">↳ 替换为截图</div></div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">query_planner / retrieval_service / rerank_service / cn_tokenizer</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 10 · 难点4 Agent ============ -->
+<!-- ============ 13 · 次难点 Agent ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>难点 ④ / Hard Problem<span class="kcn">场景 AI Agent · 课程管家</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>次难点 · C<span class="kcn">场景 AI Agent · 课程管家多轮检索（详写 · 略讲）</span></div>
     <h2 class="title" data-reveal style="--i:1">会「自己查漏补缺」的多轮检索 Agent</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2 uneven">
@@ -515,9 +644,9 @@ table.t tr:last-child td{border-bottom:none}
         <div class="astep"><div class="sn">4</div><div class="sb"><div class="h">收敛输出</div><div class="d">信息足够则停，整合两轮 → 结构化课程卡片 JSON</div></div></div>
       </div>
       <div data-reveal style="--i:3">
-        <div class="card" style="background:#23201b;border-color:#3a3328">
-          <h3 style="color:#f3e8d6"><span class="ic">⚙</span><span style="color:#f3e8d6">「工具调用」叙事</span></h3>
-          <div style="font-size:14.5px;color:#c5b89e;margin-bottom:12px">每步表达为 Agent 自主选用的工具，体现 ReAct 式「规划→行动→反思→再行动」闭环：</div>
+        <div class="card dark">
+          <h3><span class="ic">⚙</span><span>ReAct 式「工具调用」闭环</span></h3>
+          <div style="font-size:13.5px;color:#c5b89e;margin-bottom:10px">体现「规划→行动→反思→再行动」，而非线性脚本：</div>
           <div class="tools">
             <span class="tool"><b>keyword_search</b>()</span>
             <span class="tool"><b>vector_search</b>()</span>
@@ -525,20 +654,20 @@ table.t tr:last-child td{border-bottom:none}
             <span class="tool"><b>evaluate_coverage</b>()</span>
           </div>
         </div>
-        <div style="font-size:14.5px;color:var(--ink-soft);margin-top:14px;line-height:1.5">课后复盘亦含<b style="color:var(--terra-deep)">顺序 Agent</b>：一天连续生成多节讲义，前序提示词与已生成讲义滚动作上下文，保证风格语境一致。</div>
+        <div style="font-size:13.5px;color:var(--ink-soft);margin-top:12px;line-height:1.5">课后复盘亦含<b style="color:var(--terra-deep)">顺序 Agent</b>：一天连续生成多节讲义，前序提示词与已生成讲义滚动作上下文，保证风格语境一致。</div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">course_info_service.py · conversation_service.py · rag_eval</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 11 · 难点5 三套透视 ============ -->
+<!-- ============ 14 · 亮点 三套透视 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>难点 ⑤ / Signature<span class="kcn">把隐藏链路「摊开给你看」</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>Signature<span class="kcn">把隐藏链路「摊开给你看」· 三套可视化透视</span></div>
     <h2 class="title" data-reveal style="--i:1">让看不见的技术难度，变得看得见</h2>
     <div class="rule" data-reveal style="--i:1"></div>
-    <div class="quote" data-reveal style="--i:2;font-size:18px;margin:0 0 20px">普通 RAG 演示只看到「输入问题→找到来源→模型回答」，以为只是调了个 API。我把背后的解析、文档树、父子切片、双路检索、重排、Agent 决策<b style="font-style:normal;color:var(--terra-deep)">全部做成动效摊开演示</b>。</div>
+    <div class="quote" data-reveal style="--i:2;font-size:17px;margin:0 0 16px">普通 RAG 演示只看到「输入问题 → 找到来源 → 模型回答」，以为只调了个 API。我把背后的解析、文档树、父子切片、双路检索、重排、Agent 决策<b style="font-style:normal;color:var(--terra-deep)">全部做成动效摊开演示</b> —— 这是区别于「套壳问答」的根本差异。</div>
     <div class="tri" data-reveal style="--i:3">
       <div class="xc">
         <div class="sketch sk-tree"><span class="sk-row r1"></span><span class="sk-row r2"></span><span class="sk-row r3"></span><span class="sk-row r4"></span><span class="bx"></span></div>
@@ -556,17 +685,108 @@ table.t tr:last-child td{border-bottom:none}
         <div class="xs">垂直时间线，实时展示多轮检索的规划、去重、完整度评估气泡</div>
       </div>
     </div>
-    <div class="chips" data-reveal style="--i:4;margin-top:18px;justify-content:center">
-      <span class="tag tr">一键串联：一个问题揭示整条隐藏链路 — 问答「透视检索」→ 检索透视；每条来源「解析透视」→ 定位版面块</span>
+    <div class="chips" data-reveal style="--i:4;margin-top:14px;justify-content:center">
+      <span class="tag tr">一键串联：问答「透视检索」→ 检索透视跑本问；每条来源「解析透视」→ 定位答案出处版面块 —— 一个问题揭示整条隐藏链路</span>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">components/dissect · components/xray · AgentTimeline.tsx</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 12 · 工程实现 ============ -->
+<!-- ============ 15 · 对标大厂 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>06 / Engineering<span class="kcn">工程实现说明</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>06 / Benchmark<span class="kcn">对标大厂 · 能力与架构差异（数据支撑）</span></div>
+    <h2 class="title" data-reveal style="--i:1">相比 NotebookLM / 腾讯 ima，差异化优势在哪</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div data-reveal style="--i:2">
+      <table class="t cmp">
+        <tr><th>维度</th><th>Google NotebookLM</th><th>腾讯 ima</th><th>Mini-NotebookLM（本项目）</th></tr>
+        <tr><td>部署 / 数据</td><td>云端，资料上传第三方</td><td>云端</td><td>本地运行，资料 / 成绩不出本机</td></tr>
+        <tr><td>检索过程</td><td><span class="x">黑盒，仅给引用</span></td><td><span class="x">黑盒</span></td><td>三套可视化透视全摊开</td></tr>
+        <tr><td>文档结构</td><td><span class="x">不暴露</span></td><td><span class="x">不暴露</span></td><td>自研 IR + LLM 文档树重建</td></tr>
+        <tr><td>多模态</td><td><span class="x">黑盒</span></td><td><span class="x">黑盒</span></td><td>图 / 表 / 代码 / 公式 四类双轨</td></tr>
+        <tr><td>中文检索</td><td>通用</td><td>中文优化</td><td>FTS5 + jieba（中文 BM25 实测命中率 0→100%）</td></tr>
+        <tr><td>垂直场景</td><td><span class="x">无</span></td><td><span class="x">无</span></td><td>课后复盘 / 课程管家（贴合课程文件夹约定）</td></tr>
+        <tr><td>可定制</td><td><span class="x">固定</span></td><td><span class="x">固定</span></td><td>父块粒度 / 自定义索引 / 多 Provider 一键切换</td></tr>
+        <tr><td>溯源精度</td><td>引用片段</td><td>引用片段</td><td>PDF 坐标 bbox 高亮到版面块</td></tr>
+      </table>
+    </div>
+    <div class="note" data-reveal style="--i:3">说明：本表比较的是<b style="font-style:normal;color:var(--terra-deep)">能力 / 架构差异</b>（基于公开资料与本系统实测），<b style="font-style:normal">非</b>问答准确率的逐项基准测试 —— 我们无法把闭源云产品拉来逐项跑分。可量化的检索质量评测方法与脚本见 P15。</div>
+  </div>
+  <div class="slide-foot"><span class="who">优势核心：本地化 · 可解释 · 垂直 · 可定制 · 中文</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 16 · 检索评测 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>07 / Evaluation<span class="kcn">检索质量评测 · 可复现脚本</span></div>
+    <h2 class="title" data-reveal style="--i:1">把「效果不弱于大厂」做成可复现的数字</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2">
+      <div class="card" data-reveal style="--i:2">
+        <h3><span class="ic">⌗</span>评测方法（消融 + 指标）</h3>
+        <ul class="list sm">
+          <li><b>Gold set</b>：12 条人工标注查询（程序设计基础实训课程 · 19 篇已索引文档 · 含图片类）</li>
+          <li><b>指标</b>：Hit@k 命中率 · Recall@k · MRR · nDCG@k（按相关性判定单元去重）</li>
+          <li><b>消融配置</b>：BM25(无 jieba) / BM25(jieba) / 向量 / 混合 RRF / 混合 + 重排</li>
+          <li><b>脚本</b>：<span style="font-family:var(--mono);font-size:13px">tools/benchmark_retrieval.py</span> —— jieba 消融离线可跑（仅 SQLite，无需 Key）；完整指标需 Key + 已索引数据</li>
+        </ul>
+      </div>
+      <div data-reveal style="--i:3">
+        <div style="font-family:var(--serif);font-size:17px;font-weight:600;margin-bottom:8px;color:var(--terra-deep)">实测结果（真机跑出，非估值）</div>
+        <table class="t" style="font-size:13.5px">
+          <tr><th>配置</th><th>Hit@1</th><th>Hit@3</th><th>Recall@5</th><th>MRR</th></tr>
+          <tr><td>BM25 · 无 jieba</td><td class="muted" style="font-weight:400">0.00</td><td class="muted" style="font-weight:400">0.00</td><td class="muted" style="font-weight:400">0.00</td><td class="muted" style="font-weight:400">0.00</td></tr>
+          <tr><td>BM25 · jieba</td><td>0.67</td><td>0.92</td><td>0.73</td><td>0.79</td></tr>
+          <tr><td>向量</td><td>0.83</td><td>1.00</td><td>0.80</td><td>0.90</td></tr>
+          <tr><td>混合 RRF</td><td>0.75</td><td>1.00</td><td>0.80</td><td>0.86</td></tr>
+          <tr><td>混合 + 重排</td><td>0.75</td><td>0.92</td><td>0.80</td><td>0.84</td></tr>
+        </table>
+        <div style="margin-top:8px;font-size:13px;color:var(--ink-soft)"><b style="color:var(--terra-deep)">最稳硬结论</b>：jieba 让中文 BM25 <span class="delta"><span class="from">Hit@5=0</span><span class="ar">→</span><span class="to">1.00</span></span>；完整管线 <b>Top-3 命中率 100%</b>。</div>
+      </div>
+    </div>
+    <div class="note" data-reveal style="--i:4">诚实说明：本集小而干净，向量检索已近上限，混合 / 重排未再超过它——其价值在更大、更嘈杂语料上才明显，故不为「重排更好」而调数。一条命令可复现。</div>
+  </div>
+  <div class="slide-foot"><span class="who">backend/tools/benchmark_retrieval.py（+ gold_set 模板）</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 17 · ★ 开发过程实证 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>08 / Process<span class="kcn">开发过程实证 ·「证明是我自己做的」</span></div>
+    <h2 class="title" data-reveal style="--i:1">这不是一次性生成 —— 8 版迭代 + 真实踩坑的工程过程</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div data-reveal style="--i:2;font-size:15.5px;color:var(--ink-soft);line-height:1.5;margin-bottom:12px">像被问简历项目一样 —— 下面是开发中真实遇到的<b style="color:var(--terra-deep)">关键问题与我的解决过程</b>（问题 → 定位 → 解决 → 结果）；更完整的 STAR 详述见附录 G。</div>
+    <div class="vers" data-reveal style="--i:2;margin-bottom:12px">
+      <span class="vpill"><b>v1.0</b> 核心 RAG 链路跑通</span>
+      <span class="vpill"><b>v1.2</b> 文件夹绑定 · 多轮会话 · 模块七/九</span>
+      <span class="vpill"><b>v1.3</b> 统一对话核心 · 研读室设计系统</span>
+      <span class="vpill"><b>v1.4</b> 解析/检索两套透视 · Small-to-Big</span>
+      <span class="vpill"><b>v1.5</b> 自定义索引 · 中文检索修复 · 跨页核查</span>
+      <span class="vpill"><b>v1.6</b> 导航重构 · 代码/公式富化 · 19 项校验</span>
+      <span class="vpill"><b>v1.7</b> Agent 决策透视</span>
+      <span class="vpill"><b>v1.8</b> 模型统一 · 多 Provider · 结题打磨</span>
+    </div>
+    <div class="col2" data-reveal style="--i:3">
+      <div class="log">
+        <div class="logi"><div class="lh">中文 BM25 零召回</div><div class="ld">诊断：FTS5 unicode61 不切中文词。修复：jieba 预分词 + fts_text 列 + 存量迁移 → <b>关键词召回 0→20</b></div></div>
+        <div class="logi"><div class="lh">子块切分死循环 · 冻结整个事件循环</div><div class="ld">诊断：单句长度落在 (max−overlap, max] 反复重试同句。修复：逐句消费 + 长句硬切 + <b>回归用例</b></div></div>
+        <div class="logi"><div class="lh">跨页表格「空幽灵块」污染检索</div><div class="ld">html="" 的伪表格 → [表格] 垃圾子块。源头丢弃 + 兜底 → <b>10→0</b></div></div>
+      </div>
+      <div class="log">
+        <div class="logi"><div class="lh">删除功能误删 CWD / 用户原始文件</div><div class="ld">补 <b>_test_delete_safety</b> 回归：四表 + 向量 + 派生目录精确清零，不碰用户文件</div></div>
+        <div class="logi"><div class="lh">MinerU 格式漂移（reference_list / Office level=2…）</div><div class="ld">官网文档滞后有误 → 自建 <b>19 项语义校验 + 探针日志</b>，以实测为准</div></div>
+        <div class="logi" style="border-left-color:var(--jade)"><div class="lh" style="color:#2c5247">诚实的 AI 使用说明</div><div class="ld">AI 作编码助手提效 / 查语法 bug；<b>系统定位、架构、父子切片策略、问题诊断与取舍为本人独立思考</b>（设计原始记录见「我的想法.md」，延续需求分析报告附录口径）</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">RELEASE_NOTES · test_v120/v140 · git 30 commits</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 18 · 工程实现 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>09 / Engineering<span class="kcn">工程实现说明</span></div>
     <h2 class="title" data-reveal style="--i:1">技术栈 · 结构 · 规模 · 质量</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2">
@@ -574,57 +794,57 @@ table.t tr:last-child td{border-bottom:none}
         <div class="card">
           <h3><span class="ic">⌗</span>技术栈</h3>
           <ul class="list sm">
-            <li><b>后端</b> FastAPI · Pydantic v2 · SQLite+FTS5 · Qdrant · httpx · openai SDK · 包管理 uv</li>
+            <li><b>后端</b> FastAPI · Pydantic v2 · SQLite+FTS5 · Qdrant 本地文件模式 · httpx · openai SDK · 包管理 uv</li>
             <li><b>前端</b> React 19 · Vite 7 · TS strict · Tailwind v4 · shadcn/ui · framer-motion · react-pdf</li>
             <li><b>云端</b> MinerU 解析 · 百炼 embedding/rerank/qwen-plus 多模态 · 多 Provider 问答<b>一键切换</b>（DeepSeek/OpenAI/Kimi）</li>
           </ul>
         </div>
-        <div class="card jade" style="margin-top:14px">
+        <div class="card jade" style="margin-top:13px">
           <h3 class="jade"><span class="ic" style="background:var(--jade)">✓</span>质量与工程化</h3>
           <ul class="list jade sm">
-            <li>basedpyright 0 错 · tsc 0 错 · 回归 122+86 全过 · 生产构建通过</li>
-            <li>坚持 KISS：不引 LangChain，原生 SDK + 透明数据流</li>
+            <li>basedpyright 0 错 · tsc 0 错 · eslint 0 · 回归 130+86 全过 · 生产构建通过</li>
+            <li>坚持 <b>KISS</b>：不引 LangChain，原生 SDK + 透明数据流</li>
             <li>提示词外置热重载 · MinerU 格式漂移自动监控</li>
           </ul>
         </div>
       </div>
       <div data-reveal style="--i:3">
         <div class="nums">
-          <div class="num"><div class="big">2.47<span style="font-size:22px">万</span></div><div class="lb">自研代码行</div></div>
-          <div class="num"><div class="big">60</div><div class="lb">后端源文件</div></div>
-          <div class="num"><div class="big">45</div><div class="lb">前端源文件</div></div>
+          <div class="num"><div class="big">2.5<span style="font-size:20px">万</span></div><div class="lb">自研代码行</div></div>
+          <div class="num"><div class="big">68</div><div class="lb">后端文件（60 源 + 8 测试/工具）</div></div>
+          <div class="num"><div class="big">48</div><div class="lb">前端源文件</div></div>
           <div class="num"><div class="big">14+1</div><div class="lb">业务表 + FTS5</div></div>
         </div>
-        <div class="card" style="margin-top:14px">
-          <div style="font-family:var(--mono);font-size:13px;color:var(--ink-faint);letter-spacing:.06em;margin-bottom:8px">后端分层</div>
-          <div style="font-family:var(--mono);font-size:14px;color:var(--ink);line-height:1.7">adapters / api / services / chunkers /<br>enrichers / models / prompts / validators /<br>writers / db</div>
+        <div class="card" style="margin-top:13px">
+          <div style="font-family:var(--mono);font-size:12.5px;color:var(--ink-faint);letter-spacing:.06em;margin-bottom:7px">后端分层</div>
+          <div style="font-family:var(--mono);font-size:13.5px;color:var(--ink);line-height:1.7">adapters / api / services / chunkers /<br>enrichers / models / prompts / validators /<br>writers / db</div>
         </div>
-        <div style="margin-top:12px;font-size:14px;color:var(--ink-soft)">运行环境：Windows 本地 · Python 3.11+ (uv) · Node 20+ · Chrome/Edge 120+</div>
+        <div style="margin-top:11px;font-size:13.5px;color:var(--ink-soft)">运行环境：Windows 本地 · Python 3.11+ (uv) · Node 20+ · Chrome/Edge 120+ · 需外网调 MinerU / 百炼</div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">工程文件说明见 04_工程文件说明.md · 附录 F（P27）</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 13 · 取舍 ============ -->
+<!-- ============ 19 · 取舍 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>07 / Trade-offs<span class="kcn">设想 vs 落地</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>10 / Trade-offs<span class="kcn">立项设想 vs 实际落地</span></div>
     <h2 class="title" data-reveal style="--i:1">从设想到落地 —— 我做了哪些取舍</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="three" data-reveal style="--i:2">
       <div class="tk win">
         <div class="th"><span class="em">✅</span>如约兑现</div>
         <ul class="list jade sm">
-          <li>通用底座全链路</li>
-          <li>课后复盘</li>
-          <li>课程管家</li>
+          <li>通用底座全链路（模块一~六）</li>
+          <li>课后复盘（模块七）</li>
+          <li>课程管家（模块九）</li>
         </ul>
       </div>
       <div class="tk cut">
         <div class="th"><span class="em">✂️</span>主动取舍</div>
         <ul class="list sm">
-          <li><b>模块八 AI 考官</b>：体量近一个毕设，时间风险过大</li>
+          <li><b>模块八 AI 考官</b>（题库→组卷→拍照判分）：体量近一个毕设，时间风险过大</li>
           <li>音视频转写：基础链路优先</li>
           <li style="color:var(--terra-deep)">选择把已做的做扎实，而非铺大摊子</li>
         </ul>
@@ -634,106 +854,281 @@ table.t tr:last-child td{border-bottom:none}
         <ul class="list sm">
           <li>三套可视化透视</li>
           <li>多 Provider 问答切换</li>
-          <li>父块自定义索引</li>
+          <li>父块自定义索引 · 粒度可调</li>
           <li>格式漂移监控 · 中文检索修复</li>
         </ul>
       </div>
     </div>
-    <div class="quote" data-reveal style="--i:3;margin-top:26px">工程能力不只是「全做完」，更是「在有限时间里做对取舍、把核心做到可靠」。</div>
+    <div class="quote" data-reveal style="--i:3;margin-top:22px;font-size:19px">工程能力不只是「全做完」，更是「在有限时间里做对取舍、把核心做到可靠」—— 这与需求分析里的风险预案一脉相承。</div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">需求分析 §4.2 风险管理 · 概要设计 §6.4 降级预案</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 14 · 效果视频 ============ -->
+<!-- ============ 20 · 效果视频 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>08 / Demo<span class="kcn">实机演示 ≤ 2 分钟</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>11 / Demo<span class="kcn">效果视频 ≤ 2 分钟</span></div>
     <h2 class="title" data-reveal style="--i:1">一个问题，揭示整条隐藏链路</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="col2 uneven">
-      <div class="shot" data-reveal style="--i:2;height:340px"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>嵌入效果视频</b> 或 演示录屏首帧</div><div class="ph">↳ 见附带视频文件（≤ 2 分钟）</div></div>
+      <div class="shot" data-reveal style="--i:2;height:332px"><div class="winbar"><i></i><i></i><i></i></div><div class="lab"><b>嵌入效果视频</b> 或 演示录屏首帧</div><div class="ph">↳ 见附带视频文件（≤ 2 分钟）</div></div>
       <div data-reveal style="--i:3">
-        <div style="font-family:var(--serif);font-size:19px;font-weight:600;margin-bottom:14px;color:var(--terra-deep)">演示主线（对应设计目标）</div>
+        <div style="font-family:var(--serif);font-size:18px;font-weight:600;margin-bottom:12px;color:var(--terra-deep)">演示主线（对应设计目标）</div>
         <ul class="list sm">
-          <li>上传/选择资料 → 一键解析 →（<b>解析透视</b>）文档树 + 坐标</li>
-          <li>提问 → 流式回答 + 引用 →「透视检索」看<b>检索透视</b></li>
+          <li>上传 / 选择资料 → 一键解析 →（<b>解析透视</b>）文档树 + 坐标</li>
+          <li>提问 → 流式回答 + 引用 →「透视检索」看<b>检索透视</b>六阶段</li>
           <li>点来源「解析透视」→ 定位答案出处版面块</li>
           <li>课程管家 →（<b>Agent 决策透视</b>）多轮查漏补缺</li>
           <li>课后复盘 → 流式生成「老师口吻」讲义</li>
         </ul>
+        <div class="note">分镜脚本见 03_效果视频分镜脚本.md（目标 110 秒）。</div>
       </div>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">运行效果与设计任务目标一一对应</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 15 · 总结 ============ -->
+<!-- ============ 21 · 总结 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>09 / Summary<span class="kcn">总结与收获</span></div>
+    <div class="kicker" data-reveal><span class="kdot"></span>12 / Summary<span class="kcn">总结与收获</span></div>
     <h2 class="title" data-reveal style="--i:1">一条完整链路，一次系统的工程训练</h2>
     <div class="rule" data-reveal style="--i:1"></div>
     <div class="endgrid" data-reveal style="--i:2">
-      <div class="card"><h3><span class="ic">◆</span>技术</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">打通 RAG 全链路：解析→IR→切片→混合检索→重排→多模态问答→Agent，理解每环为何这么设计</div></div>
-      <div class="card jade"><h3 class="jade"><span class="ic" style="background:var(--jade)">◆</span>工程</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">需求→设计→8 版迭代→静态检查/回归测试→文档沉淀，走完真实软件工程闭环</div></div>
-      <div class="card"><h3><span class="ic">◆</span>判断</h3><div style="font-size:15.5px;color:var(--ink);line-height:1.55">学会在有限时间里做取舍，识别高不确定模块并主动收口</div></div>
+      <div class="card"><h3><span class="ic">◆</span>技术</h3><div style="font-size:15px;color:var(--ink);line-height:1.5">打通 RAG 全链路：解析→IR→切片→混合检索→重排→多模态问答→Agent，理解每一环为何这么设计</div></div>
+      <div class="card jade"><h3 class="jade"><span class="ic" style="background:var(--jade)">◆</span>工程</h3><div style="font-size:15px;color:var(--ink);line-height:1.5">需求→设计→8 版迭代→静态检查/回归测试→文档沉淀，走完真实软件工程闭环</div></div>
+      <div class="card"><h3><span class="ic">◆</span>判断</h3><div style="font-size:15px;color:var(--ink);line-height:1.5">学会在有限时间里做取舍，识别高不确定模块并主动收口</div></div>
     </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between">
       <div class="thanks" data-reveal style="--i:3">谢谢各位老师！</div>
       <div data-reveal style="--i:4;text-align:right;font-family:var(--mono);font-size:13px;color:var(--ink-faint);line-height:1.8">
-        通用底座 + 场景 Agent + 可视化透视<br>李宇 · 2022210347 · 2026 春
+        本地化底座 + 场景 Agent + 可视化透视<br>李宇 · 2022210347 · 2026 春<br><span style="color:var(--terra-deep)">附录 P22–P29 备查 ↓</span>
       </div>
     </div>
   </div>
   <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 16 · 附录分隔 ============ -->
+<!-- ============ 22 · 附录分隔 ============ -->
 <section class="slide divider">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>Appendix<span class="kcn">备查资料</span></div>
-    <h2 class="title" data-reveal style="--i:1">附录 · 难点详细资料</h2>
-    <div class="lede" data-reveal style="--i:2;margin-top:18px">以下供老师细看；主讲时一句「详见附录 / 详细设计文档」带过即可。</div>
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix<span class="kcn">备查资料 · 写得多的部分</span></div>
+    <h2 class="title" data-reveal style="--i:1">附录 · 详细资料</h2>
+    <div class="lede" data-reveal style="--i:2;margin-top:16px">以下 A–G 供老师细看（结题讲述原则允许「其余难点说明在何处可详细查看」）；主讲时一句「详见附录 / 详细设计文档」带过即可。</div>
+    <div class="chips" data-reveal style="--i:3;margin-top:24px">
+      <span class="tag tr">A 完成情况全表</span><span class="tag tr">B IR / 文档树</span><span class="tag tr">C 切片参数 / 双轨</span>
+      <span class="tag tr">D 检索 / 评测</span><span class="tag tr">E 格式漂移 19 项</span><span class="tag tr">F 数据库 / API / 运行</span><span class="tag tr">G 关键问题 STAR 详述</span>
+    </div>
   </div>
   <div class="slide-foot" style="color:#8a7e69"><span class="who" style="color:var(--terra-soft)">李宇 2022210347</span><span class="pageno"></span></div>
 </section>
 
-<!-- ============ 17 · 附录资料索引 ============ -->
+<!-- ============ 23 · 附录 A 完成情况全表 ============ -->
 <section class="slide">
   <div class="slide-inner">
-    <div class="kicker" data-reveal><span class="kdot"></span>Appendix · Index<span class="kcn">资料索引</span></div>
-    <h2 class="title" data-reveal style="--i:1">详细资料分布</h2>
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix A<span class="kcn">完成情况全表（九模块逐条）</span></div>
+    <h2 class="title" data-reveal style="--i:1">分模块完成度与效果</h2>
     <div class="rule" data-reveal style="--i:1"></div>
-    <div class="col2" data-reveal style="--i:2">
-      <table class="t">
-        <tr><th>主题</th><th>位置</th></tr>
-        <tr><td>自研 IR Schema / 文档树重建</td><td>详细设计 · models_ir.py / dom_builder.py</td></tr>
-        <tr><td>父子切片参数 / 多模态富化</td><td>chunkers/ · enricher.py</td></tr>
-        <tr><td>混合检索 RRF / 重排打分</td><td>retrieval_service.py · rerank_service.py</td></tr>
-        <tr><td>数据库设计（14 表 + FTS5）</td><td>db/database.py</td></tr>
+    <div data-reveal style="--i:2">
+      <table class="t" style="font-size:14px">
+        <tr><th>模块</th><th>功能</th><th>关键实现</th><th>状态</th></tr>
+        <tr><td>① 资料接入</td><td>多格式上传 / 文件夹绑定 / 异步解析</td><td>MinerU vlm；txt/md 跳解析；音视频过滤</td><td class="ok">✅</td></tr>
+        <tr><td>② 标准化 IR</td><td>双层宽进严出 / DOM 重建 / 坐标</td><td>normalizer + dom_builder + format_checker</td><td class="ok">✅</td></tr>
+        <tr><td>③ 切片富化</td><td>父子切片 / 四类多模态双轨</td><td>parent/child_chunker + enricher</td><td class="ok">✅</td></tr>
+        <tr><td>④ 索引检索</td><td>向量 + BM25 + RRF + 重排</td><td>Qdrant + FTS5(jieba) + qwen3-rerank</td><td class="ok">✅</td></tr>
+        <tr><td>⑤ 多模态问答</td><td>Small-to-Big / 按位多模态注入 / SSE</td><td>qa_service + qa_context</td><td class="ok">✅</td></tr>
+        <tr><td>⑥ 前端溯源</td><td>研读室工作台 / 三透视 / bbox 高亮</td><td>React 19 + 三主题 + react-pdf</td><td class="ok">✅</td></tr>
+        <tr><td>⑦ 课后复盘</td><td>逐节讲义 / 多轮答疑 / 保存即索引</td><td>lecture_review + text_index</td><td class="ok">✅</td></tr>
+        <tr><td>⑧ AI 考官</td><td>题库 / 组卷 / 拍照判分</td><td>仅建表（exam_*），主动取舍为提升项</td><td class="todo">⏳</td></tr>
+        <tr><td>⑨ 课程管家</td><td>信息卡片 / 多轮检索 Agent / 截止提醒</td><td>course_info_service（自评+补检索）</td><td class="ok">✅</td></tr>
       </table>
-      <table class="t">
-        <tr><th>主题</th><th>位置</th></tr>
-        <tr><td>MinerU 格式漂移监控（19 项）</td><td>format_checker.py · 推断文档 §10</td></tr>
-        <tr><td>SSE 统一词汇协议</td><td>conversation_service.py</td></tr>
-        <tr><td>多轮检索 Agent</td><td>course_info_service.py · rag_eval</td></tr>
-        <tr><td>运行 / 复现步骤</td><td>README.md · 工程文件说明</td></tr>
-      </table>
-    </div>
-    <div class="chips" data-reveal style="--i:3;margin-top:22px">
-      <span class="tag tr">项目文档体系</span>
-      <span class="tag">README.md</span>
-      <span class="tag">doc/项目当前情况.md</span>
-      <span class="tag">doc/MinerU to RAG Pipeline 架构设计</span>
-      <span class="tag">doc/在线API输出文件格式（SaaS推断版）</span>
     </div>
   </div>
-  <div class="slide-foot"><span class="who">李宇 2022210347</span><span class="pageno"></span></div>
+  <div class="slide-foot"><span class="who">doc/项目当前情况.md §2</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 24 · 附录 B IR ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix B<span class="kcn">自研 IR 标准化与文档树重建</span></div>
+    <h2 class="title" data-reveal style="--i:1">「宽进严出」双层 IR + LLM 文档树</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <table class="kv">
+        <tr><td>宽进</td><td>Raw 层 models_raw_mineru.py（extra=allow）接收所有字段，未知字段触发 WARNING</td></tr>
+        <tr><td>严出</td><td>IR 层 models_ir.py 严格 Pydantic + 枚举 + 坐标范围校验；不合法不入库</td></tr>
+        <tr><td>块映射</td><td>title/paragraph/list/image/chart→image/table/equation/code/页眉页脚脚注 统一归一</td></tr>
+        <tr><td>文档树</td><td>dom_builder + LLM 理解标题语义重建多级 section 树，修 MinerU 永远 title_level=1</td></tr>
+        <tr><td>header_path</td><td>为每个正文块注入标题面包屑路径，供切片前置与溯源</td></tr>
+        <tr><td>坐标锚点</td><td>读 layout.json 取 bbox_norm1000；Office 无坐标→自动 OCR 转 PDF 补</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>落盘</td><td>data/rag_output/{doc}/ 下 document_ir.json / _enriched.json / parent_chunks.jsonl / child_chunks.jsonl</td></tr>
+        <tr><td>校验器</td><td>ir_validator / chunk_validator（结构合法性）</td></tr>
+        <tr><td>跨页块</td><td>实证不合并但断在句界（section 切片天然缝合）；空幽灵块源头丢弃</td></tr>
+        <tr><td>Office 降级</td><td>bbox 缺失用 [0,0,0,0] sentinel；前端隐藏「查看原文」，画布走结构化块流</td></tr>
+        <tr><td>事实来源</td><td>doc/在线 API 输出文件格式（SaaS 推断版）.md（以实测为准，非官网）</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">adapters/ · models/ · validators/ · services/normalizer/doc_tree_service.py</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 25 · 附录 C 切片 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix C<span class="kcn">父子切片完整参数 + 多模态双轨</span></div>
+    <h2 class="title" data-reveal style="--i:1">切片与富化的全部落地参数</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <table class="kv">
+        <tr><td>父块粒度</td><td>parent_level=N（默认 L1），文档级可调；reindex 不重新解析即重切片</td></tr>
+        <tr><td>父块组装</td><td>section 树聚合；分界标题归入下一父块；空标题累积前置；纯标题不出块</td></tr>
+        <tr><td>父块产物</td><td>text_full（Small-to-Big 回填）；text_for_generation（阅读序，图→[图片:描述]、表→[表格:caption]）</td></tr>
+        <tr><td>子块窗口</td><td>max 250 / min 150 token · overlap 15% · 句界（。！？\n）· 长句硬切兜底</td></tr>
+        <tr><td>原子块</td><td>list / code / image / table / equation 整体不拆</td></tr>
+        <tr><td>嵌入文本</td><td>embedding_text = "{header_path}\n{retrieval_text}"；title 不单列子块</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>图片</td><td>检索：VLM 描述+转写图中字 ｜ 问答：原图 base64</td></tr>
+        <tr><td>表格</td><td>检索：VLM 摘要 ｜ 问答：MinerU 原始 HTML</td></tr>
+        <tr><td>代码</td><td>检索：功能说明+核心函数/类 ｜ 问答：原始完整代码</td></tr>
+        <tr><td>公式</td><td>检索：自然语言含义 ｜ 问答：原始 LaTeX</td></tr>
+        <tr><td>富化引擎</td><td>enricher.py 并发 3，qwen-plus；弃 MinerU 纯 OCR 作检索基底</td></tr>
+        <tr><td>自定义索引</td><td>父块级：摘要 / 推测问题(默认关) / 自定义文本，启用=物化虚拟子块入混合检索</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">chunkers/ · enrichers/ · parent_extra_indexes 表</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 26 · 附录 D 检索/评测 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix D<span class="kcn">混合检索 / 重排细节 + 评测脚本</span></div>
+    <h2 class="title" data-reveal style="--i:1">检索链路参数与可复现评测</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <table class="kv">
+        <tr><td>查询规划</td><td>query_planner + prompts/query_plan_system.md：析出关键词(BM25)+HyDE 陈述句(向量)；失败回退朴素分词不阻断</td></tr>
+        <tr><td>向量路</td><td>text-embedding-v4（1024 维）· Qdrant 余弦</td></tr>
+        <tr><td>关键词路</td><td>SQLite FTS5(unicode61) 索引 fts_text 列；jieba 预分词修中文零召回</td></tr>
+        <tr><td>融合</td><td>RRF k=60，融合后 top_k=15</td></tr>
+        <tr><td>重排</td><td>qwen3-rerank（DashScope 专有，不可换 Provider）top_k 15→top_n 5</td></tr>
+        <tr><td>trace</td><td>retrieval_trace.py 全链路结构化，驱动检索透视</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>评测脚本</td><td>tools/benchmark_retrieval.py</td></tr>
+        <tr><td>离线模式</td><td>仅 SQLite + jieba 跑 BM25 分词消融（无需 Key），复现召回 0→20</td></tr>
+        <tr><td>完整模式</td><td>需 Key + 已索引 KB：跑 5 种配置 × Recall@k/MRR/nDCG</td></tr>
+        <tr><td>gold set</td><td>benchmark_gold_set.example.json 模板，填(问题, 相关 doc/chunk)</td></tr>
+        <tr><td>运行前</td><td>停 uvicorn（Qdrant 单进程文件锁）</td></tr>
+        <tr><td>输出</td><td>控制台表格 + 可粘贴回 P15/P16 的 Markdown</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="slide-foot"><span class="who">services/retrieval · rerank · backend/tools/benchmark_retrieval.py</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 27 · 附录 E 格式漂移 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix E<span class="kcn">MinerU 格式漂移监控（19 项语义校验）</span></div>
+    <h2 class="title" data-reveal style="--i:1">为什么要监控：官网文档滞后且有误</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <div class="card">
+        <h3><span class="ic">◎</span>监控机制</h3>
+        <ul class="list sm">
+          <li>每次解析步骤 [E+] 跑 format_checker.check_bundle 全面审计</li>
+          <li>字段 / 文件层面增删 + 已知字段<b>语义值</b>是否符合推断</li>
+          <li>有偏差才追加 data/format_probe_log.jsonl（无偏差不写）</li>
+          <li>前端黄色「需检视」告警，不阻断入库</li>
+          <li>独立探针 tools/mineru_format_probe.py（退出码 0/1/2/3 可接 CI）</li>
+        </ul>
+      </div>
+      <div class="card jade">
+        <h3 class="jade"><span class="ic" style="background:var(--jade)">!</span>已实测捕获的漂移</h3>
+        <ul class="list jade sm">
+          <li>list_type 出现 text_list / reference_list</li>
+          <li>table_type 分出 simple_table / complex_table</li>
+          <li>Office / is_ocr 下 title.level 实测 = 2（非默认 1）</li>
+          <li>校验覆盖 title.level / list_type / table_type / equation.math_type / code_language / _version_name / _backend / _ocr_enable / ilevel 范围 等 19 项</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note" data-reveal style="--i:3">出现新格式时同步更新：推断文档 §10 + normalizer / format_checker 已知字段集合 + RAG Pipeline 方案。这套「以实测为准 + 持续监控」是本项目对第三方不确定性的工程应对。</div>
+  </div>
+  <div class="slide-foot"><span class="who">adapters/format_checker.py · tools/mineru_format_probe.py</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 28 · 附录 F 数据库/API/运行 ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix F<span class="kcn">数据库 · API · 运行复现 · AI 使用声明</span></div>
+    <h2 class="title" data-reveal style="--i:1">工程组成 · 运行环境 · 如何复现</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div class="col2" data-reveal style="--i:2">
+      <table class="kv">
+        <tr><td>SQLite</td><td>14 业务表 + child_chunks_fts（FTS5）；启动 ALTER TABLE 懒迁移；RAG 核心 + 会话 + 场景模块表</td></tr>
+        <tr><td>Qdrant</td><td>child_chunks 集合（向量 + 元数据），本地文件模式，单进程文件锁</td></tr>
+        <tr><td>API</td><td>FastAPI /api，Swagger /docs：kb / documents / chat / conversations / course_info / review / settings / tasks</td></tr>
+        <tr><td>SSE 协议</td><td>统一词汇 conversation / message_start / citations / thinking / delta / message_end / done / error</td></tr>
+        <tr><td>提示词</td><td>11 个外置 .md 模板 + 热重载端点</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>后端</td><td>cd backend → uv sync → 填 2 个必填 Key → uv run uvicorn app.main:app --port 8000 --reload</td></tr>
+        <tr><td>前端</td><td>cd frontend → npm install → npm run dev（:5173，已代理 /api）</td></tr>
+        <tr><td>必填 Key</td><td>MINERU_API_KEY（解析）· ALIBABA_CLOUD_ACCESS_KEY_SECRET（嵌入/重排/VLM）</td></tr>
+        <tr><td>静态检查</td><td>仓库根 basedpyright；前端 npx tsc -p tsconfig.app.json --noEmit</td></tr>
+        <tr><td>AI 声明</td><td>AI 作编码助手提效 / 查语法 bug；系统定位、架构、切片策略、问题诊断与取舍为本人独立思考（延续需求分析报告附录原创说明）</td></tr>
+      </table>
+    </div>
+    <div class="note" data-reveal style="--i:3">文档体系：README.md · doc/项目当前情况.md · MinerU to RAG Pipeline 架构设计 · 在线 API 输出格式（SaaS 推断版）· 04_工程文件说明.md。提交工程文件时删除 .venv / node_modules / data / .env（含 Key）。</div>
+  </div>
+  <div class="slide-foot"><span class="who">README.md · 04_工程文件说明.md</span><span class="pageno"></span></div>
+</section>
+
+<!-- ============ 29 · 附录 G 关键问题 STAR ============ -->
+<section class="slide">
+  <div class="slide-inner">
+    <div class="kicker" data-reveal><span class="kdot"></span>Appendix G<span class="kcn">关键问题与解决（STAR 详述）·「证明是我做的」</span></div>
+    <h2 class="title" data-reveal style="--i:1">开发中遇到的四个关键坑，以及我是怎么解决的</h2>
+    <div class="rule" data-reveal style="--i:1"></div>
+    <div data-reveal style="--i:2;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card" style="padding:15px 18px">
+        <div style="font-family:var(--serif);font-size:16.5px;font-weight:600;color:var(--terra-deep);margin-bottom:6px">① MinerU 扁平树：标题层级恒为 1</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45"><b style="color:var(--ink)">问题</b>：解析后所有标题 title_level 都是 1，拿不到真实章节结构，父块没法按标题切。</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45;margin-top:4px"><b style="color:var(--ink)">定位/解决</b>：实测发现官网声称有 title.level 但当前版本恒输出 1 → 改用 LLM 理解标题语义重建多级 DOM 树 + 注入 header_path 面包屑。</div>
+        <div style="font-size:13px;line-height:1.45;margin-top:4px"><b style="color:var(--jade)">结果</b>：文档树可用，父子切片有了结构地基，解析透视能展示真实树。</div>
+      </div>
+      <div class="card" style="padding:15px 18px">
+        <div style="font-family:var(--serif);font-size:16.5px;font-weight:600;color:var(--terra-deep);margin-bottom:6px">② 中文 BM25 零召回</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45"><b style="color:var(--ink)">问题</b>：中文关键词几乎搜不到，混合检索里关键词一路形同虚设。</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45;margin-top:4px"><b style="color:var(--ink)">定位/解决</b>：排查出 FTS5 unicode61 把整段中文当一个 token → 引入 jieba 预分词，加 fts_text 列、FTS 改索引该列 + 存量迁移回填，查询侧同分词器构造 MATCH。</div>
+        <div style="font-size:13px;line-height:1.45;margin-top:4px"><b style="color:var(--jade)">结果</b>：关键词路召回 <span class="delta"><span class="from">0</span><span class="ar">→</span><span class="to">20</span></span>。</div>
+      </div>
+      <div class="card" style="padding:15px 18px">
+        <div style="font-family:var(--serif);font-size:16.5px;font-weight:600;color:var(--terra-deep);margin-bottom:6px">③ 子块切分死循环 · 后端整体卡死</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45"><b style="color:var(--ink)">问题</b>：点讲义索引后，后端不报错、直接整体卡死冻住。</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45;margin-top:4px"><b style="color:var(--ink)">定位/解决</b>：定位到 child_chunker._build_windows 遇「单句长度落在 (max−overlap, max]」反复重试同一句、阻塞整个 asyncio 事件循环 → 改逐句消费 + 长句硬切，补 _test_chunk_windows 回归。</div>
+        <div style="font-size:13px;line-height:1.45;margin-top:4px"><b style="color:var(--jade)">结果</b>：不再死循环，回归用例锁死行为防复发。</div>
+      </div>
+      <div class="card" style="padding:15px 18px">
+        <div style="font-family:var(--serif);font-size:16.5px;font-weight:600;color:var(--terra-deep);margin-bottom:6px">④ 第三方不确定性：格式漂移 + 空幽灵块</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45"><b style="color:var(--ink)">问题</b>：MinerU 官网文档滞后且与实测不符、还会变；跨页表格吐出 html 为空的伪块，污染检索。</div>
+        <div style="font-size:13px;color:var(--ink-soft);line-height:1.45;margin-top:4px"><b style="color:var(--ink)">定位/解决</b>：以实测反推格式 + 建 19 项语义校验 + 探针日志（有偏差才记、前端告警）；空幽灵块在 normalizer 源头丢弃 + child_chunker 兜底。</div>
+        <div style="font-size:13px;line-height:1.45;margin-top:4px"><b style="color:var(--jade)">结果</b>：格式变化可监控告警；垃圾子块 <span class="delta"><span class="from">10</span><span class="ar">→</span><span class="to">0</span></span>。</div>
+      </div>
+    </div>
+    <div class="note" data-reveal style="--i:3">这些都是真机调出来的、不动手遇不到的问题。完整记录见 RELEASE_NOTES / test_v120·v140 回归用例 / 设计原始思考 我的想法.md。</div>
+  </div>
+  <div class="slide-foot"><span class="who">RELEASE_NOTES · git 30 commits · test_v120/v140</span><span class="pageno"></span></div>
 </section>
 
 </div><!-- /deck -->
 
-<div class="counter" id="counter"><b>1</b> / 17</div>
+<div class="counter" id="counter"><b>1</b> / 29</div>
 <div class="controls">
   <button id="btnPrint" title="导出 PDF（在打印对话框选「另存为 PDF」，布局：横向）">⤓ 导出 PDF</button>
   <button id="btnFs" title="全屏 (F)">⛶ 全屏</button>
